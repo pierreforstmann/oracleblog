@@ -1,0 +1,163 @@
+<p>You can use DBCA to create a container database (CDB) with several pluggable databases (PDB).</p>
+<p>To create a CDB with 2 PDBs in silent mode following script can be used (assuming you have created a directory /u01/oradata owned by oracle account):</p>
+<p><code>dbca -silent                         \<br />
+       -createDatabase                     \<br />
+       -templateName General_Purpose.dbc   \<br />
+       -gdbName cdb12c                     \<br />
+       -sid cdb12c                         \<br />
+       -createAsContainerDatabase true     \<br />
+       -numberOfPdbs 2                     \<br />
+       -pdbName pdb                        \<br />
+       -pdbadminUsername pdba              \<br />
+       -pdbadminPassword oracle12c         \<br />
+       -SysPassword oracle12c              \<br />
+       -SystemPassword oracle12c           \<br />
+       -emConfiguration NONE               \<br />
+       -datafileDestination /u01/oradata   \<br />
+       -storageType FS                     \<br />
+       -characterSet AL32UTF8              \<br />
+       -memoryPercentage 40                \<br />
+</code></p>
+<p>The output should be similar to:<br />
+<code>Copying database files<br />
+1% complete<br />
+2% complete<br />
+8% complete<br />
+13% complete<br />
+19% complete<br />
+27% complete<br />
+Creating and starting Oracle instance<br />
+29% complete<br />
+32% complete<br />
+33% complete<br />
+34% complete<br />
+38% complete<br />
+42% complete<br />
+43% complete<br />
+45% complete<br />
+Completing Database Creation<br />
+48% complete<br />
+51% complete<br />
+53% complete<br />
+62% complete<br />
+70% complete<br />
+72% complete<br />
+Creating Pluggable Databases<br />
+78% complete<br />
+83% complete<br />
+100% complete<br />
+Look at the log file "/u01/app/oracle/cfgtoollogs/dbca/cdb12c/cdb12c2.log" for further details.</code></p>
+<p>Database alert log is more interesting: we can see the seed database created before the 2 PDBs are created:</p>
+<p><code>Completed: create pluggable database PDB$SEED as clone  using '/u01/app/oracle/product/12.1.0/db_1/assistants/dbca/templates//pdbseed.xml'  source_file_name_convert = ('/ade/b/3593327372/oracle/oradata/seeddata/pdbseed/temp01.dbf','/u01/oradata/cdb12c/pdbseed/pdbseed_temp01.dbf',<br />
+'/ade/b/3593327372/oracle/oradata/seeddata/pdbseed/system01.dbf','/u01/oradata/cdb12c/pdbseed/system01.dbf',<br />
+'/ade/b/3593327372/oracle/oradata/seeddata/pdbseed/sysaux01.dbf','/u01/oradata/cdb12c/pdbseed/sysaux01.dbf') NOCOPY</p>
+<p>Completed: CREATE PLUGGABLE DATABASE pdb1 ADMIN USER pdba IDENTIFIED BY * ROLES=(CONNECT)  file_name_convert=('/u01/oradata/cdb12c/pdbseed/system01.dbf','/u01/oradata/cdb12c/pdb1/system01.dbf',<br />
+'/u01/oradata/cdb12c/pdbseed/sysaux01.dbf','/u01/oradata/cdb12c/pdb1/sysaux01.dbf','/u01/oradata/cdb12c/pdbseed/pdbseed_temp01.dbf','/u01/oradata/cdb12c/pdb1/temp01.dbf')</p>
+<p>Completed: CREATE PLUGGABLE DATABASE pdb2 ADMIN USER pdba IDENTIFIED BY * ROLES=(CONNECT)  file_name_convert=('/u01/oradata/cdb12c/pdbseed/system01.dbf','/u01/oradata/cdb12c/pdb2/system01.dbf',<br />
+'/u01/oradata/cdb12c/pdbseed/sysaux01.dbf','/u01/oradata/cdb12c/pdb2/sysaux01.dbf','/u01/oradata/cdb12c/pdbseed/pdbseed_temp01.dbf','/u01/oradata/cdb12c/pdb2/temp01.dbf')</code></p>
+<p>We can connect to database instance and see that V$VSERSION has a new colum CON_ID where 0 means "This value is used for rows containing data that pertain to the entire CDB. This value is also used for rows in non-CDBs".</p>
+<pre>SQL&gt; set linesize 132
+SQL&gt; select * from v$version;
+
+BANNER                                                                     CON_ID
+---------------------------------------------------------------------- ----------
+Oracle Database 12c Enterprise Edition Release 12.1.0.1.0 - 64bit Prod          0
+uction
+
+PL/SQL Release 12.1.0.1.0 - Production                                          0
+CORE    12.1.0.1.0      Production                                                      0
+TNS for Linux: Version 12.1.0.1.0 - Production                                  0
+NLSRTL Version 12.1.0.1.0 - Production                                          0
+
+SQL&gt;</pre>
+<p>We can check the PDBs in the CDB dictionary and in the dynamic views:</p>
+<pre>SQL&gt;  select pdb_id, con_uid, pdb_name from dba_pdbs order by 1;
+
+    PDB_ID    CON_UID PDB_NAME
+---------- ---------- ------------------------------
+         2 4061829388 PDB$SEED
+         3 3326922969 PDB1
+         4 3885478069 PDB2
+
+SQL&gt; select con_id, name from v$pdbs;
+
+    CON_ID NAME
+---------- --------------------------------------------------
+         2 PDB$SEED
+         3 PDB1
+         4 PDB2
+
+</pre>
+<p>We can also see datafiles created for each database and note that undo tablespace, control files and redo logs are shared for all databases:</p>
+<pre>
+SQL&gt; select con_id, name from v$datafile order by 1;
+
+    CON_ID NAME
+---------- --------------------------------------------------
+         1 /u01/oradata/cdb12c/users01.dbf
+         1 /u01/oradata/cdb12c/sysaux01.dbf
+         1 /u01/oradata/cdb12c/undotbs01.dbf
+         1 /u01/oradata/cdb12c/system01.dbf
+         2 /u01/oradata/cdb12c/pdbseed/system01.dbf
+         2 /u01/oradata/cdb12c/pdbseed/sysaux01.dbf
+         3 /u01/oradata/cdb12c/pdb1/system01.dbf
+         3 /u01/oradata/cdb12c/pdb1/sysaux01.dbf
+         3 /u01/oradata/cdb12c/pdb1/pdb1_users01.dbf
+         4 /u01/oradata/cdb12c/pdb2/system01.dbf
+         4 /u01/oradata/cdb12c/pdb2/sysaux01.dbf
+
+    CON_ID NAME
+---------- --------------------------------------------------
+         4 /u01/oradata/cdb12c/pdb2/pdb2_users01.dbf
+
+12 rows selected.
+
+SQL&gt;
+
+SQL&gt; select con_id, name from v$controlfile;
+
+    CON_ID NAME
+---------- ------------------------------------------------------------
+         0 /u01/oradata/cdb12c/control01.ctl
+         0 /u01/app/oracle/fast_recovery_area/cdb12c/control02.ctl
+
+SQL&gt;
+
+SQL&gt; select con_id, member from v$logfile;
+
+    CON_ID MEMBER
+---------- --------------------------------------------------
+         0 /u01/oradata/cdb12c/redo03.log
+         0 /u01/oradata/cdb12c/redo02.log
+         0 /u01/oradata/cdb12c/redo01.log
+
+SQL&gt;</pre>
+<p>We can also see default services created for the CDB and each PDB:<br />
+<code><br />
+$ lsnrctl status</p>
+<p>LSNRCTL for Linux: Version 12.1.0.1.0 - Production on 27-JUN-2013 15:35:33</p>
+<p>Copyright (c) 1991, 2013, Oracle.  All rights reserved.</p>
+<p>Connecting to (ADDRESS=(PROTOCOL=tcp)(HOST=)(PORT=1521))<br />
+STATUS of the LISTENER<br />
+------------------------<br />
+Alias                     LISTENER<br />
+Version                   TNSLSNR for Linux: Version 12.1.0.1.0 - Production<br />
+Start Date                27-JUN-2013 15:34:41<br />
+Uptime                    0 days 0 hr. 0 min. 52 sec<br />
+Trace Level               off<br />
+Security                  ON: Local OS Authentication<br />
+SNMP                      OFF<br />
+Listener Log File         /u01/app/oracle/diag/tnslsnr/oel6twsf/listener/alert/log.xml<br />
+Listening Endpoints Summary...<br />
+  (DESCRIPTION=(ADDRESS=(PROTOCOL=tcp)(HOST=oel6twsf.localdomain)(PORT=1521)))<br />
+Services Summary...<br />
+Service "cdb12c" has 1 instance(s).<br />
+  Instance "cdb12c", status READY, has 1 handler(s) for this service...<br />
+Service "cdb12cXDB" has 1 instance(s).<br />
+  Instance "cdb12c", status READY, has 1 handler(s) for this service...<br />
+Service "pdb1" has 1 instance(s).<br />
+  Instance "cdb12c", status READY, has 1 handler(s) for this service...<br />
+Service "pdb2" has 1 instance(s).<br />
+  Instance "cdb12c", status READY, has 1 handler(s) for this service...<br />
+The command completed successfully<br />
+</code></p>
