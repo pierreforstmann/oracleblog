@@ -1,0 +1,71 @@
+<p>Credit: I have used some Tim Hall installation notes http://www.oracle-base.com/articles/12c/oracle-db-12cr1-installation-on-oracle-linux-6.php for this.</p>
+<p>I have installed Oracle 12.1.0.1 on Oracle Linux 6.3 64 bits with the Oracle validated RPM for 11.2 (this will install all packages needed by Oracle, configure Linux kernel, create 'oracle' account and change other setttings required for Oracle Database software installation):</p>
+<p><code># yum install oracle-rdbms-server-11gR2-preinstall -y</code></p>
+<p>Start by disabling firewall and SELINUX and then reboot:</p>
+<p><code># service iptables stop<br />
+# chkconfig iptables off<br />
+# grep SELINUX /etc/selinux/config<br />
+#SELINUX= can take one of these three values:<br />
+SELINUX=disabled<br />
+# SELINUXTYPE= can take one of these two values:<br />
+SELINUXTYPE=targeted<br />
+# reboot</code></p>
+<p>Create the Oracle Home directory:</p>
+<p><code># mkdir -p /u01/app/oracle/product/12.1.0/db_1<br />
+# chown -R oracle:oinstall /u01<br />
+# chmod -R 775 /u01</code></p>
+<p>Create additional group and assign it to 'oracle' account:</p>
+<p><code># groupadd -g 54323 oper<br />
+# usermod -u 54231 -g oinstall -G dba,oper oracle</code></p>
+<p>Switch to 'oracle' account and unzip Oracle media in /tmp:</p>
+<p><code>$ unzip linuxamd64_12c_database_1of2.zip<br />
+$ unzip linuxamd64_12c_database_2of2.zip </code></p>
+<p>Install Oracle software with following script:</p>
+<p><code>cd /tmp/database<br />
+export DISTRIB=`pwd`<br />
+./runInstaller -silent  \<br />
+   -responseFile $DISTRIB/response/db_install.rsp      \<br />
+   oracle.install.option=INSTALL_DB_SWONLY \<br />
+   UNIX_GROUP_NAME=oinstall \<br />
+   INVENTORY_LOCATION=/u01/app/oraInventory \<br />
+   SELECTED_LANGUAGES=en,fr \<br />
+   ORACLE_HOME=/u01/app/oracle/product/12.1.0/db_1 \<br />
+   ORACLE_BASE=/u01/app/oracle \<br />
+   oracle.install.db.InstallEdition=EE \<br />
+   oracle.install.db.isCustomInstall=false \<br />
+   oracle.install.db.DBA_GROUP=dba \<br />
+   oracle.install.db.OPER_GROUP=dba \<br />
+   oracle.install.db.BACKUPDBA_GROUP=dba \<br />
+   oracle.install.db.DGDBA_GROUP=dba \<br />
+   oracle.install.db.KMDBA_GROUP=dba \<br />
+   SECURITY_UPDATES_VIA_MYORACLESUPPORT=false \<br />
+   DECLINE_SECURITY_UPDATES=true</code></p>
+<p>This has started installation in the background: you need to wait until something similar to the following is displayed:</p>
+<p><code>The installation of Oracle Database 12c was successful.<br />
+Please check '/u01/app/oraInventory/logs/silentInstallXXX.log' for more details.</p>
+<p>As a root user, execute the following script(s):<br />
+        1. /u01/app/oraInventory/orainstRoot.sh<br />
+        2. /u01/app/oracle/product/12.1.0/db_1/root.sh</p>
+<p>Successfully Setup Software.</code></p>
+<p>As requested run following scripts with 'root' account:</p>
+<p><code># /u01/app/oraInventory/orainstRoot.sh<br />
+# /u01/app/oracle/product/12.1.0/db_1/root.sh</code></p>
+<p>Modify oracle user .bash_profile to add:</p>
+<p><code><br />
+# Oracle Settings<br />
+export TMP=/tmp<br />
+export TMPDIR=$TMP</p>
+<p>export ORACLE_HOSTNAME=<em>hostname</em>.localdomain<br />
+export ORACLE_UNQNAME=cdb12c<br />
+export ORACLE_BASE=/u01/app/oracle<br />
+export ORACLE_HOME=$ORACLE_BASE/product/12.1.0/db_1<br />
+export ORACLE_SID=cdb12c</p>
+<p>export PATH=/usr/sbin:$PATH<br />
+export PATH=$ORACLE_HOME/bin:$PATH</p>
+<p>export LD_LIBRARY_PATH=$ORACLE_HOME/lib:/lib:/usr/lib<br />
+export CLASSPATH=$ORACLE_HOME/jlib:$ORACLE_HOME/rdbms/jlib<br />
+</code></p>
+<p>Logout and login again as 'oracle' and test:</p>
+<p><code>$ sqlplus -v</p>
+<p>SQL*Plus: Release 12.1.0.1.0 Production<br />
+</code></p>
