@@ -1,0 +1,1644 @@
+<p>This post documents how to install a 2-node Oracle RAC cluster with Oracle 12.1.0.2 on <a href="https://blogs.oracle.com/linux/entry/announcing_general_availability_of_oracle2">Oracle Linux 7.1</a> (OL7) with VirtualBox (VBOX) 4.3.26 on Windows 8.1.</p>
+<p>Part 1 details Linux installation and configuration and part 2 details Oracle software installation (Grid Infrastructure, Oracle Database) and database creation.</p>
+<p>Disclaimer: this is only an example that can be used to setup a lab or test system: it is not designed to be used for production purpose.</p>
+<h2>Overview</h2>
+<p>Each RAC node node must:<br />
+</p>
+<li>have access to shared storage to be used by the RAC database because a RAC database is a shared everything database.
+<li>have network connectivity with a dedicated private network (also named RAC interconnect) to other cluster nodes.
+</li>
+<p>
+The cluster should have also 3 differents virtual IP adresses (VIP) to be used only by the <a href="http://docs.oracle.com/database/121/CWLIN/concepts.htm#CWLIN399">SCAN listener</a>: a single name should be resolved by 3 differents adresses.<br />
+<br />
+The following table gives the SCAN network configuration used for this installation:</p>
+<table border="2">
+<tr>
+<th>SCAN</th>
+<th>VIP 1</th>
+<th>VIP 2</th>
+<th>VIP 3</th>
+</tr>
+<tr>
+<td>ol7toc-scan</td>
+<td>192.168.56.231</td>
+<td>192.168.56.232</td>
+<td>192.168.56.233</td>
+</tr>
+</table>
+<p>
+A 2-node Oracle RAC cluster needs actually 3 machines (if you dedicate DNS server to a different virtual machine (VM)):</p>
+<li>
+2 cluster nodes that are hosting the 2 database instances of the single RAC database
+</li>
+<li>
+another machine to host a Domain Name System (DNS) for the SCAN listener VIPs.
+</li>
+<p>
+One of the very first thing to do is to choose hostnames and network IP addresses.<br />
+<br />
+The following table gives the cluster network configuration needed for this Oracle installation: </p>
+<table border="2">
+<tr>
+<th></th>
+<th>ol7dns01: <br />DNS server</th>
+<th>ol7tocn1: <br />RAC node 1</th>
+<th>ol7tocn2: <br />RAC node 2</th>
+<th>network interface</th>
+</tr>
+<tr>
+<td>NAT</td>
+<td>10.0.2.15</td>
+<td>10.0.2.15</td>
+<td>10.0.2.15</td>
+<td>enp0s3</td>
+</tr>
+<tr>
+<td>Public IP</td>
+<td>192.168.56.80</td>
+<td>192.168.56.191</td>
+<td>192.168.56.192</td>
+<td>enp0s8</td>
+</tr>
+<tr>
+<td>Private IP</td>
+<td>N/A</td>
+<td>192.168.43.211</td>
+<td>192.168.43.212</td>
+<td>enp0s9</td>
+<tr>
+<td>Virtual IP (VIP)</td>
+<td>N/A</td>
+<td>192.168.56.221</td>
+<td>192.168.56.222</td>
+<td>assigned by OUI</td>
+</tr>
+</table>
+<p>Note that Oracle Universal Installer (OUI) will assign network interface for cluster node virtual ip address (VIP) during Grid Infrastructure installation.<br />
+<br />
+The NAT interface is only needed to be able to connect to Oracle public yum repository: strictly speaking it is not required by Oracle software installation (Grid Infrastructure or Oracle Database).</p>
+<p>The main steps of this system/network/storage installation and configuration part are the following:<br />
+<br />
+<b>1</b>. configure DNS server machine<br />
+<br />
+<b>2</b>. configure first cluster node with shared storage<br />
+<br />
+<b>3</b>. clone first cluster node to second cluster node<br />
+<br />
+<b>4</b>. run <a href="http://docs.oracle.com/database/121/CWADD/cvu.htm#CWADD1100">Cluster Verification Utility (CLUVFY)</a> to make sure both cluster nodes are ready for Oracle sofware installation.</p>
+<p>All commands with '#" prompt must be entered with root user account while all command with '$' prompt must be entered with oracle user account.</p>
+<h2> New Oracle Linux 7 commands</h2>
+<p>For this installation I have used the following new Linux commands:</p>
+<li>
+nmcli to configure network interfaces (instead of direct /etc/sysconfig/network-scripts/ifcfg-xxx configuration files editing)
+</li>
+<li>
+ip to check network network interfaces (instead of ifconfig)
+</li>
+<li>
+systemctl to configure system service (instead of service).
+</li>
+<h2> DNS machine configuration</h2>
+<p>I have created first VBOX VM with following configuration:</p>
+<li>
+RAM: 1 GB
+</li>
+<li>
+one 8 GB hardisk attached to SATA controller
+</li>
+<li>
+2 network interfaces (the first one attached to NAT and the second one attached to Host-Only Adapter)
+</li>
+<p>
+When installing OL7 I have chosen in following order:<br />
+<br />
+1. the right timezone for my country (Paris, France)<br />
+<br />
+2. the right keyboard for my host system (French)<br />
+<br />
+3. Infrastructure Server for "Base Environment" and DNS Name Server for "Add-Ons For Selected Environment"<br />
+<br />
+4. Automatic configure partitioning in Installation Destination<br />
+<br />
+5. to set only hostname to <b>ol7dns01.localdomain</b> (no network configuration)<br />
+<br />
+6. and to set root password.</p>
+<p>After OL7 installation and VM reboot, I have used system console to configure public network interface:</p>
+<pre>
+# nmcli connection add type ethernet con-name enp0s8 ifname enp0s8 ip4 192.168.56.80/24
+</pre>
+<p>Now I can connect to ol7dns01 using SSH (Putty from Windows host) and check network configuration:</p>
+<pre>
+# ip addr
+1: lo:  mtu 65536 qdisc noqueue state UNKNOWN
+    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00
+    inet 127.0.0.1/8 scope host lo
+    inet6 ::1/128 scope host
+       valid_lft forever preferred_lft forever
+2: enp0s3:  mtu 1500 qdisc pfifo_fast state UP qlen 1000
+    link/ether 08:00:27:ff:70:95 brd ff:ff:ff:ff:ff:ff
+3: enp0s8:  mtu 1500 qdisc pfifo_fast state UP qlen 1000
+    link/ether 08:00:27:3d:30:3a brd ff:ff:ff:ff:ff:ff
+    inet 192.168.56.80/24 brd 192.168.56.255 scope global enp0s8
+    inet6 fe80::a00:27ff:fe3d:303a/64 scope link
+       valid_lft forever preferred_lft forever
+</pre>
+<p>I have configured NAT network interface with (10.0.2.15 is the related IP address and 10.0.2.2 the related gateway IP address):</p>
+<pre>
+# nmcli connection add type ethernet con-name enp0s3 ifname enp0s3 ip4 10.0.2.15/8 gw4 10.0.2.2
+Connection 'enp0s3' (8a89e73f-1165-4a3f-bb8e-6588234442fd) successfully added.
+</pre>
+<p>I have added my internet box IP address to <b>/etc/resolv.conf</b>:</p>
+<pre>
+# tail -1 /etc/resolv.conf
+nameserver 192.168.1.1
+</pre>
+<p>I have checked that I have internet access from ol7dns01:</p>
+<pre>
+# ping -c 1 www.oracle.com
+PING e7075.x.akamaiedge.net (23.3.150.140) 56(84) bytes of data.
+64 bytes from a23-3-150-140.deploy.static.akamaitechnologies.com (23.3.150.140): icmp_seq=1 ttl=50 time=44.3 ms
+
+--- e7075.x.akamaiedge.net ping statistics ---
+1 packets transmitted, 1 received, 0% packet loss, time 0ms
+rtt min/avg/max/mdev = 41.309/41.309/41.309/0.000 ms
+</pre>
+<p>This OL7 installation is using about 1.5 GB of disk space:</p>
+<pre>
+# df -k
+Filesystem          1K-blocks    Used Available Use% Mounted on
+/dev/mapper/ol-root   7022592 1356040   5666552  20% /
+devtmpfs               502944       0    502944   0% /dev
+tmpfs                  509364       0    509364   0% /dev/shm
+tmpfs                  509364    6796    502568   2% /run
+tmpfs                  509364       0    509364   0% /sys/fs/cgroup
+/dev/sda1              508588  117788    390800  24% /boot
+#
+</pre>
+<p>With default Unbreakable Enterprise Kernel (UEK ), yum is configured to use UEK repositories:</p>
+<pre>
+# yum repolist
+Loaded plugins: langpacks
+ol7_UEKR3                                                | 1.2 kB     00:00
+ol7_latest                                               | 1.4 kB     00:00
+(1/5): ol7_UEKR3/x86_64/updateinfo                         |  30 kB   00:00
+(2/5): ol7_latest/x86_64/updateinfo                        | 360 kB   00:01
+(3/5): ol7_latest/x86_64/group                             | 652 kB   00:01
+(4/5): ol7_UEKR3/x86_64/primary                                       | 6.9 MB  00:00:09
+(5/5): ol7_latest/x86_64/primary                                      | 8.9 MB  00:00:09
+ol7_UEKR3                                                                            167/167
+ol7_latest                                                                         9372/9372
+repo id           repo name                                                            status
+ol7_UEKR3/x86_64  Latest Unbreakable Enterprise Kernel Release 3 for Oracle Linux 7Ser   167
+ol7_latest/x86_64 Oracle Linux 7Server Latest (x86_64)                                 9,372
+repolist: 9,539
+</pre>
+<h3>DNS configuration</h3>
+<p>DNS server is not configured by default:</p>
+<pre>
+# systemctl status named
+named.service - Berkeley Internet Name Domain (DNS)
+   Loaded: loaded (/usr/lib/systemd/system/named.service; disabled)
+   Active: inactive (dead)
+
+Apr 04 11:07:58 ol7dns01.localdomain systemd[1]: Unit named.service cannot be reloaded b...e.
+Apr 04 11:07:58 ol7dns01.localdomain systemd[1]: Unit named.service cannot be reloaded b...e.
+Hint: Some lines were ellipsized, use -l to show in full.
+#
+</pre>
+<p>Here is my <b>/etc/named.conf</b>:</p>
+<pre>
+# cat named.conf
+//
+// named.conf
+//
+// Provided by Red Hat bind package to configure the ISC BIND named(8) DNS
+// server as a caching only nameserver (as a localhost DNS resolver only).
+//
+// See /usr/share/doc/bind*/sample/ for example named configuration files.
+//
+
+options {
+        listen-on port 53 { 127.0.0.1;192.168.56.80; };
+        listen-on-v6 port 53 { ::1; };
+        directory       "/var/named";
+        dump-file       "/var/named/data/cache_dump.db";
+        statistics-file "/var/named/data/named_stats.txt";
+        memstatistics-file "/var/named/data/named_mem_stats.txt";
+        allow-query     { localhost; };
+
+        /*
+         - If you are building an AUTHORITATIVE DNS server, do NOT enable recursion.
+         - If you are building a RECURSIVE (caching) DNS server, you need to enable
+           recursion.
+         - If your recursive DNS server has a public IP address, you MUST enable access
+           control to limit queries to your legitimate users. Failing to do so will
+           cause your server to become part of large scale DNS amplification
+           attacks. Implementing BCP38 within your network would greatly
+           reduce such attack surface
+        */
+        recursion yes;
+
+        dnssec-enable yes;
+        dnssec-validation yes;
+        dnssec-lookaside auto;
+
+        /* Path to ISC DLV key */
+        bindkeys-file "/etc/named.iscdlv.key";
+
+        managed-keys-directory "/var/named/dynamic";
+
+        pid-file "/run/named/named.pid";
+        session-keyfile "/run/named/session.key";
+};
+
+logging {
+        channel default_debug {
+                file "data/named.run";
+                severity dynamic;
+        };
+};
+
+zone "." IN {
+        type hint;
+        file "named.ca";
+};
+
+
+zone "localdomain." IN {
+        type master;
+        file "localdomain.zone";
+        allow-update { none; };
+        allow-query { any; };
+};
+
+
+zone "56.168.192.in-addr.arpa." IN {
+        type master;
+        file "56.168.192.in-addr.arpa";
+        allow-update { none; };
+};
+
+include "/etc/named.rfc1912.zones";
+include "/etc/named.root.key";
+
+</pre>
+<p>Note that I have added the following sections to default <b>/etc/named.conf</b> for localdomain.com:</p>
+<pre>
+zone "localdomain." IN {
+        type master;
+        file "localdomain.zone";
+        allow-update { none; };
+        allow-query { any; };
+};
+
+
+zone "56.168.192.in-addr.arpa." IN {
+        type master;
+        file "56.168.192.in-addr.arpa";
+        allow-update { none; };
+};
+</pre>
+<p>and I have added VM IP 192.168.56.80 address to:</p>
+<pre>
+listen-on port 53 { 127.0.0.1;192.168.56.80; };
+</pre>
+<p>I have created the file <b>/var/named/localdomain.zone</b> which contains:</p>
+<li> the 3 IP adresses for the SCAN listener (ol7toc-scan)
+</li>
+<li> each cluster node public IP address (ol7tocn1 and ol7tocn2)
+</li>
+<pre>
+# cat /var/named/localdomain.zone
+$TTL    86400
+@               IN SOA  localhost root.localhost (
+                                        42              ; serial (d. adams)
+                                        3H              ; refresh
+                                        15M             ; retry
+                                        1W              ; expiry
+                                        1D )            ; minimum
+                IN NS           localhost
+localhost       IN A            127.0.0.1
+ol7toc-scan     IN A    192.168.56.231
+ol7toc-scan     IN A    192.168.56.232
+ol7toc-scan     IN A    192.168.56.233
+ol7tocn1        IN A    192.168.56.191
+ol7tocn2        IN A    192.168.56.192
+</pre>
+<p>I have also created <b>/var/named/56.168.192.in-addr.arpa</b>:</p>
+<pre>
+$ORIGIN 56.168.192.in-addr.arpa.
+$TTL 1H
+@       IN      SOA     d12.localdomain.     root.d12.localdomain. (      2
+                                                3H
+                                                1H
+                                                1W
+                                                1H )
+56.168.192.in-addr.arpa.         IN NS      d12.localdomain.
+
+231    IN PTR  ol7toc-scan.localdomain.
+232    IN PTR  ol7toc-scan.localdomain.
+233    IN PTR  ol7toc-scan.localdomain.
+191    IN PTR  ol7tocn1.localdomain.
+192    IN PTR  ol7tocn2.localdomain.
+</pre>
+<p>To avoid following startup message:</p>
+<pre>
+named[2300]: open: /etc/named.conf: permission denied
+</pre>
+<p>I have run:</p>
+<pre>
+# ls -al /etc/named.conf
+-rw-r-----. 1 root named 1876 Apr  4 11:12 /etc/named.conf
+# chmod a+r /etc/named.conf
+# ls -al /etc/named.conf
+-rw-r--r--. 1 root named 1876 Apr  4 11:12 /etc/named.conf
+#
+</pre>
+<p>I have started named service with:</p>
+<pre>
+# systemctl start named
+# systemctl status named
+named.service - Berkeley Internet Name Domain (DNS)
+   Loaded: loaded (/usr/lib/systemd/system/named.service; disabled)
+   Active: active (running) since Sat 2015-04-04 11:17:05 CEST; 3s ago
+  Process: 2405 ExecStart=/usr/sbin/named -u named $OPTIONS (code=exited, status=0/SUCCESS)
+  Process: 2403 ExecStartPre=/usr/sbin/named-checkconf -z /etc/named.conf (code=exited, status=0/SUCCESS)
+ Main PID: 2408 (named)
+   CGroup: /system.slice/named.service
+           Ã¢Ã¢2408 /usr/sbin/named -u named
+
+Apr 04 11:17:06 ol7dns01.localdomain named[2408]: error (network unreachable) resolving ...53
+Apr 04 11:17:06 ol7dns01.localdomain named[2408]: error (network unreachable) resolving ...53
+Apr 04 11:17:06 ol7dns01.localdomain named[2408]: error (network unreachable) resolving ...53
+Apr 04 11:17:06 ol7dns01.localdomain named[2408]: error (network unreachable) resolving ...53
+Apr 04 11:17:06 ol7dns01.localdomain named[2408]: error (network unreachable) resolving ...53
+Apr 04 11:17:06 ol7dns01.localdomain named[2408]: error (network unreachable) resolving ...53
+Apr 04 11:17:06 ol7dns01.localdomain named[2408]: error (network unreachable) resolving ...53
+Apr 04 11:17:06 ol7dns01.localdomain named[2408]: error (network unreachable) resolving ...53
+Apr 04 11:17:06 ol7dns01.localdomain named[2408]: error (network unreachable) resolving ...53
+Apr 04 11:17:06 ol7dns01.localdomain named[2408]: error (network unreachable) resolving ...53
+Hint: Some lines were ellipsized, use -l to show in full.
+</pre>
+<p>I have ignored the broken trust chains error messages but I have tested that DNS is working locally after modifying <b>/etc/resolv.conf</b>:</p>
+<pre>
+# cat /etc/resolv.conf
+search localdomain
+nameserver 192.168.56.80
+nameserver 192.168.1.1
+# nslookup ol7toc-scan
+Server:         192.168.56.80
+Address:        192.168.56.80#53
+
+Name:   ol7toc-scan.localdomain
+Address: 192.168.56.233
+Name:   ol7toc-scan.localdomain
+Address: 192.168.56.232
+Name:   ol7toc-scan.localdomain
+Address: 192.168.56.231
+
+# nslookup ol7tocn1
+Server:         192.168.56.80
+Address:        192.168.56.80#53
+
+Name:   ol7tocn1.localdomain
+Address: 192.168.56.191
+
+# nslookup ol7tocn2
+Server:         192.168.56.80
+Address:        192.168.56.80#53
+
+Name:   ol7tocn2.localdomain
+Address: 192.168.56.192
+
+#
+</pre>
+<p>I have enabled automatic named service start by Linux boot with:</p>
+<pre>
+# systemctl is-enabled named
+disabled
+# systemctl enable named
+ln -s '/usr/lib/systemd/system/named.service' '/etc/systemd/system/multi-user.target.wants/named.service'
+</pre>
+<p>And I have tested that after VM reboot ...</p>
+<pre>
+# systemctl reboot
+</pre>
+<p>... named service has been automatically restarted:</p>
+<pre>
+# systemctl status named
+named.service - Berkeley Internet Name Domain (DNS)
+   Loaded: loaded (/usr/lib/systemd/system/named.service; enabled)
+   Active: active (running) since Sat 2015-04-04 11:35:07 CEST; 27s ago
+  Process: 2307 ExecReload=/bin/sh -c /usr/sbin/rndc reload &gt; /dev/null 2&gt;&amp;1 || /bin/kill -HUP $MAINPID (code=exited, status=0/SUCCESS)
+  Process: 1672 ExecStart=/usr/sbin/named -u named $OPTIONS (code=exited, status=0/SUCCESS)
+  Process: 1152 ExecStartPre=/usr/sbin/named-checkconf -z /etc/named.conf (code=exited, status=0/SUCCESS)
+ Main PID: 1724 (named)
+   CGroup: /system.slice/named.service
+           Ã¢Ã¢1724 /usr/sbin/named -u named
+
+Apr 04 11:35:23 ol7dns01.localdomain named[1724]: error (network unreachable) resolving 'ns1.isc.ultradns.net/A/IN': 2001:503:a83...:30#53
+Apr 04 11:35:23 ol7dns01.localdomain named[1724]: error (network unreachable) resolving 'ns1.isc.ultradns.net/AAAA/IN': 2001:503:...:30#53
+Apr 04 11:35:23 ol7dns01.localdomain named[1724]: error (network unreachable) resolving '3.rhel.pool.ntp.org.dlv.isc.org/DLV/IN':...:29#53
+Apr 04 11:35:23 ol7dns01.localdomain named[1724]: error (network unreachable) resolving 'ns.isc.afilias-nst.info/AAAA/IN': 2a01:8...::1#53
+Apr 04 11:35:23 ol7dns01.localdomain named[1724]: error (network unreachable) resolving 'ns.isc.afilias-nst.info/AAAA/IN': 2a01:8...::1#53
+Apr 04 11:35:23 ol7dns01.localdomain named[1724]: error (network unreachable) resolving 'pdns196.ultradns.org/A/IN': 2001:502:4612::e8#53
+Apr 04 11:35:23 ol7dns01.localdomain named[1724]: error (network unreachable) resolving 'pdns196.ultradns.org/A/IN': 2610:a1:1014::e8#53
+Apr 04 11:35:23 ol7dns01.localdomain named[1724]: error (network unreachable) resolving 'pdns196.ultradns.biz/A/IN': 2001:503:e239::3:2#53
+Apr 04 11:35:23 ol7dns01.localdomain named[1724]: error (network unreachable) resolving 'pdns196.ultradns.info/A/IN': 2610:a1:1016::e8#53
+Apr 04 11:35:23 ol7dns01.localdomain named[1724]: error (network unreachable) resolving 'pdns196.ultradns.info/A/IN': 2001:502:f3ff::e8#53
+Hint: Some lines were ellipsized, use -l to show in full.
+# nslookup ol7toc-scan
+Server:         192.168.56.80
+Address:        192.168.56.80#53
+
+Name:   ol7toc-scan.localdomain
+Address: 192.168.56.233
+Name:   ol7toc-scan.localdomain
+Address: 192.168.56.232
+Name:   ol7toc-scan.localdomain
+Address: 192.168.56.231
+
+</pre>
+<p>I have also disabled some firewall settings for ol7dns01 so that cluster nodes will be able to query DNS:</p>
+<pre>
+# firewall-cmd --zone=public --add-port=53/tcp --add-port=53/udp
+success
+# firewall-cmd --permanent --zone=public --add-port=53/tcp --add-port=53/udp
+success
+#
+</pre>
+<h2>Oracle RAC cluster node configuration</h2>
+<p>I have created first cluster node VM with following configuration:</p>
+<li>
+RAM: 4 GB
+</li>
+<li>
+one 40 GB hardisk attached to SATA controller
+</li>
+<li>
+3 network interfaces (the first one attached to NAT and the second and third one attached to Host-Only Adapter)
+</li>
+<p>
+When installing OL7 I have chosen in the following order:<br />
+<br />
+1. the right timezone for my country (Paris, France)<br />
+<br />
+2. the right keyboard for my host system (French)<br />
+<br />
+3. Infrastructure Server for "Base Environment" (no option "for Add-Ons For Selected Environment")<br />
+<br />
+4. Automatic configure partitioning in "Installation Destination"<br />
+<br />
+5. to only set hostname to <b>ol7tocn1.localdomain</b> (no network configuration)<br />
+<br />
+6. to set root password.</p>
+<p>After OL7 installation and VM reboot, I have used system console to configure public network interface:</p>
+<pre>
+# nmcli connection add type ethernet con-name enp0s8 ifname enp0s8 ip4 192.168.56.191/24
+</pre>
+<p>Now I connect with SSH (Putty from Windows host) to ol7tocn1 and check network confoguration:</p>
+<pre>
+# ip addr
+1: lo:  mtu 65536 qdisc noqueue state UNKNOWN
+    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00
+    inet 127.0.0.1/8 scope host lo
+    inet6 ::1/128 scope host
+       valid_lft forever preferred_lft forever
+2: enp0s3:  mtu 1500 qdisc pfifo_fast state UP qlen 1000
+    link/ether 08:00:27:78:38:b4 brd ff:ff:ff:ff:ff:ff
+3: enp0s8:  mtu 1500 qdisc pfifo_fast state UP qlen 1000
+    link/ether 08:00:27:5e:bf:1a brd ff:ff:ff:ff:ff:ff
+    inet 192.168.56.191/24 brd 192.168.56.255 scope global enp0s8
+    inet6 fe80::a00:27ff:fe5e:bf1a/64 scope link
+       valid_lft forever preferred_lft forever
+4: enp0s9:  mtu 1500 qdisc pfifo_fast state UP qlen 1000
+    link/ether 08:00:27:a4:72:7e brd ff:ff:ff:ff:ff:ff
+</pre>
+<p>I have configured NAT network interface with (10.0.2.15 is the related IP address and 10.0.2.2 the related gateway IP address):</p>
+<pre>
+# nmcli connection add type ethernet con-name enp0s3 ifname enp0s3 ip4 10.0.2.15/8 gw4 10.0.2.2
+Connection 'enp0s3' (32cf4abf-bd28-4633-8654-cecad210e059) successfully added.
+</pre>
+<p>I have also configured third network interface for the RAC interconnect:</p>
+<pre>
+# nmcli connection add type ethernet con-name enp0s9 ifname enp0s9 ip4 192.168.43.211/24
+Connection 'enp0s9' (29bb8fd7-8111-4411-b82f-f930be3de44b) successfully added.
+</pre>
+<p>I have checked with ip the current network configuration:</p>
+<pre>
+# ip addr
+1: lo:  mtu 65536 qdisc noqueue state UNKNOWN
+    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00
+    inet 127.0.0.1/8 scope host lo
+    inet6 ::1/128 scope host
+       valid_lft forever preferred_lft forever
+2: enp0s3:  mtu 1500 qdisc pfifo_fast state UP qlen 1000
+    link/ether 08:00:27:78:38:b4 brd ff:ff:ff:ff:ff:ff
+    inet 10.0.2.15/8 brd 10.255.255.255 scope global enp0s3
+    inet6 fe80::a00:27ff:fe78:38b4/64 scope link
+       valid_lft forever preferred_lft forever
+3: enp0s8:  mtu 1500 qdisc pfifo_fast state UP qlen 1000
+    link/ether 08:00:27:5e:bf:1a brd ff:ff:ff:ff:ff:ff
+    inet 192.168.56.191/24 brd 192.168.56.255 scope global enp0s8
+    inet6 fe80::a00:27ff:fe5e:bf1a/64 scope link
+       valid_lft forever preferred_lft forever
+4: enp0s9:  mtu 1500 qdisc pfifo_fast state UP qlen 1000
+    link/ether 08:00:27:a4:72:7e brd ff:ff:ff:ff:ff:ff
+    inet 192.168.43.211/24 brd 192.168.43.255 scope global enp0s9
+    inet6 fe80::a00:27ff:fea4:727e/64 scope link
+       valid_lft forever preferred_lft forever
+</pre>
+<p>I have modified <b>/etc/resolv.conf</b> for DNS server and internet access:</p>
+<pre>
+# cat /etc/resolv.conf
+nameserver 192.168.56.80
+search localdomain
+nameserver 192.168.1.1
+</pre>
+<p>I have checked internet access and DNS server:</p>
+<pre>
+# ping -c 1 www.oracle.com
+PING e7075.x.akamaiedge.net (23.3.150.140) 56(84) bytes of data.
+64 bytes from a23-3-150-140.deploy.static.akamaitechnologies.com (23.3.150.140): icmp_seq=1 ttl=50 time=42.8 ms
+
+--- e7075.x.akamaiedge.net ping statistics ---
+1 packets transmitted, 1 received, 0% packet loss, time 0ms
+rtt min/avg/max/mdev = 42.867/42.867/42.867/0.000 ms
+#
+
+
+# nslookup ol7toc-scan
+Server:         192.168.56.80
+Address:        192.168.56.80#53
+
+Name:   ol7toc-scan.localdomain
+Address: 192.168.56.233
+Name:   ol7toc-scan.localdomain
+Address: 192.168.56.231
+Name:   ol7toc-scan.localdomain
+Address: 192.168.56.232
+
+# nslookup ol7tocn1
+Server:         192.168.56.80
+Address:        192.168.56.80#53
+
+Name:   ol7tocn1.localdomain
+Address: 192.168.56.191
+
+# nslookup ol7tocn2
+Server:         192.168.56.80
+Address:        192.168.56.80#53
+
+Name:   ol7tocn2.localdomain
+Address: 192.168.56.192
+
+# ip route
+default via 10.0.2.2 dev enp0s3  proto static  metric 100
+10.0.0.0/8 dev enp0s3  proto kernel  scope link  src 10.0.2.15  metric 100
+192.168.43.0/24 dev enp0s9  proto kernel  scope link  src 192.168.43.211  metric 100
+192.168.56.0/24 dev enp0s8  proto kernel  scope link  src 192.168.56.191  metric 100
+</pre>
+<p>I have updated <b>/etc/hosts</b> with both cluster nodes IP addresses:</p>
+<pre>
+# cat /etc/hosts
+127.0.0.1   localhost localhost.localdomain localhost4 localhost4.localdomain4
+::1         localhost localhost.localdomain localhost6 localhost6.localdomain6
+# Public
+192.168.56.191 ol7tocn1 ol7tocn1.localdomain
+192.168.56.192 ol7tocn2 ol7tocn2.localdomain
+# Private
+192.168.43.211 ol7tocn1-priv ol7tocn1-priv.localdomain
+192.168.43.212 ol7tocn2-priv ol7tocn2-priv.localdomain
+# VIP
+192.168.56.221 ol7tocn1-vip ol7tocn1-vip.localdomain
+192.168.56.222 ol7tocn2-vip ol7tocn2-vip.localdomain
+#
+</pre>
+<p>I have disabled SELinux:</p>
+<pre>
+# cat /etc/selinux/config
+
+# This file controls the state of SELinux on the system.
+# SELINUX= can take one of these three values:
+#     enforcing - SELinux security policy is enforced.
+#     permissive - SELinux prints warnings instead of enforcing.
+#     disabled - No SELinux policy is loaded.
+SELINUX=disabled
+# SELINUXTYPE= can take one of three two values:
+#     targeted - Targeted processes are protected,
+#     minimum - Modification of targeted policy. Only selected processes are protected.
+#     mls - Multi Level Security protection.
+SELINUXTYPE=targeted
+
+#
+</pre>
+<p>I have also disabled firewall:</p>
+<pre>
+# systemctl disable firewalld
+rm '/etc/systemd/system/dbus-org.fedoraproject.FirewallD1.service'
+rm '/etc/systemd/system/basic.target.wants/firewalld.service'
+#
+</pre>
+<p>And I have rebooted ...</p>
+<pre>
+# systemctl reboot
+</pre>
+<p>... and checked that SELinux is disabled:</p>
+<pre>
+# secon
+secon: SELinux is not enabled
+# systemctl status firewalld
+firewalld.service - firewalld - dynamic firewall daemon
+   Loaded: loaded (/usr/lib/systemd/system/firewalld.service; disabled)
+   Active: inactive (dead)
+</pre>
+<p>I have installed Oracle 12c preconfiguration RPM:</p>
+<pre>
+# yum info oracle-rdbms-server-12cR1-preinstall
+Loaded plugins: langpacks
+Available Packages
+Name        : oracle-rdbms-server-12cR1-preinstall
+Arch        : x86_64
+Version     : 1.0
+Release     : 3.el7
+Size        : 17 k
+Repo        : ol7_latest/x86_64
+Summary     : Sets the system for Oracle single instance and Real Application
+            : Cluster install for Oracle Linux 7
+License     : GPLv2
+Description : This package installs software packages and sets system parameters
+            : required for Oracle single instance and Real Application Cluster
+            : install for Oracle Linux Release 6 Files affected:
+            : /etc/sysctl.conf, /boot/grub/menu.lst. Files added:
+            : /etc/security/limits.d/oracle-rdbms-server-12cR1-preinstall.conf
+
+# yum -y install oracle-rdbms-server-12cR1-preinstall
+Loaded plugins: langpacks
+Resolving Dependencies
+--&gt; Running transaction check
+---&gt; Package oracle-rdbms-server-12cR1-preinstall.x86_64 0:1.0-3.el7 will be installed
+--&gt; Processing Dependency: xorg-x11-utils for package: oracle-rdbms-server-12cR1-preinstall-1.0-3.el7.x86_64
+--&gt; Processing Dependency: gcc-c++ for package: oracle-rdbms-server-12cR1-preinstall-1.0-3.el7.x86_64
+--&gt; Processing Dependency: compat-libcap1 for package: oracle-rdbms-server-12cR1-preinstall-1.0-3.el7.x86_64
+--&gt; Processing Dependency: ksh for package: oracle-rdbms-server-12cR1-preinstall-1.0-3.el7.x86_64
+--&gt; Processing Dependency: libaio-devel for package: oracle-rdbms-server-12cR1-preinstall-1.0-3.el7.x86_64
+--&gt; Processing Dependency: xorg-x11-xauth for package: oracle-rdbms-server-12cR1-preinstall-1.0-3.el7.x86_64
+--&gt; Processing Dependency: psmisc for package: oracle-rdbms-server-12cR1-preinstall-1.0-3.el7.x86_64
+--&gt; Processing Dependency: compat-libstdc++-33 for package: oracle-rdbms-server-12cR1-preinstall-1.0-3.el7.x86_64
+--&gt; Processing Dependency: libstdc++-devel for package: oracle-rdbms-server-12cR1-preinstall-1.0-3.el7.x86_64
+--&gt; Processing Dependency: nfs-utils for package: oracle-rdbms-server-12cR1-preinstall-1.0-3.el7.x86_64
+--&gt; Running transaction check
+---&gt; Package compat-libcap1.x86_64 0:1.10-7.el7 will be installed
+---&gt; Package compat-libstdc++-33.x86_64 0:3.2.3-72.el7 will be installed
+---&gt; Package gcc-c++.x86_64 0:4.8.3-9.el7 will be installed
+---&gt; Package ksh.x86_64 0:20120801-22.el7 will be installed
+---&gt; Package libaio-devel.x86_64 0:0.3.109-12.el7 will be installed
+---&gt; Package libstdc++-devel.x86_64 0:4.8.3-9.el7 will be installed
+---&gt; Package nfs-utils.x86_64 1:1.3.0-0.8.el7 will be installed
+--&gt; Processing Dependency: gssproxy &gt;= 0.3.0-0 for package: 1:nfs-utils-1.3.0-0.8.el7.x86_64
+--&gt; Processing Dependency: libtirpc &gt;= 0.2.3-1 for package: 1:nfs-utils-1.3.0-0.8.el7.x86_64
+--&gt; Processing Dependency: rpcbind for package: 1:nfs-utils-1.3.0-0.8.el7.x86_64
+--&gt; Processing Dependency: keyutils for package: 1:nfs-utils-1.3.0-0.8.el7.x86_64
+--&gt; Processing Dependency: libevent for package: 1:nfs-utils-1.3.0-0.8.el7.x86_64
+--&gt; Processing Dependency: libnfsidmap for package: 1:nfs-utils-1.3.0-0.8.el7.x86_64
+--&gt; Processing Dependency: libevent-2.0.so.5()(64bit) for package: 1:nfs-utils-1.3.0-0.8.el7.x86_64
+--&gt; Processing Dependency: libtirpc.so.1()(64bit) for package: 1:nfs-utils-1.3.0-0.8.el7.x86_64
+--&gt; Processing Dependency: libnfsidmap.so.0()(64bit) for package: 1:nfs-utils-1.3.0-0.8.el7.x86_64
+---&gt; Package psmisc.x86_64 0:22.20-8.el7 will be installed
+---&gt; Package xorg-x11-utils.x86_64 0:7.5-13.1.el7 will be installed
+--&gt; Processing Dependency: libXext.so.6()(64bit) for package: xorg-x11-utils-7.5-13.1.el7.x86_64
+--&gt; Processing Dependency: libXv.so.1()(64bit) for package: xorg-x11-utils-7.5-13.1.el7.x86_64
+--&gt; Processing Dependency: libXtst.so.6()(64bit) for package: xorg-x11-utils-7.5-13.1.el7.x86_64
+--&gt; Processing Dependency: libXrender.so.1()(64bit) for package: xorg-x11-utils-7.5-13.1.el7.x86_64
+--&gt; Processing Dependency: libXxf86vm.so.1()(64bit) for package: xorg-x11-utils-7.5-13.1.el7.x86_64
+--&gt; Processing Dependency: libXxf86misc.so.1()(64bit) for package: xorg-x11-utils-7.5-13.1.el7.x86_64
+--&gt; Processing Dependency: libXrandr.so.2()(64bit) for package: xorg-x11-utils-7.5-13.1.el7.x86_64
+--&gt; Processing Dependency: libdmx.so.1()(64bit) for package: xorg-x11-utils-7.5-13.1.el7.x86_64
+--&gt; Processing Dependency: libXinerama.so.1()(64bit) for package: xorg-x11-utils-7.5-13.1.el7.x86_64
+--&gt; Processing Dependency: libXxf86dga.so.1()(64bit) for package: xorg-x11-utils-7.5-13.1.el7.x86_64
+--&gt; Processing Dependency: libXi.so.6()(64bit) for package: xorg-x11-utils-7.5-13.1.el7.x86_64
+---&gt; Package xorg-x11-xauth.x86_64 1:1.0.7-6.1.el7 will be installed
+--&gt; Processing Dependency: libXmuu.so.1()(64bit) for package: 1:xorg-x11-xauth-1.0.7-6.1.el7.x86_64
+--&gt; Running transaction check
+---&gt; Package gssproxy.x86_64 0:0.3.0-10.el7 will be installed
+--&gt; Processing Dependency: libini_config.so.3(INI_CONFIG_1.1.0)(64bit) for package: gssproxy-0.3.0-10.el7.x86_64
+--&gt; Processing Dependency: libverto-tevent for package: gssproxy-0.3.0-10.el7.x86_64
+--&gt; Processing Dependency: libini_config.so.3()(64bit) for package: gssproxy-0.3.0-10.el7.x86_64
+--&gt; Processing Dependency: libbasicobjects.so.0()(64bit) for package: gssproxy-0.3.0-10.el7.x86_64
+--&gt; Processing Dependency: libref_array.so.1()(64bit) for package: gssproxy-0.3.0-10.el7.x86_64
+--&gt; Processing Dependency: libcollection.so.2()(64bit) for package: gssproxy-0.3.0-10.el7.x86_64
+---&gt; Package keyutils.x86_64 0:1.5.8-3.el7 will be installed
+---&gt; Package libXext.x86_64 0:1.3.2-2.1.el7 will be installed
+---&gt; Package libXi.x86_64 0:1.7.2-2.1.el7 will be installed
+---&gt; Package libXinerama.x86_64 0:1.1.3-2.1.el7 will be installed
+---&gt; Package libXmu.x86_64 0:1.1.1-5.1.el7 will be installed
+--&gt; Processing Dependency: libXt.so.6()(64bit) for package: libXmu-1.1.1-5.1.el7.x86_64
+---&gt; Package libXrandr.x86_64 0:1.4.1-2.1.el7 will be installed
+---&gt; Package libXrender.x86_64 0:0.9.8-2.1.el7 will be installed
+---&gt; Package libXtst.x86_64 0:1.2.2-2.1.el7 will be installed
+---&gt; Package libXv.x86_64 0:1.0.9-2.1.el7 will be installed
+---&gt; Package libXxf86dga.x86_64 0:1.1.4-2.1.el7 will be installed
+---&gt; Package libXxf86misc.x86_64 0:1.0.3-7.1.el7 will be installed
+---&gt; Package libXxf86vm.x86_64 0:1.1.3-2.1.el7 will be installed
+---&gt; Package libdmx.x86_64 0:1.1.3-3.el7 will be installed
+---&gt; Package libevent.x86_64 0:2.0.21-4.el7 will be installed
+---&gt; Package libnfsidmap.x86_64 0:0.25-11.el7 will be installed
+---&gt; Package libtirpc.x86_64 0:0.2.4-0.5.el7 will be installed
+---&gt; Package rpcbind.x86_64 0:0.2.0-26.el7 will be installed
+--&gt; Running transaction check
+---&gt; Package libXt.x86_64 0:1.1.4-6.1.el7 will be installed
+--&gt; Processing Dependency: libICE.so.6()(64bit) for package: libXt-1.1.4-6.1.el7.x86_64
+--&gt; Processing Dependency: libSM.so.6()(64bit) for package: libXt-1.1.4-6.1.el7.x86_64
+---&gt; Package libbasicobjects.x86_64 0:0.1.1-24.el7 will be installed
+---&gt; Package libcollection.x86_64 0:0.6.2-24.el7 will be installed
+---&gt; Package libini_config.x86_64 0:1.1.0-24.el7 will be installed
+--&gt; Processing Dependency: libpath_utils.so.1(PATH_UTILS_0.2.1)(64bit) for package: libini_config-1.1.0-24.el7.x86_64
+--&gt; Processing Dependency: libpath_utils.so.1()(64bit) for package: libini_config-1.1.0-24.el7.x86_64
+---&gt; Package libref_array.x86_64 0:0.1.4-24.el7 will be installed
+---&gt; Package libverto-tevent.x86_64 0:0.2.5-4.el7 will be installed
+--&gt; Processing Dependency: libtalloc.so.2(TALLOC_2.0.2)(64bit) for package: libverto-tevent-0.2.5-4.el7.x86_64
+--&gt; Processing Dependency: libtevent.so.0(TEVENT_0.9.9)(64bit) for package: libverto-tevent-0.2.5-4.el7.x86_64
+--&gt; Processing Dependency: libtalloc.so.2()(64bit) for package: libverto-tevent-0.2.5-4.el7.x86_64
+--&gt; Processing Dependency: libtevent.so.0()(64bit) for package: libverto-tevent-0.2.5-4.el7.x86_64
+--&gt; Running transaction check
+---&gt; Package libICE.x86_64 0:1.0.8-7.el7 will be installed
+---&gt; Package libSM.x86_64 0:1.2.1-7.el7 will be installed
+---&gt; Package libpath_utils.x86_64 0:0.2.1-24.el7 will be installed
+---&gt; Package libtalloc.x86_64 0:2.1.1-1.el7 will be installed
+---&gt; Package libtevent.x86_64 0:0.9.21-3.el7 will be installed
+--&gt; Finished Dependency Resolution
+
+Dependencies Resolved
+
+==================================================================================================================================================
+ Package                                               Arch                    Version                          Repository                   Size
+==================================================================================================================================================
+Installing:
+ oracle-rdbms-server-12cR1-preinstall                  x86_64                  1.0-3.el7                        ol7_latest                   17 k
+Installing for dependencies:
+ compat-libcap1                                        x86_64                  1.10-7.el7                       ol7_latest                   17 k
+ compat-libstdc++-33                                   x86_64                  3.2.3-72.el7                     ol7_latest                  190 k
+ gcc-c++                                               x86_64                  4.8.3-9.el7                      ol7_latest                  7.2 M
+ gssproxy                                              x86_64                  0.3.0-10.el7                     ol7_latest                   81 k
+ keyutils                                              x86_64                  1.5.8-3.el7                      ol7_latest                   53 k
+ ksh                                                   x86_64                  20120801-22.el7                  ol7_latest                  879 k
+ libICE                                                x86_64                  1.0.8-7.el7                      ol7_latest                   61 k
+ libSM                                                 x86_64                  1.2.1-7.el7                      ol7_latest                   37 k
+ libXext                                               x86_64                  1.3.2-2.1.el7                    ol7_latest                   36 k
+ libXi                                                 x86_64                  1.7.2-2.1.el7                    ol7_latest                   37 k
+ libXinerama                                           x86_64                  1.1.3-2.1.el7                    ol7_latest                   13 k
+ libXmu                                                x86_64                  1.1.1-5.1.el7                    ol7_latest                   68 k
+ libXrandr                                             x86_64                  1.4.1-2.1.el7                    ol7_latest                   24 k
+ libXrender                                            x86_64                  0.9.8-2.1.el7                    ol7_latest                   24 k
+ libXt                                                 x86_64                  1.1.4-6.1.el7                    ol7_latest                  167 k
+ libXtst                                               x86_64                  1.2.2-2.1.el7                    ol7_latest                   19 k
+ libXv                                                 x86_64                  1.0.9-2.1.el7                    ol7_latest                   17 k
+ libXxf86dga                                           x86_64                  1.1.4-2.1.el7                    ol7_latest                   18 k
+ libXxf86misc                                          x86_64                  1.0.3-7.1.el7                    ol7_latest                   19 k
+ libXxf86vm                                            x86_64                  1.1.3-2.1.el7                    ol7_latest                   17 k
+ libaio-devel                                          x86_64                  0.3.109-12.el7                   ol7_latest                   12 k
+ libbasicobjects                                       x86_64                  0.1.1-24.el7                     ol7_latest                   24 k
+ libcollection                                         x86_64                  0.6.2-24.el7                     ol7_latest                   39 k
+ libdmx                                                x86_64                  1.1.3-3.el7                      ol7_latest                   15 k
+ libevent                                              x86_64                  2.0.21-4.el7                     ol7_latest                  208 k
+ libini_config                                         x86_64                  1.1.0-24.el7                     ol7_latest                   50 k
+ libnfsidmap                                           x86_64                  0.25-11.el7                      ol7_latest                   45 k
+ libpath_utils                                         x86_64                  0.2.1-24.el7                     ol7_latest                   26 k
+ libref_array                                          x86_64                  0.1.4-24.el7                     ol7_latest                   25 k
+ libstdc++-devel                                       x86_64                  4.8.3-9.el7                      ol7_latest                  1.5 M
+ libtalloc                                             x86_64                  2.1.1-1.el7                      ol7_latest                   30 k
+ libtevent                                             x86_64                  0.9.21-3.el7                     ol7_latest                   31 k
+ libtirpc                                              x86_64                  0.2.4-0.5.el7                    ol7_latest                   84 k
+ libverto-tevent                                       x86_64                  0.2.5-4.el7                      ol7_latest                  8.4 k
+ nfs-utils                                             x86_64                  1:1.3.0-0.8.el7                  ol7_latest                  361 k
+ psmisc                                                x86_64                  22.20-8.el7                      ol7_latest                  140 k
+ rpcbind                                               x86_64                  0.2.0-26.el7                     ol7_latest                   55 k
+ xorg-x11-utils                                        x86_64                  7.5-13.1.el7                     ol7_latest                  110 k
+ xorg-x11-xauth                                        x86_64                  1:1.0.7-6.1.el7                  ol7_latest                   28 k
+
+Transaction Summary
+==================================================================================================================================================
+Install  1 Package (+39 Dependent packages)
+
+Total download size: 12 M
+Installed size: 33 M
+Downloading packages:
+warning: /var/cache/yum/x86_64/7Server/ol7_latest/packages/compat-libstdc++-33-3.2.3-72.el7.x86_64.rpm: Header V3 RSA/SHA256 Signature, key ID ec551f03: NOKEY
+Public key for compat-libstdc++-33-3.2.3-72.el7.x86_64.rpm is not installed
+(1/40): compat-libstdc++-33-3.2.3-72.el7.x86_64.rpm                                                                        | 190 kB  00:00:00
+(2/40): compat-libcap1-1.10-7.el7.x86_64.rpm                                                                               |  17 kB  00:00:00
+(3/40): gssproxy-0.3.0-10.el7.x86_64.rpm                                                                                   |  81 kB  00:00:00
+(4/40): keyutils-1.5.8-3.el7.x86_64.rpm                                                                                    |  53 kB  00:00:00
+(5/40): ksh-20120801-22.el7.x86_64.rpm                                                                                     | 879 kB  00:00:02
+(6/40): libICE-1.0.8-7.el7.x86_64.rpm                                                                                      |  61 kB  00:00:00
+(7/40): libSM-1.2.1-7.el7.x86_64.rpm                                                                                       |  37 kB  00:00:00
+(8/40): libXext-1.3.2-2.1.el7.x86_64.rpm                                                                                   |  36 kB  00:00:00
+(9/40): libXi-1.7.2-2.1.el7.x86_64.rpm                                                                                     |  37 kB  00:00:00
+(10/40): libXinerama-1.1.3-2.1.el7.x86_64.rpm                                                                              |  13 kB  00:00:00
+(11/40): libXmu-1.1.1-5.1.el7.x86_64.rpm                                                                                   |  68 kB  00:00:00
+(12/40): gcc-c++-4.8.3-9.el7.x86_64.rpm                                                                                    | 7.2 MB  00:00:06
+(13/40): libXrandr-1.4.1-2.1.el7.x86_64.rpm                                                                                |  24 kB  00:00:00
+(14/40): libXt-1.1.4-6.1.el7.x86_64.rpm                                                                                    | 167 kB  00:00:00
+(15/40): libXrender-0.9.8-2.1.el7.x86_64.rpm                                                                               |  24 kB  00:00:00
+(16/40): libXtst-1.2.2-2.1.el7.x86_64.rpm                                                                                  |  19 kB  00:00:00
+(17/40): libXv-1.0.9-2.1.el7.x86_64.rpm                                                                                    |  17 kB  00:00:00
+(18/40): libXxf86dga-1.1.4-2.1.el7.x86_64.rpm                                                                              |  18 kB  00:00:00
+(19/40): libXxf86misc-1.0.3-7.1.el7.x86_64.rpm                                                                             |  19 kB  00:00:00
+(20/40): libXxf86vm-1.1.3-2.1.el7.x86_64.rpm                                                                               |  17 kB  00:00:00
+(21/40): libaio-devel-0.3.109-12.el7.x86_64.rpm                                                                            |  12 kB  00:00:00
+(22/40): libcollection-0.6.2-24.el7.x86_64.rpm                                                                             |  39 kB  00:00:00
+(23/40): libbasicobjects-0.1.1-24.el7.x86_64.rpm                                                                           |  24 kB  00:00:00
+(24/40): libdmx-1.1.3-3.el7.x86_64.rpm                                                                                     |  15 kB  00:00:00
+(25/40): libini_config-1.1.0-24.el7.x86_64.rpm                                                                             |  50 kB  00:00:00
+(26/40): libnfsidmap-0.25-11.el7.x86_64.rpm                                                                                |  45 kB  00:00:00
+(27/40): libpath_utils-0.2.1-24.el7.x86_64.rpm                                                                             |  26 kB  00:00:00
+(28/40): libref_array-0.1.4-24.el7.x86_64.rpm                                                                              |  25 kB  00:00:00
+(29/40): libevent-2.0.21-4.el7.x86_64.rpm                                                                                  | 208 kB  00:00:00
+(30/40): libtalloc-2.1.1-1.el7.x86_64.rpm                                                                                  |  30 kB  00:00:00
+(31/40): libtevent-0.9.21-3.el7.x86_64.rpm                                                                                 |  31 kB  00:00:00
+(32/40): libtirpc-0.2.4-0.5.el7.x86_64.rpm                                                                                 |  84 kB  00:00:00
+(33/40): libverto-tevent-0.2.5-4.el7.x86_64.rpm                                                                            | 8.4 kB  00:00:00
+(34/40): libstdc++-devel-4.8.3-9.el7.x86_64.rpm                                                                            | 1.5 MB  00:00:01
+(35/40): oracle-rdbms-server-12cR1-preinstall-1.0-3.el7.x86_64.rpm                                                         |  17 kB  00:00:00
+(36/40): nfs-utils-1.3.0-0.8.el7.x86_64.rpm                                                                                | 361 kB  00:00:01
+(37/40): rpcbind-0.2.0-26.el7.x86_64.rpm                                                                                   |  55 kB  00:00:00
+(38/40): psmisc-22.20-8.el7.x86_64.rpm                                                                                     | 140 kB  00:00:01
+(39/40): xorg-x11-utils-7.5-13.1.el7.x86_64.rpm                                                                            | 110 kB  00:00:00
+(40/40): xorg-x11-xauth-1.0.7-6.1.el7.x86_64.rpm                                                                           |  28 kB  00:00:00
+--------------------------------------------------------------------------------------------------------------------------------------------------
+Total                                                                                                             860 kB/s |  12 MB  00:00:13
+Retrieving key from file:///etc/pki/rpm-gpg/RPM-GPG-KEY-oracle
+Importing GPG key 0xEC551F03:
+ Userid     : "Oracle OSS group (Open Source Software group) "
+ Fingerprint: 4214 4123 fecf c55b 9086 313d 72f9 7b74 ec55 1f03
+ Package    : 7:oraclelinux-release-7.1-1.0.5.el7.x86_64 (@anaconda/7.1)
+ From       : /etc/pki/rpm-gpg/RPM-GPG-KEY-oracle
+Running transaction check
+Running transaction test
+Transaction test succeeded
+Running transaction
+  Installing : libXext-1.3.2-2.1.el7.x86_64                                                                                                  1/40
+  Installing : libXi-1.7.2-2.1.el7.x86_64                                                                                                    2/40
+  Installing : libICE-1.0.8-7.el7.x86_64                                                                                                     3/40
+  Installing : libtirpc-0.2.4-0.5.el7.x86_64                                                                                                 4/40
+  Installing : libbasicobjects-0.1.1-24.el7.x86_64                                                                                           5/40
+  Installing : libXrender-0.9.8-2.1.el7.x86_64                                                                                               6/40
+  Installing : libstdc++-devel-4.8.3-9.el7.x86_64                                                                                            7/40
+  Installing : libcollection-0.6.2-24.el7.x86_64                                                                                             8/40
+  Installing : libref_array-0.1.4-24.el7.x86_64                                                                                              9/40
+  Installing : libtalloc-2.1.1-1.el7.x86_64                                                                                                 10/40
+  Installing : libtevent-0.9.21-3.el7.x86_64                                                                                                11/40
+  Installing : libverto-tevent-0.2.5-4.el7.x86_64                                                                                           12/40
+  Installing : gcc-c++-4.8.3-9.el7.x86_64                                                                                                   13/40
+  Installing : libXrandr-1.4.1-2.1.el7.x86_64                                                                                               14/40
+  Installing : rpcbind-0.2.0-26.el7.x86_64                                                                                                  15/40
+  Installing : libSM-1.2.1-7.el7.x86_64                                                                                                     16/40
+  Installing : libXt-1.1.4-6.1.el7.x86_64                                                                                                   17/40
+  Installing : libXmu-1.1.1-5.1.el7.x86_64                                                                                                  18/40
+  Installing : 1:xorg-x11-xauth-1.0.7-6.1.el7.x86_64                                                                                        19/40
+  Installing : libXtst-1.2.2-2.1.el7.x86_64                                                                                                 20/40
+  Installing : libXxf86misc-1.0.3-7.1.el7.x86_64                                                                                            21/40
+  Installing : libdmx-1.1.3-3.el7.x86_64                                                                                                    22/40
+  Installing : libXinerama-1.1.3-2.1.el7.x86_64                                                                                             23/40
+  Installing : libXxf86vm-1.1.3-2.1.el7.x86_64                                                                                              24/40
+  Installing : libXv-1.0.9-2.1.el7.x86_64                                                                                                   25/40
+  Installing : libXxf86dga-1.1.4-2.1.el7.x86_64                                                                                             26/40
+  Installing : xorg-x11-utils-7.5-13.1.el7.x86_64                                                                                           27/40
+  Installing : compat-libstdc++-33-3.2.3-72.el7.x86_64                                                                                      28/40
+  Installing : keyutils-1.5.8-3.el7.x86_64                                                                                                  29/40
+  Installing : libaio-devel-0.3.109-12.el7.x86_64                                                                                           30/40
+  Installing : compat-libcap1-1.10-7.el7.x86_64                                                                                             31/40
+  Installing : libevent-2.0.21-4.el7.x86_64                                                                                                 32/40
+  Installing : psmisc-22.20-8.el7.x86_64                                                                                                    33/40
+  Installing : libpath_utils-0.2.1-24.el7.x86_64                                                                                            34/40
+  Installing : libini_config-1.1.0-24.el7.x86_64                                                                                            35/40
+  Installing : gssproxy-0.3.0-10.el7.x86_64                                                                                                 36/40
+  Installing : ksh-20120801-22.el7.x86_64                                                                                                   37/40
+  Installing : libnfsidmap-0.25-11.el7.x86_64                                                                                               38/40
+  Installing : 1:nfs-utils-1.3.0-0.8.el7.x86_64                                                                                             39/40
+  Installing : oracle-rdbms-server-12cR1-preinstall-1.0-3.el7.x86_64                                                                        40/40
+  Verifying  : libXxf86misc-1.0.3-7.1.el7.x86_64                                                                                             1/40
+  Verifying  : libdmx-1.1.3-3.el7.x86_64                                                                                                     2/40
+  Verifying  : libXmu-1.1.1-5.1.el7.x86_64                                                                                                   3/40
+  Verifying  : libXinerama-1.1.3-2.1.el7.x86_64                                                                                              4/40
+  Verifying  : libtalloc-2.1.1-1.el7.x86_64                                                                                                  5/40
+  Verifying  : libXtst-1.2.2-2.1.el7.x86_64                                                                                                  6/40
+  Verifying  : libref_array-0.1.4-24.el7.x86_64                                                                                              7/40
+  Verifying  : libnfsidmap-0.25-11.el7.x86_64                                                                                                8/40
+  Verifying  : libcollection-0.6.2-24.el7.x86_64                                                                                             9/40
+  Verifying  : libXxf86vm-1.1.3-2.1.el7.x86_64                                                                                              10/40
+  Verifying  : xorg-x11-utils-7.5-13.1.el7.x86_64                                                                                           11/40
+  Verifying  : libstdc++-devel-4.8.3-9.el7.x86_64                                                                                           12/40
+  Verifying  : libverto-tevent-0.2.5-4.el7.x86_64                                                                                           13/40
+  Verifying  : ksh-20120801-22.el7.x86_64                                                                                                   14/40
+  Verifying  : libXrandr-1.4.1-2.1.el7.x86_64                                                                                               15/40
+  Verifying  : libpath_utils-0.2.1-24.el7.x86_64                                                                                            16/40
+  Verifying  : psmisc-22.20-8.el7.x86_64                                                                                                    17/40
+  Verifying  : 1:xorg-x11-xauth-1.0.7-6.1.el7.x86_64                                                                                        18/40
+  Verifying  : rpcbind-0.2.0-26.el7.x86_64                                                                                                  19/40
+  Verifying  : libXv-1.0.9-2.1.el7.x86_64                                                                                                   20/40
+  Verifying  : gssproxy-0.3.0-10.el7.x86_64                                                                                                 21/40
+  Verifying  : libXrender-0.9.8-2.1.el7.x86_64                                                                                              22/40
+  Verifying  : gcc-c++-4.8.3-9.el7.x86_64                                                                                                   23/40
+  Verifying  : libbasicobjects-0.1.1-24.el7.x86_64                                                                                          24/40
+  Verifying  : libtirpc-0.2.4-0.5.el7.x86_64                                                                                                25/40
+  Verifying  : libevent-2.0.21-4.el7.x86_64                                                                                                 26/40
+  Verifying  : libICE-1.0.8-7.el7.x86_64                                                                                                    27/40
+  Verifying  : compat-libcap1-1.10-7.el7.x86_64                                                                                             28/40
+  Verifying  : libtevent-0.9.21-3.el7.x86_64                                                                                                29/40
+  Verifying  : libSM-1.2.1-7.el7.x86_64                                                                                                     30/40
+  Verifying  : libaio-devel-0.3.109-12.el7.x86_64                                                                                           31/40
+  Verifying  : oracle-rdbms-server-12cR1-preinstall-1.0-3.el7.x86_64                                                                        32/40
+  Verifying  : libXt-1.1.4-6.1.el7.x86_64                                                                                                   33/40
+  Verifying  : libini_config-1.1.0-24.el7.x86_64                                                                                            34/40
+  Verifying  : 1:nfs-utils-1.3.0-0.8.el7.x86_64                                                                                             35/40
+  Verifying  : libXi-1.7.2-2.1.el7.x86_64                                                                                                   36/40
+  Verifying  : libXxf86dga-1.1.4-2.1.el7.x86_64                                                                                             37/40
+  Verifying  : libXext-1.3.2-2.1.el7.x86_64                                                                                                 38/40
+  Verifying  : keyutils-1.5.8-3.el7.x86_64                                                                                                  39/40
+  Verifying  : compat-libstdc++-33-3.2.3-72.el7.x86_64                                                                                      40/40
+
+Installed:
+  oracle-rdbms-server-12cR1-preinstall.x86_64 0:1.0-3.el7
+
+Dependency Installed:
+  compat-libcap1.x86_64 0:1.10-7.el7             compat-libstdc++-33.x86_64 0:3.2.3-72.el7          gcc-c++.x86_64 0:4.8.3-9.el7
+  gssproxy.x86_64 0:0.3.0-10.el7                 keyutils.x86_64 0:1.5.8-3.el7                      ksh.x86_64 0:20120801-22.el7
+  libICE.x86_64 0:1.0.8-7.el7                    libSM.x86_64 0:1.2.1-7.el7                         libXext.x86_64 0:1.3.2-2.1.el7
+  libXi.x86_64 0:1.7.2-2.1.el7                   libXinerama.x86_64 0:1.1.3-2.1.el7                 libXmu.x86_64 0:1.1.1-5.1.el7
+  libXrandr.x86_64 0:1.4.1-2.1.el7               libXrender.x86_64 0:0.9.8-2.1.el7                  libXt.x86_64 0:1.1.4-6.1.el7
+  libXtst.x86_64 0:1.2.2-2.1.el7                 libXv.x86_64 0:1.0.9-2.1.el7                       libXxf86dga.x86_64 0:1.1.4-2.1.el7
+  libXxf86misc.x86_64 0:1.0.3-7.1.el7            libXxf86vm.x86_64 0:1.1.3-2.1.el7                  libaio-devel.x86_64 0:0.3.109-12.el7
+  libbasicobjects.x86_64 0:0.1.1-24.el7          libcollection.x86_64 0:0.6.2-24.el7                libdmx.x86_64 0:1.1.3-3.el7
+  libevent.x86_64 0:2.0.21-4.el7                 libini_config.x86_64 0:1.1.0-24.el7                libnfsidmap.x86_64 0:0.25-11.el7
+  libpath_utils.x86_64 0:0.2.1-24.el7            libref_array.x86_64 0:0.1.4-24.el7                 libstdc++-devel.x86_64 0:4.8.3-9.el7
+  libtalloc.x86_64 0:2.1.1-1.el7                 libtevent.x86_64 0:0.9.21-3.el7                    libtirpc.x86_64 0:0.2.4-0.5.el7
+  libverto-tevent.x86_64 0:0.2.5-4.el7           nfs-utils.x86_64 1:1.3.0-0.8.el7                   psmisc.x86_64 0:22.20-8.el7
+  rpcbind.x86_64 0:0.2.0-26.el7                  xorg-x11-utils.x86_64 0:7.5-13.1.el7               xorg-x11-xauth.x86_64 1:1.0.7-6.1.el7
+
+Complete!
+</pre>
+<h3>Shared storage configuration</h3>
+<p>Even if I currently have only one cluster node I can start to configure shared storage because configuration will be kept by cloning first cluster node VM to second cluster node VM.<br />
+<br />
+On my host system (Windows 8.1), I have created 3 virtual disks for 3 ASM disk groups:</p>
+<li> one for OCR, voting disk and the <a href="https://blogs.oracle.com/UPGRADE/entry/grid_infrastructure_management_repository_gimr">Grid Infrastructure Management Repository</a> (GIMR) database mandatory with Oracle RAC 12.1.0.2
+</li>
+<li> one for databases file<br />
+</lI></p>
+<li> one for the fast recovery area (FRA):
+</li>
+<pre>
+&gt;vboxmanage createhd --filename ol7tocn1.ol7tocn2.sata.1.vdi --size=10240 -format=VDI --variant fixe
+0%...10%...20%...30%...40%...50%...60%...70%...80%...90%...100%
+Disk image created. UUID: 87d46eda-8916-4f03-b267-d71364b9c470
+
+&gt;vboxmanage createhd --filename ol7tocn1.ol7tocn2.sata.2.vdi --size=10240 -format=VDI --variant fixe
+0%...10%...20%...30%...40%...50%...60%...70%...80%...90%...100%
+Disk image created. UUID: 78c31366-37eb-4348-b5bf-761868f07f1f
+
+&gt;vboxmanage createhd --filename ol7tocn1.ol7tocn2.sata.3.vdi --size=10240 -format=VDI --variant fixe
+0%...10%...20%...30%...40%...50%...60%...70%...80%...90%...100%
+Disk image created. UUID: 3683bc6a-be01-490a-9ae6-2fa0e0d9d959
+
+&gt;
+
+
+</pre>
+<p>I have shutdown ol7tocn1 VM and run from Windows VBOX commands to attach the virtual disks and make them shareable:</p>
+<pre>
+&gt;vboxmanage storageattach ol7tocn1 --storagectl "SATA" --port 1 --device 0 --type hdd --medium ol7tocn1.ol7tocn2.sata.1.vdi --mtype shareable
+
+&gt;vboxmanage storageattach ol7tocn1 --storagectl "SATA" --port 2 --device 0 --type hdd --medium ol7tocn1.ol7tocn2.sata.2.vdi --mtype shareable
+
+&gt;vboxmanage storageattach ol7tocn1 --storagectl "SATA" --port 3 --device 0 --type hdd --medium ol7tocn1.ol7tocn2.sata.3.vdi --mtype shareable
+
+&gt;
+
+&gt;vboxmanage modifyhd ol7tocn1.ol7tocn2.sata.1.vdi -type shareable
+
+&gt;vboxmanage modifyhd ol7tocn1.ol7tocn2.sata.2.vdi -type shareable
+
+&gt;vboxmanage modifyhd ol7tocn1.ol7tocn2.sata.3.vdi -type shareable
+
+&gt;
+</pre>
+<p>I have restarted ol7tocn1 VM and checked that the corresponding device files have been created:</p>
+<pre>
+# ls -al /dev/sd[bcd]
+brw-rw---- 1 root disk 8, 16 Apr  6 10:51 /dev/sdb
+brw-rw---- 1 root disk 8, 32 Apr  6 10:51 /dev/sdc
+brw-rw---- 1 root disk 8, 48 Apr  6 10:51 /dev/sdd
+</pre>
+<p>I have created a single partition on each disk:</p>
+<pre>
+# fdisk /dev/sdb
+Welcome to fdisk (util-linux 2.23.2).
+
+Changes will remain in memory only, until you decide to write them.
+Be careful before using the write command.
+
+Device does not contain a recognized partition table
+Building a new DOS disklabel with disk identifier 0xcc3ab90d.
+
+Command (m for help): n
+Partition type:
+   p   primary (0 primary, 0 extended, 4 free)
+   e   extended
+Select (default p): p
+Partition number (1-4, default 1): 1
+First sector (2048-20971519, default 2048):
+Using default value 2048
+Last sector, +sectors or +size{K,M,G} (2048-20971519, default 20971519):
+Using default value 20971519
+Partition 1 of type Linux and of size 10 GiB is set
+
+Command (m for help): w
+The partition table has been altered!
+
+Calling ioctl() to re-read partition table.
+Syncing disks.
+#
+
+
+# fdisk /dev/sdc
+Welcome to fdisk (util-linux 2.23.2).
+
+Changes will remain in memory only, until you decide to write them.
+Be careful before using the write command.
+
+Device does not contain a recognized partition table
+Building a new DOS disklabel with disk identifier 0x90f869f9.
+
+Command (m for help): n
+Partition type:
+   p   primary (0 primary, 0 extended, 4 free)
+   e   extended
+Select (default p): p
+Partition number (1-4, default 1):
+First sector (2048-20971519, default 2048):
+Using default value 2048
+Last sector, +sectors or +size{K,M,G} (2048-20971519, default 20971519):
+Using default value 20971519
+Partition 1 of type Linux and of size 10 GiB is set
+
+Command (m for help): w
+The partition table has been altered!
+
+Calling ioctl() to re-read partition table.
+Syncing disks.
+#
+
+# fdisk /dev/sdd
+Welcome to fdisk (util-linux 2.23.2).
+
+Changes will remain in memory only, until you decide to write them.
+Be careful before using the write command.
+
+Device does not contain a recognized partition table
+Building a new DOS disklabel with disk identifier 0x61f56cf9.
+
+Command (m for help): n
+Partition type:
+   p   primary (0 primary, 0 extended, 4 free)
+   e   extended
+Select (default p):
+Using default response p
+Partition number (1-4, default 1):
+First sector (2048-20971519, default 2048):
+Using default value 2048
+Last sector, +sectors or +size{K,M,G} (2048-20971519, default 20971519):
+Using default value 20971519
+Partition 1 of type Linux and of size 10 GiB is set
+
+Command (m for help): w
+The partition table has been altered!
+
+Calling ioctl() to re-read partition table.
+Syncing disks.
+#
+</pre>
+<p>I have retrieved SCSI unique identifiers for the 3 disks:</p>
+<pre>
+# /lib/udev/scsi_id -g -u -d /dev/sdb
+1ATA_VBOX_HARDDISK_VB87d46eda-70c4b964
+# /lib/udev/scsi_id -g -u -d /dev/sdc
+1ATA_VBOX_HARDDISK_VB78c31366-1f7ff068
+# /lib/udev/scsi_id -g -u -d /dev/sdd
+1ATA_VBOX_HARDDISK_VB3683bc6a-59d9d9e0
+</pre>
+<p>I have created UDEV script <b>/etc/udev/rules.d/99-oracle-asmdevices.rules</b>:</p>
+<pre>
+# cat /etc/udev/rules.d/99-oracle-asmdevices.rules
+KERNEL=="sd?1", SUBSYSTEM=="block", PROGRAM=="/lib/udev/scsi_id -g -u -d /dev/$parent", RESULT=="1ATA_VBOX_HARDDISK_VB87d46eda-70c4b964", SYMLINK+="asm-disk1", OWNER="oracle", GROUP="dba", MODE="0660"
+KERNEL=="sd?1", SUBSYSTEM=="block", PROGRAM=="/lib/udev/scsi_id -g -u -d /dev/$parent", RESULT=="1ATA_VBOX_HARDDISK_VB78c31366-1f7ff068", SYMLINK+="asm-disk2", OWNER="oracle", GROUP="dba", MODE="0660"
+KERNEL=="sd?1", SUBSYSTEM=="block", PROGRAM=="/lib/udev/scsi_id -g -u -d /dev/$parent", RESULT=="1ATA_VBOX_HARDDISK_VB3683bc6a-59d9d9e0", SYMLINK+="asm-disk3", OWNER="oracle", GROUP="dba", MODE="0660"
+</pre>
+<p>I have rebooted ...:</p>
+<pre>
+# systemctl reboot
+</pre>
+<p>... and checked that the persistent devices have been created:</p>
+<pre>
+# ls -al /dev/asm*
+lrwxrwxrwx 1 root root 4 Apr  6 10:58 /dev/asm-disk1 -&gt; sdb1
+lrwxrwxrwx 1 root root 4 Apr  6 10:58 /dev/asm-disk2 -&gt; sdc1
+lrwxrwxrwx 1 root root 4 Apr  6 10:58 /dev/asm-disk3 -&gt; sdd1
+#
+</pre>
+<h2> Clone first cluster node to second cluster node</h2>
+<p>I have shutdown ol7tocn1 and I have first cloned the ol7tocn1 system disk:</p>
+<pre>
+&gt;vboxmanage clonehd ol7tocn1.sata.0.vdi ol7tocn2.sata.0.vdi
+0%...10%...20%...30%...40%...50%...60%...70%...80%...90%...100%
+Clone hard disk created in format 'VDI'. UUID: 61c8b983-b602-47f4-a5f2-fedbe9f22ac7
+
+&gt;
+</pre>
+<p>Using VBOX GUI I have created a new VM named <b>ol7otcn2</b> using <b>ol7tocn2.sata.0.vdi</b> as system disk.<br />
+<br />
+I have set the same properties for ol7tocn2 as for ol7tocn1:</p>
+<li>
+RAM:  4GB
+</li>
+<li>
+3 network interfaces (the first one attached to NAT and the second and third one attached to Host-Only Adapter).
+</li>
+<p>I have attached the 3 shared disks to ol7tocn2:</p>
+<pre>
+&gt;vboxmanage storageattach ol7tocn2 --storagectl "SATA" --port 1 --device 0 --type hdd --medium ol7tocn1.ol7tocn2.sata.1.vdi --mtype shareable
+
+&gt;vboxmanage storageattach ol7tocn2 --storagectl "SATA" --port 2 --device 0 --type hdd --medium ol7tocn1.ol7tocn2.sata.2.vdi --mtype shareable
+
+&gt;vboxmanage storageattach ol7tocn2 --storagectl "SATA" --port 3 --device 0 --type hdd --medium ol7tocn1.ol7tocn2.sata.3.vdi --mtype shareable
+
+</pre>
+<p>I have started ol7tocn2 and from the console modified the hostname:</p>
+<pre>
+# cat /etc/hostname
+ol7tocn2.localdomain
+#
+</pre>
+<p>From the console I have reconfigured the public network and the interconnect network interface:</p>
+<pre>
+# nmcli con del enp0s8
+# nmcli connection add type ethernet con-name enp0s8 ifname enp0s8 ip4 192.168.56.192/24
+# nmcli con del enp0s9
+# nmcli connection add type ethernet con-name enp0s9 ifname enp0s9 ip4 192.168.43.212/24
+</pre>
+<p>Now I can connect with SSH and check network configuration:</p>
+<pre>
+# ip addr
+1: lo:  mtu 65536 qdisc noqueue state UNKNOWN
+    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00
+    inet 127.0.0.1/8 scope host lo
+    inet6 ::1/128 scope host
+       valid_lft forever preferred_lft forever
+2: enp0s3:  mtu 1500 qdisc pfifo_fast state UP qlen 1000
+    link/ether 08:00:27:c7:ce:05 brd ff:ff:ff:ff:ff:ff
+    inet 10.0.2.15/8 brd 10.255.255.255 scope global enp0s3
+    inet6 fe80::a00:27ff:fec7:ce05/64 scope link
+       valid_lft forever preferred_lft forever
+3: enp0s8:  mtu 1500 qdisc pfifo_fast state UP qlen 1000
+    link/ether 08:00:27:e7:05:76 brd ff:ff:ff:ff:ff:ff
+    inet 192.168.56.192/24 brd 192.168.56.255 scope global enp0s8
+    inet6 fe80::a00:27ff:fee7:576/64 scope link
+       valid_lft forever preferred_lft forever
+4: enp0s9:  mtu 1500 qdisc pfifo_fast state UP qlen 1000
+    link/ether 08:00:27:0e:9f:4b brd ff:ff:ff:ff:ff:ff
+    inet 192.168.43.212/24 brd 192.168.43.255 scope global enp0s9
+    inet6 fe80::a00:27ff:fe0e:9f4b/64 scope link
+       valid_lft forever preferred_lft forever
+#
+# nmcli dev status
+DEVICE  TYPE      STATE      CONNECTION
+enp0s3  ethernet  connected  enp0s3
+enp0s8  ethernet  connected  enp0s8
+enp0s9  ethernet  connected  enp0s9
+lo      loopback  unmanaged  --
+</pre>
+<p>Note that there is no need to reconfigure the NAT network interface.<br />
+<br />
+I have reconfigured <b>/etc/resolv.conf</b>:</p>
+<pre>
+# cat /etc/resolv.conf
+nameserver 192.168.56.80
+search localdomain
+nameserver 192.168.1.1
+</pre>
+<p>I have rebooted ol7tocn2 ...</p>
+<pre>
+# systemctl reboot
+</pre>
+<p>... and checked that network interfaces are up and that DNS is OK:</p>
+<pre>
+# ip addr
+1: lo:  mtu 65536 qdisc noqueue state UNKNOWN
+    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00
+    inet 127.0.0.1/8 scope host lo
+    inet6 ::1/128 scope host
+       valid_lft forever preferred_lft forever
+2: enp0s3:  mtu 1500 qdisc pfifo_fast state UP qlen 1000
+    link/ether 08:00:27:c7:ce:05 brd ff:ff:ff:ff:ff:ff
+    inet 10.0.2.15/8 brd 10.255.255.255 scope global enp0s3
+    inet6 fe80::a00:27ff:fec7:ce05/64 scope link
+       valid_lft forever preferred_lft forever
+3: enp0s8:  mtu 1500 qdisc pfifo_fast state UP qlen 1000
+    link/ether 08:00:27:e7:05:76 brd ff:ff:ff:ff:ff:ff
+    inet 192.168.56.192/24 brd 192.168.56.255 scope global enp0s8
+    inet6 fe80::a00:27ff:fee7:576/64 scope link
+       valid_lft forever preferred_lft forever
+4: enp0s9:  mtu 1500 qdisc pfifo_fast state UP qlen 1000
+    link/ether 08:00:27:0e:9f:4b brd ff:ff:ff:ff:ff:ff
+    inet 192.168.43.212/24 brd 192.168.43.255 scope global enp0s9
+    inet6 fe80::a00:27ff:fe0e:9f4b/64 scope link
+       valid_lft forever preferred_lft forever
+#
+
+
+# ip route
+default via 10.0.2.2 dev enp0s3  proto static  metric 100
+10.0.0.0/8 dev enp0s3  proto kernel  scope link  src 10.0.2.15  metric 100
+192.168.43.0/24 dev enp0s9  proto kernel  scope link  src 192.168.43.212  metric 100
+192.168.56.0/24 dev enp0s8  proto kernel  scope link  src 192.168.56.192  metric 100
+# nslookup ol7toc-scan
+Server:         192.168.56.80
+Address:        192.168.56.80#53
+
+Name:   ol7toc-scan.localdomain
+Address: 192.168.56.233
+Name:   ol7toc-scan.localdomain
+Address: 192.168.56.231
+Name:   ol7toc-scan.localdomain
+Address: 192.168.56.232
+
+# nslookup ol7tocn1
+Server:         192.168.56.80
+Address:        192.168.56.80#53
+
+Name:   ol7tocn1.localdomain
+Address: 192.168.56.191
+
+# nslookup ol7tocn2
+Server:         192.168.56.80
+Address:        192.168.56.80#53
+
+Name:   ol7tocn2.localdomain
+Address: 192.168.56.192
+
+# nslookup www.oracle.com
+;; Got recursion not available from 192.168.56.80, trying next server
+Server:         192.168.1.1
+Address:        192.168.1.1#53
+
+Non-authoritative answer:
+www.oracle.com  canonical name = www.oracle.com.edgekey.net.
+www.oracle.com.edgekey.net      canonical name = e7075.x.akamaiedge.net.
+Name:   e7075.x.akamaiedge.net
+Address: 23.3.150.140
+</pre>
+<p>I have also  checked that the ASM devices have been created:</p>
+<pre>
+# ls -al /dev/asm*
+lrwxrwxrwx 1 root root 4 Apr  6 12:04 /dev/asm-disk1 -&gt; sdb1
+lrwxrwxrwx 1 root root 4 Apr  6 12:04 /dev/asm-disk2 -&gt; sdc1
+lrwxrwxrwx 1 root root 4 Apr  6 12:04 /dev/asm-disk3 -&gt; sdd1
+# ls -al /dev/sd[bcd]1
+brw-rw---- 1 oracle dba 8, 17 Apr  6 12:04 /dev/sdb1
+brw-rw---- 1 oracle dba 8, 33 Apr  6 12:04 /dev/sdc1
+brw-rw---- 1 oracle dba 8, 49 Apr  6 12:04 /dev/sdd1
+</pre>
+<p>I have configured passwordless ssh between the 2 cluster nodes for oracle account.<br />
+<br />
+First I have set oracle password on both nodes (note that oracle account has been created the preinstallation RPM):</p>
+<pre>
+Changing password for user oracle.
+New password:
+BAD PASSWORD: The password is shorter than 8 characters
+Retype new password:
+passwd: all authentication tokens updated successfully.
+#
+</pre>
+<p>I have run with oracle account on ol7tocn1 :</p>
+<pre>
+$ ssh-keygen
+Generating public/private rsa key pair.
+Enter file in which to save the key (/home/oracle/.ssh/id_rsa):
+Created directory '/home/oracle/.ssh'.
+Enter passphrase (empty for no passphrase):
+Enter same passphrase again:
+Your identification has been saved in /home/oracle/.ssh/id_rsa.
+Your public key has been saved in /home/oracle/.ssh/id_rsa.pub.
+The key fingerprint is:
+30:27:37:2b:73:1e:5e:bb:69:0d:61:df:c7:c3:c1:f3 oracle@ol7tocn1.localdomain
+The key's randomart image is:
++--[ RSA 2048]----+
+|                 |
+|                 |
+|      + +     .  |
+|       * oo    + |
+|      o S..o ...+|
+|       * o... .oE|
+|        o .o   ..|
+|          .o.    |
+|         .o      |
++-----------------+
+$
+
+
+$ ssh-copy-id ol7tocn2
+The authenticity of host 'ol7tocn2 (192.168.56.192)' can't be established.
+ECDSA key fingerprint is 18:64:94:cf:9f:98:f9:1e:22:cc:d8:cc:44:a6:c0:0e.
+Are you sure you want to continue connecting (yes/no)? yes
+/bin/ssh-copy-id: INFO: attempting to log in with the new key(s), to filter out any that are already installed
+/bin/ssh-copy-id: INFO: 1 key(s) remain to be installed -- if you are prompted now it is to install the new keys
+oracle@ol7tocn2's password:
+
+Number of key(s) added: 1
+
+Now try logging into the machine, with:   "ssh 'ol7tocn2'"
+and check to make sure that only the key(s) you wanted were added.
+
+</pre>
+<p>I have run similar steps on cluster node 2:</p>
+<pre>
+$ ssh-keygen
+Generating public/private rsa key pair.
+Enter file in which to save the key (/home/oracle/.ssh/id_rsa):
+Enter passphrase (empty for no passphrase):
+Enter same passphrase again:
+Your identification has been saved in /home/oracle/.ssh/id_rsa.
+Your public key has been saved in /home/oracle/.ssh/id_rsa.pub.
+The key fingerprint is:
+df:03:0d:6b:e2:79:10:44:ad:8b:45:86:47:1f:bf:09 oracle@ol7tocn2.localdomain
+The key's randomart image is:
++--[ RSA 2048]----+
+|       ++..      |
+|      ..+..o     |
+|       +..E .    |
+|        o. = o   |
+|       oS.+ +    |
+|      ...* o     |
+|        o o o    |
+|         .   .   |
+|                 |
++-----------------+
+$
+
+
+$ ssh-copy-id ol7tocn1
+The authenticity of host 'ol7tocn1 (192.168.56.191)' can't be established.
+ECDSA key fingerprint is 18:64:94:cf:9f:98:f9:1e:22:cc:d8:cc:44:a6:c0:0e.
+Are you sure you want to continue connecting (yes/no)? yes
+/bin/ssh-copy-id: INFO: attempting to log in with the new key(s), to filter out any that are already installed
+/bin/ssh-copy-id: INFO: 1 key(s) remain to be installed -- if you are prompted now it is to install the new keys
+oracle@ol7tocn1's password:
+
+Number of key(s) added: 1
+
+Now try logging into the machine, with:   "ssh 'ol7tocn1'"
+and check to make sure that only the key(s) you wanted were added.
+</pre>
+<p>I have checked that I can connect to each remote node without password:</p>
+<pre>
+[oracle@ol7tocn1 ~]$ ssh ol7tocn2 hostname
+ol7tocn2.localdomain
+[oracle@ol7tocn1 ~]$
+
+[oracle@ol7tocn2 ~]$ ssh ol7tocn1 hostname
+ol7tocn1.localdomain
+[oracle@ol7tocn2 ~]$
+</pre>
+<p>I have also enabled passwordless ssh on each node with <u>local</u> ssh connection (i.e. from ol7tocn1 to ol7tocn1 and from ol7tocn2 to ol7tocn2):</p>
+<pre>
+$ ssh-copy-id ol7tocn1
+/bin/ssh-copy-id: INFO: attempting to log in with the new key(s), to filter out any that are already installed
+/bin/ssh-copy-id: INFO: 1 key(s) remain to be installed -- if you are prompted now it is to install the new keys
+oracle@ol7tocn1's password:
+
+Number of key(s) added: 1
+
+Now try logging into the machine, with:   "ssh 'ol7tocn1'"
+and check to make sure that only the key(s) you wanted were added.
+
+$
+</pre>
+<p>and:</p>
+<pre>
+$ ssh-copy-id ol7tocn2
+The authenticity of host 'ol7tocn2 (192.168.56.192)' can't be established.
+ECDSA key fingerprint is af:38:70:57:5b:86:da:3a:be:36:7b:b3:90:2a:a7:c1.
+Are you sure you want to continue connecting (yes/no)? yes
+/bin/ssh-copy-id: INFO: attempting to log in with the new key(s), to filter out any that are already installed
+/bin/ssh-copy-id: INFO: 1 key(s) remain to be installed -- if you are prompted now it is to install the new keys
+oracle@ol7tocn2's password:
+
+Number of key(s) added: 1
+
+Now try logging into the machine, with:   "ssh 'ol7tocn2'"
+and check to make sure that only the key(s) you wanted were added.
+
+$
+</pre>
+<p>I have checked that I connect locally on each node without password:</p>
+<pre>
+$ ssh ol7tocn1 hostname
+ol7tocn1.localdomain
+</pre>
+<p>and:</p>
+<pre>
+$ ssh ol7tocn2 hostname
+ol7tocn2.localdomain
+</pre>
+<h2> run CLUVFY</h2>
+<p>I have uploaded Grid Infrastructure media to first cluster node after creating /stage directory:</p>
+<pre>
+# mkdir /stage
+# chown oracle:dba /stage
+</pre>
+<p>I have run with oracle account:</p>
+<pre>
+$ unzip linuxamd64_12102_grid_1of2.zip
+$ unzip linuxamd64_12102_grid_2of2.zip
+</pre>
+<p>I have run CLUVFY :</p>
+<pre>
+$ ./grid/runcluvfy.sh stage -pre crsinst -n "ol7tocn1,ol7tocn2"
+
+Performing pre-checks for cluster services setup
+
+Checking node reachability...
+Node reachability check passed from node "ol7tocn1"
+
+
+Checking user equivalence...
+User equivalence check passed for user "oracle"
+
+Checking node connectivity...
+
+Checking hosts config file...
+
+Verification of the hosts config file successful
+
+Node connectivity passed for subnet "10.0.0.0" with node(s) ol7tocn1,ol7tocn2
+
+ERROR:
+PRVG-11850 : The system call "connect" failed with error "111" while executing exectask on node "ol7tocn1"
+Connection refused
+
+ERROR:
+PRVG-11850 : The system call "connect" failed with error "111" while executing exectask on node "ol7tocn1"
+Connection refused
+TCP connectivity check failed for subnet "10.0.0.0"
+
+Node connectivity passed for subnet "192.168.56.0" with node(s) ol7tocn1,ol7tocn2
+TCP connectivity check passed for subnet "192.168.56.0"
+
+Node connectivity passed for subnet "192.168.43.0" with node(s) ol7tocn1,ol7tocn2
+TCP connectivity check passed for subnet "192.168.43.0"
+
+
+Interfaces found on subnet "10.0.0.0" that are likely candidates for VIP are:
+ol7tocn1 enp0s3:10.0.2.15
+ol7tocn2 enp0s3:10.0.2.15
+
+Interfaces found on subnet "192.168.56.0" that are likely candidates for a private interconnect are:
+ol7tocn1 enp0s8:192.168.56.191
+ol7tocn2 enp0s8:192.168.56.192
+
+Interfaces found on subnet "192.168.43.0" that are likely candidates for a private interconnect are:
+ol7tocn1 enp0s9:192.168.43.211
+ol7tocn2 enp0s9:192.168.43.212
+Checking subnet mask consistency...
+Subnet mask consistency check passed for subnet "10.0.0.0".
+Subnet mask consistency check passed for subnet "192.168.56.0".
+Subnet mask consistency check passed for subnet "192.168.43.0".
+Subnet mask consistency check passed.
+
+ERROR:
+PRVG-1172 : The IP address "10.0.2.15" is on multiple interfaces "enp0s3" on nodes "ol7tocn2,ol7tocn1"
+
+Node connectivity check failed
+
+Checking multicast communication...
+
+Checking subnet "10.0.0.0" for multicast communication with multicast group "224.0.0.251"...
+Check of subnet "10.0.0.0" for multicast communication with multicast group "224.0.0.251" passed.
+
+Check of multicast communication passed.
+Total memory check failed
+Check failed on nodes:
+        ol7tocn2,ol7tocn1
+Available memory check passed
+Swap space check passed
+Free disk space check passed for "ol7tocn2:/usr,ol7tocn2:/var,ol7tocn2:/etc,ol7tocn2:/sbin,ol7tocn2:/tmp"
+Free disk space check passed for "ol7tocn1:/usr,ol7tocn1:/var,ol7tocn1:/etc,ol7tocn1:/sbin,ol7tocn1:/tmp"
+Check for multiple users with UID value 54321 passed
+User existence check passed for "oracle"
+Group existence check passed for "oinstall"
+Group existence check passed for "dba"
+Membership check for user "oracle" in group "oinstall" [as Primary] passed
+Membership check for user "oracle" in group "dba" passed
+Run level check passed
+Hard limits check passed for "maximum open file descriptors"
+Soft limits check passed for "maximum open file descriptors"
+Hard limits check passed for "maximum user processes"
+Soft limits check passed for "maximum user processes"
+System architecture check passed
+Kernel version check passed
+Kernel parameter check passed for "semmsl"
+Kernel parameter check passed for "semmns"
+Kernel parameter check passed for "semopm"
+Kernel parameter check passed for "semmni"
+Kernel parameter check passed for "shmmax"
+Kernel parameter check passed for "shmmni"
+Kernel parameter check passed for "shmall"
+Kernel parameter check passed for "file-max"
+Kernel parameter check passed for "ip_local_port_range"
+Kernel parameter check passed for "rmem_default"
+Kernel parameter check passed for "rmem_max"
+Kernel parameter check passed for "wmem_default"
+Kernel parameter check passed for "wmem_max"
+Kernel parameter check passed for "aio-max-nr"
+Kernel parameter check passed for "panic_on_oops"
+Package existence check passed for "binutils"
+Package existence check passed for "compat-libcap1"
+Package existence check passed for "compat-libstdc++-33(x86_64)"
+Package existence check passed for "libgcc(x86_64)"
+Package existence check passed for "libstdc++(x86_64)"
+Package existence check passed for "libstdc++-devel(x86_64)"
+Package existence check passed for "sysstat"
+Package existence check passed for "gcc"
+Package existence check passed for "gcc-c++"
+Package existence check passed for "ksh"
+Package existence check passed for "make"
+Package existence check passed for "glibc(x86_64)"
+Package existence check passed for "glibc-devel(x86_64)"
+Package existence check passed for "libaio(x86_64)"
+Package existence check passed for "libaio-devel(x86_64)"
+Package existence check passed for "nfs-utils"
+
+Checking availability of ports "6200,6100" required for component "Oracle Notification Service (ONS)"
+Port availability check passed for ports "6200,6100"
+
+Checking availability of ports "42424" required for component "Oracle Cluster Synchronization Services (CSSD)"
+Port availability check passed for ports "42424"
+Check for multiple users with UID value 0 passed
+Current group ID check passed
+
+Starting check for consistency of primary group of root user
+
+Check for consistency of root user's primary group passed
+
+Starting Clock synchronization checks using Network Time Protocol(NTP)...
+No NTP Daemons or Services were found to be running
+
+Clock synchronization check using Network Time Protocol(NTP) passed
+
+Core file name pattern consistency check passed.
+
+User "oracle" is not part of "root" group. Check passed
+Default user file creation mask check passed
+Checking integrity of file "/etc/resolv.conf" across nodes
+
+"domain" and "search" entries do not coexist in any "/etc/resolv.conf" file
+All nodes have same "search" order defined in file "/etc/resolv.conf"
+The DNS response time for an unreachable node is within acceptable limit on all nodes
+checking DNS response from all servers in "/etc/resolv.conf"
+
+Check for integrity of file "/etc/resolv.conf" failed
+
+Time zone consistency check passed
+
+Checking integrity of name service switch configuration file "/etc/nsswitch.conf" ...
+All nodes have same "hosts" entry defined in file "/etc/nsswitch.conf"
+Check for integrity of name service switch configuration file "/etc/nsswitch.conf" passed
+
+
+Checking daemon "avahi-daemon" is not configured and running
+Daemon not configured check passed for process "avahi-daemon"
+Daemon not running check passed for process "avahi-daemon"
+
+Starting check for /dev/shm mounted as temporary file system ...
+
+ERROR:
+
+PRVE-0421 : No entry exists in /etc/fstab for mounting /dev/shm
+PRVE-0421 : No entry exists in /etc/fstab for mounting /dev/shm
+
+Check for /dev/shm mounted as temporary file system failed
+
+Starting check for /boot mount ...
+
+Check for /boot mount passed
+
+Starting check for zeroconf check ...
+
+Check for zeroconf check passed
+
+Pre-check for cluster services setup was unsuccessful on all the nodes.
+</pre>
+<p>
+I have ignored PRVG-11850, PRVG-1172, "total memory check failed" and PRVE-0421 messages.</p>
+<p>Note the important change with respect to 12.1.0.1 RAC prerequisites: the ASM diskgroup to store OCR and voting disk must also store the GIMR database: this implies that the minimum disk size is about 6 GB.</p>
+<p>The 2 cluster node VM are now ready for Grid Infrastructure installation.</p>
