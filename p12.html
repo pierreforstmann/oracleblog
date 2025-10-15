@@ -1,0 +1,231 @@
+<h1></h1>
+<p>For a RAC database using ASM DBCA is using:</p>
+<ul>
+<li>DB_UNIQUE_NAME as database name in cluster registry</li>
+<li>DB_UNIQUE_NAME as ASM directory name for database files</li>
+<li>DB_NAME as directory name for the SPFILE</li>
+<li>INSTANCE_NAME as database identifier in SFPILE name</li>
+</ul>
+<p>For this post I have used Oracle 11.2.0.3 Entreprise Edition under Linux.<br />
+By default DB_UNIQUE_NAME and INSTANCE_NAME (without the instance number) are set to DB_NAME. To check how each instance parameter is used by DBCA you need to create a database using following DBCA script where instance name, database name and database unique name are set to different values:</p>
+<pre>$ dbca \
+ -silent \
+ -nodelist vmoe1,vmoe2 \
+ -createDatabase \
+ -templateName General_Purpose.dbc \
+ -sid IN \
+ -gdbName DBN \
+ -initParams db_unique_name=DBUN \
+ -characterSet AL32UTF8 \
+ -totalMemory 1200 \
+ -SysPassword oracle \
+ -SystemPassword oracle \
+ -emConfiguration NONE \
+ -storageType ASM \
+ -asmSysPassword oracle \
+ -diskGroupName DATA \
+ -recoveryGroupName RECO</pre>
+<p>However if you run this script without any other command, you will get on standard output:</p>
+<pre>Copying database files
+1% complete
+3% complete
+30% complete
+Creating and starting Oracle instance
+32% complete
+36% complete
+40% complete
+44% complete
+45% complete
+48% complete
+50% complete
+Creating cluster database views
+52% complete
+70% complete
+Completing Database Creation
+73% complete
+76% complete
+85% complete
+94% complete
+100% complete
+Look at the log file "/u01/app/base/cfgtoollogs/dbca/DBUN/DBN.log" for further details.</pre>
+<p>It looks OK but DBCA log says something different:</p>
+<pre>Copying database files
+DBCA_PROGRESS : 1%
+DBCA_PROGRESS : 3%
+DBCA_PROGRESS : 30%
+Creating and starting Oracle instance
+DBCA_PROGRESS : 32%
+DBCA_PROGRESS : 36%
+DBCA_PROGRESS : 40%
+DBCA_PROGRESS : 44%
+DBCA_PROGRESS : 45%
+DBCA_PROGRESS : 48%
+DBCA_PROGRESS : 50%
+Creating cluster database views
+DBCA_PROGRESS : 52%
+DBCA_PROGRESS : 70%
+Completing Database Creation
+DBCA_PROGRESS : 73%
+DBCA_PROGRESS : 76%
+DBCA_PROGRESS : 85%
+ORA-17502: ksfdcre:4 Failed to create file +DATA/DBN/spfileIN.ora
+ORA-15173: entry 'DBN' does not exist in directory '/'
+
+PRCR-1079 : Failed to start resource ora.dbun.db
+CRS-5017: The resource action "ora.dbun.db start" encountered the following error:
+ORA-01078: failure in processing system parameters
+ORA-01565: error in identifying file '+DATA/DBN/spfileIN.ora'
+ORA-17503: ksfdopn:2 Failed to open file +DATA/DBN/spfileIN.ora
+ORA-15056: additional error message
+ORA-17503: ksfdopn:2 Failed to open file +DATA/dbn/spfilein.ora
+ORA-15173: entry 'dbn' does not exist in directory '/'
+ORA-06512: at line 4
+. For details refer to "(:CLSN00107:)" in "/u01/app/grid/product/11.2.0.3/log/vmoe2/agent/crsd/oraagent_oracle/oraagent_oracle.log".
+
+CRS-2674: Start of 'ora.dbun.db' on 'vmoe2' failed
+CRS-5017: The resource action "ora.dbun.db start" encountered the following error:
+ORA-01078: failure in processing system parameters
+ORA-01565: error in identifying file '+DATA/DBN/spfileIN.ora'
+ORA-17503: ksfdopn:2 Failed to open file +DATA/DBN/spfileIN.ora
+ORA-15056: additional error message
+ORA-17503: ksfdopn:2 Failed to open file +DATA/dbn/spfilein.ora
+ORA-15173: entry 'dbn' does not exist in directory '/'
+ORA-06512: at line 4
+. For details refer to "(:CLSN00107:)" in "/u01/app/grid/product/11.2.0.3/log/vmoe1/agent/crsd/oraagent_oracle/oraagent_oracle.log".
+
+CRS-2632: There are no more servers to try to place resource 'ora.dbun.db' on that would satisfy its placement policy
+CRS-2674: Start of 'ora.dbun.db' on 'vmoe1' failed
+ORA-01078: failure in processing system parameters
+ORA-01565: error in identifying file '+DATA/DBN/spfileIN.ora'
+ORA-17503: ksfdopn:2 Failed to open file +DATA/DBN/spfileIN.ora
+ORA-15056: additional error message
+ORA-17503: ksfdopn:2 Failed to open file +DATA/dbn/spfilein.ora
+ORA-15173: entry 'dbn' does not exist in directory '/'
+ORA-06512: at line 4
+
+ORA-01034: ORACLE not available
+
+DBCA_PROGRESS : 94%
+DBCA_PROGRESS : 100%
+Database creation complete. For details check the logfiles at:
+ /u01/app/base/cfgtoollogs/dbca/DBUN.
+Database Information:
+Global Database Name:DBUN
+System Identifier(SID) Prefix:IN</pre>
+<p>To avoid this bug you need to pre-create the missing directory. So first remove existing database.<br />
+First with ASMCMD:</p>
+<pre>$ asmcmd rm -rf +DATA/DBUN
+$ asmcmd rm -rf +RECO/DBUN</pre>
+<p>Then with SRVCTL:</p>
+<pre>$ srvctl remove database -d DBUN -f</pre>
+<p>Retry DBCA after creating the missing directory with ASMCMD:</p>
+<pre>$ asmcmd mkdir +DATA/DBN</pre>
+<p>Now we have:</p>
+<pre>$ ./crdbu.ksh
++ dbca -silent -nodelist vmoe1,vmoe2 -createDatabase -templateName General_Purpose.dbc -sid IN -gdbName DBN -initParams db_unique_name=DBUN -characterSet AL32UTF8 -totalMemory 1200 -SysPassword oracle -SystemPassword oracle -emConfiguration NONE -storageType ASM -asmSysPassword oracle -diskGroupName DATA -recoveryGroupName RECO
+Copying database files
+1% complete
+3% complete
+30% complete
+Creating and starting Oracle instance
+32% complete
+36% complete
+40% complete
+44% complete
+45% complete
+48% complete
+50% complete
+Creating cluster database views
+52% complete
+70% complete
+Completing Database Creation
+73% complete
+76% complete
+85% complete
+94% complete
+100% complete
+Look at the log file "/u01/app/base/cfgtoollogs/dbca/DBUN/DBN0.log" for further details.
+$ cat "/u01/app/base/cfgtoollogs/dbca/DBUN/DBN0.log"
+Copying database files
+DBCA_PROGRESS : 1%
+DBCA_PROGRESS : 3%
+DBCA_PROGRESS : 30%
+Creating and starting Oracle instance
+DBCA_PROGRESS : 32%
+DBCA_PROGRESS : 36%
+DBCA_PROGRESS : 40%
+DBCA_PROGRESS : 44%
+DBCA_PROGRESS : 45%
+DBCA_PROGRESS : 48%
+DBCA_PROGRESS : 50%
+Creating cluster database views
+DBCA_PROGRESS : 52%
+DBCA_PROGRESS : 70%
+Completing Database Creation
+DBCA_PROGRESS : 73%
+DBCA_PROGRESS : 76%
+DBCA_PROGRESS : 85%
+DBCA_PROGRESS : 94%
+DBCA_PROGRESS : 100%
+Database creation complete. For details check the logfiles at:
+ /u01/app/base/cfgtoollogs/dbca/DBUN.
+Database Information:
+Global Database Name:DBUN
+System Identifier(SID) Prefix:IN</pre>
+<p>The database has been created without any error.<br />
+SRVCTL shows how DB_UNIQUE_NAME, DB_NAME and INSTANCE_NAME have been used to identify database and to name SPFILE:</p>
+<pre>$ srvctl config database -d DBUN
+Database unique name: DBUN
+Database name: DBN
+Oracle home: /u01/app/oracle/product/11.2.0.3
+Oracle user: oracle
+Spfile: +DATA/DBN/spfileIN.ora
+Domain:
+Start options: open
+Stop options: immediate
+Database role: PRIMARY
+Management policy: AUTOMATIC
+Server pools: DBUN
+Database instances: IN1,IN2
+Disk Groups: DATA,RECO
+Mount point paths:
+Services:
+Type: RAC
+Database is administrator managed</pre>
+<p>SQL*Plus shows how DB_UNIQUE_NAME is used in database file names:</p>
+<pre>SYS@IN1 &gt; select name from v$datafile;
+
+NAME
+--------------------------------------------------------------------------------
++DATA/dbun/datafile/system.302.842551025
++DATA/dbun/datafile/sysaux.294.842551025
++DATA/dbun/datafile/undotbs1.305.842551025
++DATA/dbun/datafile/users.296.842551025
++DATA/dbun/datafile/undotbs2.303.842551227
+
+SYS@IN1 &gt; select name from v$controlfile;
+
+NAME
+--------------------------------------------------------------------------------
++DATA/dbun/controlfile/current.306.842551091
++RECO/dbun/controlfile/current.322.842551091
+
+SYS@IN1 &gt; select member from v$logfile;
+
+MEMBER
+--------------------------------------------------------------------------------
++DATA/dbun/onlinelog/group_2.292.842551101
++RECO/dbun/onlinelog/group_2.324.842551103
++DATA/dbun/onlinelog/group_1.304.842551097
++RECO/dbun/onlinelog/group_1.323.842551099
++DATA/dbun/onlinelog/group_3.291.842551329
++RECO/dbun/onlinelog/group_3.325.842551331
++DATA/dbun/onlinelog/group_4.295.842551335
++RECO/dbun/onlinelog/group_4.326.842551337
+
+8 rows selected.</pre>
+<ul>
+<li>DB_UNIQUE_NAME as ASM directory name for database files</li>
+<li>DB_NAME as directory name for the SPFILE</li>
+<li>INSTANCE_NAME as database identifier in SFPILE name</li>
+</ul>
