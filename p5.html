@@ -1,0 +1,143 @@
+<p>Here is how I have installed Oracle Client 12.1.0.1 on Windows 8. Official documentation can be found in <A HREF="http://docs.oracle.com/cd/E16655_01/install.121/e17736/overview.htm#NTCLI1231"> Oracle® Database Client Installation Guide<br />
+12c Release 1 (12.1) for Microsoft Windows</A>.</p>
+<p>First download installation media from <A HREF="http://www.oracle.com/technetwork/database/enterprise-edition/downloads/database12c-win64-download-1968077.html">OTN</A> and unzip into a staging area (assuming 7-Zip is installed in defaut location):</p>
+<pre>
+c:\temp\oc&gt;"c:\program files\7-zip\7z" x winx64_12c_client.zip
+</pre>
+<p>7z output should end with:</p>
+<pre>
+Everything is Ok
+
+Folders: 658
+Files: 1144
+Size:       930848229
+Compressed: 915831969
+</pre>
+<p>Open a command window cmd.exe in administrator mode and to install Oracle Client with Administrator option in C:\oracle\oc121 directory run:</p>
+<pre>
+cd client
+setup -silent "ORACLE_BASE=c:\oracle" "ORACLE_HOME=c:\oracle\oc121" "oracle.install.IsBuiltInAccount=true" "INSTALL_TYPE=Administrator" "oracle.installer.autoupdates.option=SKIP_UPDATES"
+</pre>
+<p>This command displays a new window named "Oracle Universal Installer" where a lot of messages starting with "INFO:" are displayed.<br />
+Make sure that in this new window the following ending messages are displayed:</p>
+<pre>
+The installation of Oracle Client 12c was successful.
+Please check 'C:\Program Files\Oracle\Inventory\logs\silentInstallXXX.log' for more details.
+Successfully Setup Software.
+</pre>
+<p>Check installed version of SQL*Plus:</p>
+<pre>
+c:\temp\oc\client&gt;c:\oracle\oc121\bin\sqlplus.exe -v
+
+SQL*Plus: Release 12.1.0.1.0 Production
+
+</pre>
+<p>If you want to test connection to your 12.1 container database (CDB) named cdb12c running on host ol6twsf, first create a common user named c##admin with:</p>
+<pre>
+SQL&gt; create user c##admin identified by admin;
+
+User created.
+
+SQL&gt; grant dba to c##admin;
+
+Grant succeeded.
+</pre>
+<p>Check that ol6twsf listener is started on default Oracle Net port 1521 and has the right container database service that has the same name as the CDB:</p>
+<pre>
+[oracle@oel6twsf ~]$ lsnrctl status
+
+LSNRCTL for Linux: Version 12.1.0.1.0 - Production on 29-JUL-2013 19:08:20
+
+Copyright (c) 1991, 2013, Oracle.  All rights reserved.
+
+Connecting to (ADDRESS=(PROTOCOL=tcp)(HOST=)(PORT=1521))
+STATUS of the LISTENER
+------------------------
+Alias                     LISTENER
+Version                   TNSLSNR for Linux: Version 12.1.0.1.0 - Production
+Start Date                29-JUL-2013 19:00:59
+Uptime                    0 days 0 hr. 7 min. 21 sec
+Trace Level               off
+Security                  ON: Local OS Authentication
+SNMP                      OFF
+Listener Log File         /u01/app/oracle/diag/tnslsnr/oel6twsf/listener/alert/log.xml
+Listening Endpoints Summary...
+  (DESCRIPTION=(ADDRESS=(PROTOCOL=tcp)(HOST=oel6twsf.localdomain)(PORT=1521)))
+Services Summary...
+Service "cdb12c" has 1 instance(s).
+  Instance "cdb12c", status READY, has 1 handler(s) for this service...
+Service "cdb12cXDB" has 1 instance(s).
+  Instance "cdb12c", status READY, has 1 handler(s) for this service...
+Service "pdb1" has 1 instance(s).
+  Instance "cdb12c", status READY, has 1 handler(s) for this service...
+Service "pdb2" has 1 instance(s).
+  Instance "cdb12c", status READY, has 1 handler(s) for this service...
+The command completed successfully
+[oracle@oel6twsf ~]$
+</pre>
+<p>Check connection to cdb12c database instance with tnsping and Easy Connect syntax (<em>hostname:port number/service name</em>):</p>
+<pre>
+c:\temp\oc\client&gt;c:\oracle\oc121\bin\tnsping ol6twsf:1521/cdb12c
+
+TNS Ping Utility for 64-bit Windows: Version 12.1.0.1.0 - Production on 29-JUL-2013 21:02:08
+
+Copyright (c) 1997, 2013, Oracle.  All rights reserved.
+
+Used parameter files:
+c:\oracle\oc121\network\admin\sqlnet.ora
+
+Used HOSTNAME adapter to resolve the alias
+Attempting to contact (DESCRIPTION=(CONNECT_DATA=(SERVICE_NAME=cdb12c))(ADDRESS=(PROTOCOL=TCP)(HOST=192.168.56.70)(PORT=1521)))
+OK (10 msec)
+</pre>
+<p>Now you can connect to database instance and to CDB root database:</p>
+<pre>
+c:\temp\oc\client&gt;c:\oracle\oc121\bin\sqlplus c##admin/admin@ol6twsf:1521/cdb12c
+
+SQL*Plus: Release 12.1.0.1.0 Production on Mon Jul 29 21:05:45 2013
+
+Copyright (c) 1982, 2013, Oracle.  All rights reserved.
+
+
+Connected to:
+Oracle Database 12c Enterprise Edition Release 12.1.0.1.0 - 64bit Production
+With the Partitioning, OLAP, Advanced Analytics and Real Application Testing options
+
+SQL&gt; select * from v$version;
+
+BANNER
+--------------------------------------------------------------------------------
+    CON_ID
+----------
+Oracle Database 12c Enterprise Edition Release 12.1.0.1.0 - 64bit Production
+         0
+
+PL/SQL Release 12.1.0.1.0 - Production
+         0
+
+CORE    12.1.0.1.0      Production
+         0
+
+
+BANNER
+--------------------------------------------------------------------------------
+    CON_ID
+----------
+TNS for Linux: Version 12.1.0.1.0 - Production
+         0
+
+NLSRTL Version 12.1.0.1.0 - Production
+         0
+
+
+SQL&gt; show con_id
+
+CON_ID
+------------------------------
+1
+SQL&gt; show con_name
+
+CON_NAME
+------------------------------
+CDB$ROOT
+</pre>
