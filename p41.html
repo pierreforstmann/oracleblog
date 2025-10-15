@@ -1,0 +1,1529 @@
+<p>This post documents how to install a 2-node Oracle RAC cluster with Oracle 12.1.0.2 SE2 on Oracle Linux 6.7 (OL6) with VirtualBox (VBOX) 5.0.4 on Windows 8.1. </p>
+<p><a href="https://pierreforstmanndotcom.wordpress.com/2015/09/14/how-to-install-oracle-rac-12-1-0-2-standard-edition-2-se2-in-silent-mode-on-oracle-linux-6-7-with-virtualbox-part-1/" />Part 1</a> details Linux installation and configuration and part 2 details Oracle software installation (Grid Infrastructure (GI), Oracle Database) and database creation.<br />
+<br />
+In this article GIMR stands for Grid Infrastructure Management Repository.</p>
+<p>Disclaimer: this is only an example that can be used to setup a lab or test system: it is not designed to be used for production purpose.<br />
+</p>
+<h2> Grid Infrastructure silent installation </h2>
+<p>I have created ORACLE_BASE and ORACLE_HOME target directories on both nodes:</p>
+<pre>
+# mkdir -p /u01/app/base
+# chown oracle:dba /u01/app/base
+# mkdir -p  /u01/app/12.1.0.2/grid
+# chown oracle:oinstall /u01/app/12.1.0.2/grid
+# chmod -R 775 /u01
+</pre>
+<p>I have created <b>/etc/oraInst.loc</b> to define Oracle Inventory location on both nodes:</p>
+<pre>
+# mkdir  /u01/app/oraInventory
+# cat /etc/oraInst.loc
+inventory_loc=/u01/app/oraInventory
+inst_group=oinstall
+# ls -al /u01/app/oraInventory
+total 0
+drwxr-xr-x 2 root root  6 Apr  6 14:16 .
+drwxrwxr-x 5 root root 51 Apr  6 14:16 ..
+# chown oracle:oinstall /u01/app/oraInventory
+#
+</pre>
+<p>I have created following script to run OUI in silent mode:</p>
+<pre>
+rm -rf /u01/app/oraInventory/*
+rm -rf /tmp/Ora*
+rm -rf /tmp/deinstall*
+rm -rf /tmp/CVU*
+cd grid
+export DISTRIB=`pwd`
+./runInstaller -silent         \
+       -responseFile $DISTRIB/response/grid_install.rsp        \
+       INVENTORY_LOCATION=/u01/app/oraInventory                \
+       SELECTED_LANGUAGES=en                                   \
+       oracle.install.option=CRS_CONFIG                        \
+       ORACLE_BASE=/u01/app/base/                              \
+       ORACLE_HOME=/u01/app/12.1.0.2/grid                      \
+       oracle.install.asm.OSDBA=dba                            \
+       oracle.install.asm.OSOPER=dba                           \
+       oracle.install.asm.OSASM=dba                            \
+       oracle.install.crs.config.gpnp.scanName=ol6toc-scan.localdomain \
+       oracle.install.crs.config.gpnp.scanPort=1521            \
+       oracle.install.crs.config.clusterName=ol6toc            \
+       oracle.install.crs.config.gpnp.configureGNS=false       \
+       oracle.install.crs.config.clusterNodes=ol6tocn1:ol6tocn1-vip,ol6tocn2:ol6tocn2-vip \
+       oracle.install.crs.config.networkInterfaceList=eth0:192.168.56.0:1,eth1:192.168.43.0:2 \
+       oracle.install.crs.config.storageOption=ASM_STORAGE     \
+       oracle.install.crs.config.useIPMI=false                 \
+       oracle.install.asm.SYSASMPassword=oracle12c              \
+       oracle.install.asm.diskGroup.diskDiscoveryString=ORCL:ASM* \
+       oracle.install.asm.diskGroup.name=OCRVD                 \
+       oracle.install.asm.diskGroup.disks=ORCL:ASM1            \
+       oracle.install.asm.diskGroup.redundancy=EXTERNAL        \
+       oracle.install.asm.monitorPassword=oracle12c            \
+       -waitForCompletion                           
+</pre>
+<p>The above script is using following variables defined in <b>./grid/response/grid_install.rsp</b> response file:</p>
+<table border="2">
+<th>parameter name</th>
+<th>description</th>
+<tr>
+<td>INVENTORY_LOCATION</td>
+<td>Directory where Oracle Inventory will be stored. Must match <b>/etc/oraInst.loc</b> contents.</td>
+</tr>
+<tr>
+<td>oracle.install.option</td>
+<td>Must be set to CRS_CONFIG for Grid Infrastructure for cluster.</td>
+</tr>
+<tr>
+<td>oracle.install.crs.config.gpnp.scanName</td>
+<td>Must be set to DNS alias for the 3 SCAN listener adresses.</td>
+</tr>
+<td>oracle.install.crs.config.gpnp.scanPort</td>
+<td>Must be to set to TCP port to be used by SCAN listener.</td>
+</tr>
+<tr>
+<td>oracle.install.crs.config.clusterName</td>
+<td>No dependency for this name. Will be used as PDB name in GIMR database and returned by cemutlo command.</td>
+</tr>
+<tr>
+<td>oracle.install.crs.config.gpnp.configureGNS</td>
+<td>Must be set to FALSE to <u>not</u> use Grid Naming Service (GNS).</td>
+</tr>
+<tr>
+<td>oracle.install.crs.config.clusterNodes</td>
+<td>Must be set to <i>public-hostname</i>:<i>vip-hostname</i> comma separated host name list (excluding flex ASM case).</td>
+</tr>
+<tr>
+<td>oracle.install.crs.config.networkInterfaceList</td>
+<td>Must be set to <i>network-interface</i>:<i>network-interface-subnet</i>:<i>network-interface_type</i> comma separated strings <br />where <i>network-interface_type</i> must be set to 1 for public interface and to 2 for private interface (interconnect).</td>
+<tr>
+<td>oracle.install.crs.config.storageOption</td>
+<td>Set to ASM_STORAGE for OCR and voting disk.</td>
+</tr>
+<tr>
+<td>oracle.install.crs.config.useIPMI</td>
+<td>Must be set to FALSE to <u>not</u> use Intelligent Power Management Interface.</td>
+</tr>
+<tr>
+<td>oracle.install.asm.SYSASMPassword</td>
+<td>Must be set to SYS password for ASM instance.</td>
+</tr>
+<tr>
+<td>oracle.install.asm.diskGroup.diskDiscoveryString</td>
+<td>Used to set ASM instance ASM_DISKSTRING parameter.</td>
+</tr>
+<tr>
+<td>oracle.install.asm.diskGroup.name</td>
+<td>Name of ASM disk group used for OCR, voting disk and GIMR database.</td>
+</tr>
+<tr>
+<td>oracle.install.asm.diskGroup.disks</td>
+<td>Comma separated ASM disk names list to be used for above ASM disk group.</td>
+</tr>
+<tr>
+<td>oracle.install.asm.diskGroup.redundancy</td>
+<td>Disk group redundancy used by above ASM disk group.</td>
+</tr>
+<tr>
+<td>oracle.install.asm.monitorPassword</td>
+<td>Must be set to ASMSNMP password for ASM instance.</td>
+</tr>
+</table>
+<p>Running this script has given following output:</p>
+<pre>
+Starting Oracle Universal Installer...
+
+Checking Temp space: must be greater than 415 MB.   Actual 26946 MB    Passed
+Checking swap space: must be greater than 150 MB.   Actual 3967 MB    Passed
+Preparing to launch Oracle Universal Installer from /tmp/OraInstall2015-09-13_01-07-30PM. Please wait ...
+[WARNING] [INS-30011] The SYS password entered does not conform to the Oracle recommended standards.
+   CAUSE: Oracle recommends that the password entered should be at least 8 characters in length, contain at least 1 uppercase character, 1 lower case character and 1 digit [0-9].
+   ACTION: Provide a password that conforms to the Oracle recommended standards.
+[WARNING] [INS-30011] The ASMSNMP password entered does not conform to the Oracle recommended standards.
+   CAUSE: Oracle recommends that the password entered should be at least 8 characters in length, contain at least 1 uppercase character, 1 lower case character and 1 digit [0-9].
+   ACTION: Provide a password that conforms to the Oracle recommended standards.
+[WARNING] [INS-41808] Possible invalid choice for OSASM Group.
+   CAUSE: The name of the group you selected for the OSASM group is commonly used to grant other system privileges (For example: asmdba, asmoper, dba, oper).
+   ACTION: Oracle recommends that you designate asmadmin as the OSASM group.
+[WARNING] [INS-41809] Possible invalid choice for OSDBA Group.
+   CAUSE: The group name you selected as the OSDBA for ASM group is commonly used for Oracle Database administrator privileges.
+   ACTION: Oracle recommends that you designate asmdba as the OSDBA for ASM group, and that the group should not be the same group as an Oracle Database OSDBA group.
+[WARNING] [INS-41810] Possible invalid choice for OSOPER Group.
+   CAUSE: The group name you selected as the OSOPER for ASM group is commonly used for Oracle Database administrator privileges.
+   ACTION: Oracle recommends that you designate asmoper as the OSOPER for ASM group, and that the group should not be the same group as an Oracle Database OSOPER group.
+[WARNING] [INS-41813] OSDBA for ASM, OSOPER for ASM, and OSASM are the same OS group.
+   CAUSE: The group you selected for granting the OSDBA for ASM group for database access, and the OSOPER for ASM group for startup and shutdown of Oracle ASM, is the same group as the OSASM group, whose members have SYSASM privileges on Oracle ASM.
+   ACTION: Choose different groups as the OSASM, OSDBA for ASM, and OSOPER for ASM groups.
+[WARNING] [INS-13014] Target environment does not meet some optional requirements.
+   CAUSE: Some of the optional prerequisites are not met. See logs for details. /u01/app/oraInventory/logs/installActions2015-09-13_01-07-30PM.log
+   ACTION: Identify the list of failed prerequisite checks from the log: /u01/app/oraInventory/logs/installActions2015-09-13_01-07-30PM.log. Then either from the log file or from installation manual find the appropriate configuration to meet the prerequisites and fix it manually.
+You can find the log of this install session at:
+ /u01/app/oraInventory/logs/installActions2015-09-13_01-07-30PM.log
+The installation of Oracle Grid Infrastructure 12c was successful.
+Please check '/u01/app/oraInventory/logs/silentInstall2015-09-13_01-07-30PM.log' for more details.
+
+As a root user, execute the following script(s):
+        1. /u01/app/12.1.0.2/grid/root.sh
+
+Execute /u01/app/12.1.0.2/grid/root.sh on the following nodes:
+[ol6tocn1, ol6tocn2]
+
+Run the script on the local node first. After successful completion, you can start the script in parallel on all other nodes.
+
+Successfully Setup Software.
+As install user, execute the following script to complete the configuration.
+        1. /u01/app/12.1.0.2/grid/cfgtoollogs/configToolAllCommands RESPONSE_FILE=
+
+        Note:
+        1. This script must be run on the same host from where installer was run.
+        2. This script needs a small password properties file for configuration assistants that require passwords (refer to install guide documentation).
+
+
+</pre>
+<p>I have ignored above INS-XXX warnings and following failed prerequisites:</p>
+<pre>
+INFO: ------------------List of failed Tasks------------------
+INFO: *********************************************
+INFO: Package: cvuqdisk-1.0.9-1: This is a prerequisite condition to test whether the package "cvuqdisk-1.0.9-1" is available on the system.
+INFO: Severity:IGNORABLE
+INFO: OverallStatus:VERIFICATION_FAILED
+INFO: *********************************************
+INFO: Physical Memory: This is a prerequisite condition to test whether the system has at least 4GB (4194304.0KB) of total physical memory.
+INFO: Severity:IGNORABLE
+INFO: OverallStatus:VERIFICATION_FAILED
+INFO: -----------------End of failed Tasks List----------------
+</pre>
+<p>On  first cluster node I have run root.sh:</p>
+<pre>
+# /u01/app/12.1.0.2/grid/root.sh
+Check /u01/app/12.1.0.2/grid/install/root_ol6tocn1.localdomain_2015-09-13_13-26-40.log for the output of root script
+#
+</pre>
+<p>Corresponding log is:</p>
+<pre>
+# cat /u01/app/12.1.0.2/grid/install/root_ol6tocn1.localdomain_2015-09-13_13-26-40.log
+Performing root user operation.
+
+The following environment variables are set as:
+    ORACLE_OWNER= oracle
+    ORACLE_HOME=  /u01/app/12.1.0.2/grid
+   Copying dbhome to /usr/local/bin ...
+   Copying oraenv to /usr/local/bin ...
+   Copying coraenv to /usr/local/bin ...
+
+
+Creating /etc/oratab file...
+Entries will be added to the /etc/oratab file as needed by
+Database Configuration Assistant when a database is created
+Finished running generic part of root script.
+Now product-specific root actions will be performed.
+Using configuration parameter file: /u01/app/12.1.0.2/grid/crs/install/crsconfig_params
+2015/09/13 13:26:41 CLSRSC-4001: Installing Oracle Trace File Analyzer (TFA) Collector.
+
+2015/09/13 13:27:10 CLSRSC-4002: Successfully installed Oracle Trace File Analyzer (TFA) Collector.
+
+2015/09/13 13:27:11 CLSRSC-363: User ignored prerequisites during installation
+
+OLR initialization - successful
+  root wallet
+  root wallet cert
+  root cert export
+  peer wallet
+  profile reader wallet
+  pa wallet
+  peer wallet keys
+  pa wallet keys
+  peer cert request
+  pa cert request
+  peer cert
+  pa cert
+  peer root cert TP
+  profile reader root cert TP
+  pa root cert TP
+  peer pa cert TP
+  pa peer cert TP
+  profile reader pa cert TP
+  profile reader peer cert TP
+  peer user cert
+  pa user cert
+2015/09/13 13:27:57 CLSRSC-330: Adding Clusterware entries to file 'oracle-ohasd.conf'
+
+CRS-4133: Oracle High Availability Services has been stopped.
+CRS-4123: Oracle High Availability Services has been started.
+CRS-4133: Oracle High Availability Services has been stopped.
+CRS-4123: Oracle High Availability Services has been started.
+CRS-2672: Attempting to start 'ora.evmd' on 'ol6tocn1'
+CRS-2672: Attempting to start 'ora.mdnsd' on 'ol6tocn1'
+CRS-2676: Start of 'ora.mdnsd' on 'ol6tocn1' succeeded
+CRS-2676: Start of 'ora.evmd' on 'ol6tocn1' succeeded
+CRS-2672: Attempting to start 'ora.gpnpd' on 'ol6tocn1'
+CRS-2676: Start of 'ora.gpnpd' on 'ol6tocn1' succeeded
+CRS-2672: Attempting to start 'ora.cssdmonitor' on 'ol6tocn1'
+CRS-2672: Attempting to start 'ora.gipcd' on 'ol6tocn1'
+CRS-2676: Start of 'ora.cssdmonitor' on 'ol6tocn1' succeeded
+CRS-2676: Start of 'ora.gipcd' on 'ol6tocn1' succeeded
+CRS-2672: Attempting to start 'ora.cssd' on 'ol6tocn1'
+CRS-2672: Attempting to start 'ora.diskmon' on 'ol6tocn1'
+CRS-2676: Start of 'ora.diskmon' on 'ol6tocn1' succeeded
+CRS-2676: Start of 'ora.cssd' on 'ol6tocn1' succeeded
+
+ASM created and started successfully.
+
+Disk Group OCRVD created successfully.
+
+CRS-2672: Attempting to start 'ora.crf' on 'ol6tocn1'
+CRS-2672: Attempting to start 'ora.storage' on 'ol6tocn1'
+CRS-2676: Start of 'ora.storage' on 'ol6tocn1' succeeded
+CRS-2676: Start of 'ora.crf' on 'ol6tocn1' succeeded
+CRS-2672: Attempting to start 'ora.crsd' on 'ol6tocn1'
+CRS-2676: Start of 'ora.crsd' on 'ol6tocn1' succeeded
+CRS-4256: Updating the profile
+Successful addition of voting disk 6f18d0a5baa04f90bfe558af71f5224c.
+Successfully replaced voting disk group with +OCRVD.
+CRS-4256: Updating the profile
+CRS-4266: Voting file(s) successfully replaced
+##  STATE    File Universal Id                File Name Disk group
+--  -----    -----------------                --------- ---------
+ 1. ONLINE   6f18d0a5baa04f90bfe558af71f5224c (ORCL:ASM1) [OCRVD]
+Located 1 voting disk(s).
+CRS-2791: Starting shutdown of Oracle High Availability Services-managed resources on 'ol6tocn1'
+CRS-2673: Attempting to stop 'ora.crsd' on 'ol6tocn1'
+CRS-2677: Stop of 'ora.crsd' on 'ol6tocn1' succeeded
+CRS-2673: Attempting to stop 'ora.crf' on 'ol6tocn1'
+CRS-2673: Attempting to stop 'ora.mdnsd' on 'ol6tocn1'
+CRS-2673: Attempting to stop 'ora.gpnpd' on 'ol6tocn1'
+CRS-2673: Attempting to stop 'ora.drivers.acfs' on 'ol6tocn1'
+CRS-2677: Stop of 'ora.drivers.acfs' on 'ol6tocn1' succeeded
+CRS-2677: Stop of 'ora.crf' on 'ol6tocn1' succeeded
+CRS-2673: Attempting to stop 'ora.ctssd' on 'ol6tocn1'
+CRS-2673: Attempting to stop 'ora.evmd' on 'ol6tocn1'
+CRS-2673: Attempting to stop 'ora.storage' on 'ol6tocn1'
+CRS-2677: Stop of 'ora.gpnpd' on 'ol6tocn1' succeeded
+CRS-2677: Stop of 'ora.mdnsd' on 'ol6tocn1' succeeded
+CRS-2677: Stop of 'ora.storage' on 'ol6tocn1' succeeded
+CRS-2673: Attempting to stop 'ora.asm' on 'ol6tocn1'
+CRS-2677: Stop of 'ora.ctssd' on 'ol6tocn1' succeeded
+CRS-2677: Stop of 'ora.evmd' on 'ol6tocn1' succeeded
+CRS-2677: Stop of 'ora.asm' on 'ol6tocn1' succeeded
+CRS-2673: Attempting to stop 'ora.cluster_interconnect.haip' on 'ol6tocn1'
+CRS-2677: Stop of 'ora.cluster_interconnect.haip' on 'ol6tocn1' succeeded
+CRS-2673: Attempting to stop 'ora.cssd' on 'ol6tocn1'
+CRS-2677: Stop of 'ora.cssd' on 'ol6tocn1' succeeded
+CRS-2673: Attempting to stop 'ora.gipcd' on 'ol6tocn1'
+CRS-2677: Stop of 'ora.gipcd' on 'ol6tocn1' succeeded
+CRS-2793: Shutdown of Oracle High Availability Services-managed resources on 'ol6tocn1' has completed
+CRS-4133: Oracle High Availability Services has been stopped.
+CRS-4123: Starting Oracle High Availability Services-managed resources
+CRS-2672: Attempting to start 'ora.mdnsd' on 'ol6tocn1'
+CRS-2672: Attempting to start 'ora.evmd' on 'ol6tocn1'
+CRS-2676: Start of 'ora.evmd' on 'ol6tocn1' succeeded
+CRS-2676: Start of 'ora.mdnsd' on 'ol6tocn1' succeeded
+CRS-2672: Attempting to start 'ora.gpnpd' on 'ol6tocn1'
+CRS-2676: Start of 'ora.gpnpd' on 'ol6tocn1' succeeded
+CRS-2672: Attempting to start 'ora.gipcd' on 'ol6tocn1'
+CRS-2676: Start of 'ora.gipcd' on 'ol6tocn1' succeeded
+CRS-2672: Attempting to start 'ora.cssdmonitor' on 'ol6tocn1'
+CRS-2676: Start of 'ora.cssdmonitor' on 'ol6tocn1' succeeded
+CRS-2672: Attempting to start 'ora.cssd' on 'ol6tocn1'
+CRS-2672: Attempting to start 'ora.diskmon' on 'ol6tocn1'
+CRS-2676: Start of 'ora.diskmon' on 'ol6tocn1' succeeded
+CRS-2676: Start of 'ora.cssd' on 'ol6tocn1' succeeded
+CRS-2672: Attempting to start 'ora.cluster_interconnect.haip' on 'ol6tocn1'
+CRS-2672: Attempting to start 'ora.ctssd' on 'ol6tocn1'
+CRS-2676: Start of 'ora.ctssd' on 'ol6tocn1' succeeded
+CRS-2676: Start of 'ora.cluster_interconnect.haip' on 'ol6tocn1' succeeded
+CRS-2672: Attempting to start 'ora.asm' on 'ol6tocn1'
+CRS-2676: Start of 'ora.asm' on 'ol6tocn1' succeeded
+CRS-2672: Attempting to start 'ora.storage' on 'ol6tocn1'
+CRS-2676: Start of 'ora.storage' on 'ol6tocn1' succeeded
+CRS-2672: Attempting to start 'ora.crf' on 'ol6tocn1'
+CRS-2676: Start of 'ora.crf' on 'ol6tocn1' succeeded
+CRS-2672: Attempting to start 'ora.crsd' on 'ol6tocn1'
+CRS-2676: Start of 'ora.crsd' on 'ol6tocn1' succeeded
+CRS-6023: Starting Oracle Cluster Ready Services-managed resources
+CRS-6017: Processing resource auto-start for servers: ol6tocn1
+CRS-6016: Resource auto-start has completed for server ol6tocn1
+CRS-6024: Completed start of Oracle Cluster Ready Services-managed resources
+CRS-4123: Oracle High Availability Services has been started.
+2015/09/13 13:33:35 CLSRSC-343: Successfully started Oracle Clusterware stack
+
+CRS-2672: Attempting to start 'ora.OCRVD.dg' on 'ol6tocn1'
+CRS-2676: Start of 'ora.OCRVD.dg' on 'ol6tocn1' succeeded
+Preparing packages for installation...
+cvuqdisk-1.0.9-1
+2015/09/13 13:35:18 CLSRSC-325: Configure Oracle Grid Infrastructure for a Cluster ... succeeded
+
+#
+</pre>
+<p>I have run root.sh on cluster node 2:</p>
+<pre>
+# /u01/app/12.1.0.2/grid/root.sh
+Check /u01/app/12.1.0.2/grid/install/root_ol6tocn2.localdomain_2015-09-13_13-38-36.log for the output of root script
+</pre>
+<p>Corresponding log is :</p>
+<pre>
+# cat /u01/app/12.1.0.2/grid/install/root_ol6tocn2.localdomain_2015-09-13_13-38-36.log
+Performing root user operation.
+
+The following environment variables are set as:
+    ORACLE_OWNER= oracle
+    ORACLE_HOME=  /u01/app/12.1.0.2/grid
+   Copying dbhome to /usr/local/bin ...
+   Copying oraenv to /usr/local/bin ...
+   Copying coraenv to /usr/local/bin ...
+
+
+Creating /etc/oratab file...
+Entries will be added to the /etc/oratab file as needed by
+Database Configuration Assistant when a database is created
+Finished running generic part of root script.
+Now product-specific root actions will be performed.
+Using configuration parameter file: /u01/app/12.1.0.2/grid/crs/install/crsconfig_params
+2015/09/13 13:38:37 CLSRSC-4001: Installing Oracle Trace File Analyzer (TFA) Collector.
+
+2015/09/13 13:39:07 CLSRSC-4002: Successfully installed Oracle Trace File Analyzer (TFA) Collector.
+
+2015/09/13 13:39:08 CLSRSC-363: User ignored prerequisites during installation
+
+OLR initialization - successful
+2015/09/13 13:40:25 CLSRSC-330: Adding Clusterware entries to file 'oracle-ohasd.conf'
+
+CRS-4133: Oracle High Availability Services has been stopped.
+CRS-4123: Oracle High Availability Services has been started.
+CRS-4133: Oracle High Availability Services has been stopped.
+CRS-4123: Oracle High Availability Services has been started.
+CRS-2791: Starting shutdown of Oracle High Availability Services-managed resources on 'ol6tocn2'
+CRS-2673: Attempting to stop 'ora.drivers.acfs' on 'ol6tocn2'
+CRS-2677: Stop of 'ora.drivers.acfs' on 'ol6tocn2' succeeded
+CRS-2793: Shutdown of Oracle High Availability Services-managed resources on 'ol6tocn2' has completed
+CRS-4133: Oracle High Availability Services has been stopped.
+CRS-4123: Starting Oracle High Availability Services-managed resources
+CRS-2672: Attempting to start 'ora.mdnsd' on 'ol6tocn2'
+CRS-2672: Attempting to start 'ora.evmd' on 'ol6tocn2'
+CRS-2676: Start of 'ora.evmd' on 'ol6tocn2' succeeded
+CRS-2676: Start of 'ora.mdnsd' on 'ol6tocn2' succeeded
+CRS-2672: Attempting to start 'ora.gpnpd' on 'ol6tocn2'
+CRS-2676: Start of 'ora.gpnpd' on 'ol6tocn2' succeeded
+CRS-2672: Attempting to start 'ora.gipcd' on 'ol6tocn2'
+CRS-2676: Start of 'ora.gipcd' on 'ol6tocn2' succeeded
+CRS-2672: Attempting to start 'ora.cssdmonitor' on 'ol6tocn2'
+CRS-2676: Start of 'ora.cssdmonitor' on 'ol6tocn2' succeeded
+CRS-2672: Attempting to start 'ora.cssd' on 'ol6tocn2'
+CRS-2672: Attempting to start 'ora.diskmon' on 'ol6tocn2'
+CRS-2676: Start of 'ora.diskmon' on 'ol6tocn2' succeeded
+CRS-2676: Start of 'ora.cssd' on 'ol6tocn2' succeeded
+CRS-2672: Attempting to start 'ora.cluster_interconnect.haip' on 'ol6tocn2'
+CRS-2672: Attempting to start 'ora.ctssd' on 'ol6tocn2'
+CRS-2676: Start of 'ora.ctssd' on 'ol6tocn2' succeeded
+CRS-2676: Start of 'ora.cluster_interconnect.haip' on 'ol6tocn2' succeeded
+CRS-2672: Attempting to start 'ora.asm' on 'ol6tocn2'
+CRS-2676: Start of 'ora.asm' on 'ol6tocn2' succeeded
+CRS-2672: Attempting to start 'ora.storage' on 'ol6tocn2'
+CRS-2676: Start of 'ora.storage' on 'ol6tocn2' succeeded
+CRS-2672: Attempting to start 'ora.crf' on 'ol6tocn2'
+CRS-2676: Start of 'ora.crf' on 'ol6tocn2' succeeded
+CRS-2672: Attempting to start 'ora.crsd' on 'ol6tocn2'
+CRS-2676: Start of 'ora.crsd' on 'ol6tocn2' succeeded
+CRS-6017: Processing resource auto-start for servers: ol6tocn2
+CRS-2673: Attempting to stop 'ora.LISTENER_SCAN1.lsnr' on 'ol6tocn1'
+CRS-2672: Attempting to start 'ora.net1.network' on 'ol6tocn2'
+CRS-2677: Stop of 'ora.LISTENER_SCAN1.lsnr' on 'ol6tocn1' succeeded
+CRS-2676: Start of 'ora.net1.network' on 'ol6tocn2' succeeded
+CRS-2673: Attempting to stop 'ora.scan1.vip' on 'ol6tocn1'
+CRS-2672: Attempting to start 'ora.ons' on 'ol6tocn2'
+CRS-2677: Stop of 'ora.scan1.vip' on 'ol6tocn1' succeeded
+CRS-2672: Attempting to start 'ora.scan1.vip' on 'ol6tocn2'
+CRS-2676: Start of 'ora.scan1.vip' on 'ol6tocn2' succeeded
+CRS-2672: Attempting to start 'ora.LISTENER_SCAN1.lsnr' on 'ol6tocn2'
+CRS-2676: Start of 'ora.ons' on 'ol6tocn2' succeeded
+CRS-2676: Start of 'ora.LISTENER_SCAN1.lsnr' on 'ol6tocn2' succeeded
+CRS-6016: Resource auto-start has completed for server ol6tocn2
+CRS-6024: Completed start of Oracle Cluster Ready Services-managed resources
+CRS-4123: Oracle High Availability Services has been started.
+2015/09/13 13:44:29 CLSRSC-343: Successfully started Oracle Clusterware stack
+
+Preparing packages for installation...
+cvuqdisk-1.0.9-1
+2015/09/13 13:44:46 CLSRSC-325: Configure Oracle Grid Infrastructure for a Cluster ... succeeded
+
+#
+</pre>
+<p>I have checked that GI is running on both cluster nodes:</p>
+<pre>
+$ . oraenv
+ORACLE_SID = [oracle] ? +ASM1
+The Oracle base has been set to /u01/app/base
+$ crsctl stat res -t
+--------------------------------------------------------------------------------
+Name           Target  State        Server                   State details
+--------------------------------------------------------------------------------
+Local Resources
+--------------------------------------------------------------------------------
+ora.LISTENER.lsnr
+               ONLINE  ONLINE       ol6tocn1                 STABLE
+               ONLINE  ONLINE       ol6tocn2                 STABLE
+ora.OCRVD.dg
+               ONLINE  ONLINE       ol6tocn1                 STABLE
+               ONLINE  ONLINE       ol6tocn2                 STABLE
+ora.asm
+               ONLINE  ONLINE       ol6tocn1                 Started,STABLE
+               ONLINE  ONLINE       ol6tocn2                 Started,STABLE
+ora.net1.network
+               ONLINE  ONLINE       ol6tocn1                 STABLE
+               ONLINE  ONLINE       ol6tocn2                 STABLE
+ora.ons
+               ONLINE  ONLINE       ol6tocn1                 STABLE
+               ONLINE  ONLINE       ol6tocn2                 STABLE
+--------------------------------------------------------------------------------
+Cluster Resources
+--------------------------------------------------------------------------------
+ora.LISTENER_SCAN1.lsnr
+      1        ONLINE  ONLINE       ol6tocn2                 STABLE
+ora.LISTENER_SCAN2.lsnr
+      1        ONLINE  ONLINE       ol6tocn1                 STABLE
+ora.LISTENER_SCAN3.lsnr
+      1        ONLINE  ONLINE       ol6tocn1                 STABLE
+ora.MGMTLSNR
+      1        OFFLINE OFFLINE                               STABLE
+ora.cvu
+      1        ONLINE  ONLINE       ol6tocn1                 STABLE
+ora.oc4j
+      1        ONLINE  ONLINE       ol6tocn1                 STABLE
+ora.ol6tocn1.vip
+      1        ONLINE  ONLINE       ol6tocn1                 STABLE
+ora.ol6tocn2.vip
+      1        ONLINE  ONLINE       ol6tocn2                 STABLE
+ora.scan1.vip
+      1        ONLINE  ONLINE       ol6tocn2                 STABLE
+ora.scan2.vip
+      1        ONLINE  ONLINE       ol6tocn1                 STABLE
+ora.scan3.vip
+      1        ONLINE  ONLINE       ol6tocn1                 STABLE
+--------------------------------------------------------------------------------
+$
+</pre>
+<p>I have checked that OCR and voting disks have been created in the right disk group named +OCRVD:</p>
+<pre>
+$ ocrcheck
+Status of Oracle Cluster Registry is as follows :
+         Version                  :          4
+         Total space (kbytes)     :     409568
+         Used space (kbytes)      :       1496
+         Available space (kbytes) :     408072
+         ID                       : 1224152755
+         Device/File Name         :     +OCRVD
+                                    Device/File integrity check succeeded
+
+                                    Device/File not configured
+
+                                    Device/File not configured
+
+                                    Device/File not configured
+
+                                    Device/File not configured
+
+         Cluster registry integrity check succeeded
+
+         Logical corruption check bypassed due to non-privileged user
+
+$ crsctl query css votedisk
+##  STATE    File Universal Id                File Name Disk group
+--  -----    -----------------                --------- ---------
+ 1. ONLINE   6f18d0a5baa04f90bfe558af71f5224c (ORCL:ASM1) [OCRVD]
+Located 1 voting disk(s).
+$
+</pre>
+<p>I have run the last GI configuration scripts after creating the required response file that contains SYS password and ASMSNMP password for ASM instance:</p>
+<pre>
+$ cat p.r
+oracle.assistants.asm|S_ASMPASSWORD=oracle12c
+oracle.assistants.asm|S_ASMMONITORPASSWORD=oracle12c
+</pre>
+<p>I have run it with oracle user account:</p>
+<pre>
+$ /u01/app/12.1.0.2/grid/cfgtoollogs/configToolAllCommands RESPONSE_FILE=p.r
+</pre>
+<p>Running this script generates a large log file with many INFO and WARNING messages.<br />
+The most important message is the one displayed at the end:</p>
+<pre>
+...
+You can see the log file: /u01/app/12.1.0.2/grid/cfgtoollogs/oui/configActions2015-09-13_01-54-20-PM.log
+</pre>
+<p>I have ignored  all warnings and checked <a href="https://pierreforstmanndotcom.wordpress.com/configactions2015-09-13_01-54-20-pm-log"> in the second log file</a><br />
+that each plug-in has been successfully performed with:</p>
+<pre>
+$ grep plug-in  /u01/app/12.1.0.2/grid/cfgtoollogs/oui/configActions2015-09-13_01-54-20-PM.log
+The plug-in Update CRS flag in Inventory is running
+The plug-in Update CRS flag in Inventory has successfully been performed
+The plug-in Oracle Net Configuration Assistant is running
+The plug-in Oracle Net Configuration Assistant has successfully been performed
+The plug-in Automatic Storage Management Configuration Assistant is running
+The plug-in Automatic Storage Management Configuration Assistant has successfully been performed
+The plug-in Creating Container Database for Oracle Grid Infrastructure Management Repository is running
+The plug-in Creating Container Database for Oracle Grid Infrastructure Management Repository has successfully been performed
+The plug-in Setting up Oracle Grid Infrastructure Management Repository is running
+The plug-in Setting up Oracle Grid Infrastructure Management Repository has successfully been performed
+The plug-in MGMT Configuration Assistant is running
+The plug-in MGMT Configuration Assistant has successfully been performed
+The plug-in Oracle Cluster Verification Utility is running
+The plug-in Oracle Cluster Verification Utility has successfully been performed
+$
+</pre>
+<p>I  have checked that the ora.MGMTLSNR and ora.mgmtdb resources are now online:</p>
+<pre>
+$ crsctl stat res -t
+--------------------------------------------------------------------------------
+Name           Target  State        Server                   State details
+--------------------------------------------------------------------------------
+Local Resources
+--------------------------------------------------------------------------------
+ora.LISTENER.lsnr
+               ONLINE  ONLINE       ol6tocn1                 STABLE
+               ONLINE  ONLINE       ol6tocn2                 STABLE
+ora.OCRVD.dg
+               ONLINE  ONLINE       ol6tocn1                 STABLE
+               ONLINE  ONLINE       ol6tocn2                 STABLE
+ora.asm
+               ONLINE  ONLINE       ol6tocn1                 Started,STABLE
+               ONLINE  ONLINE       ol6tocn2                 Started,STABLE
+ora.net1.network
+               ONLINE  ONLINE       ol6tocn1                 STABLE
+               ONLINE  ONLINE       ol6tocn2                 STABLE
+ora.ons
+               ONLINE  ONLINE       ol6tocn1                 STABLE
+               ONLINE  ONLINE       ol6tocn2                 STABLE
+--------------------------------------------------------------------------------
+Cluster Resources
+--------------------------------------------------------------------------------
+ora.LISTENER_SCAN1.lsnr
+      1        ONLINE  ONLINE       ol6tocn2                 STABLE
+ora.LISTENER_SCAN2.lsnr
+      1        ONLINE  ONLINE       ol6tocn1                 STABLE
+ora.LISTENER_SCAN3.lsnr
+      1        ONLINE  ONLINE       ol6tocn1                 STABLE
+ora.MGMTLSNR
+      1        ONLINE  ONLINE       ol6tocn1                 169.254.72.152 192.1
+                                                             68.43.41,STABLE
+ora.cvu
+      1        ONLINE  ONLINE       ol6tocn1                 STABLE
+ora.mgmtdb
+      1        ONLINE  ONLINE       ol6tocn1                 Open,STABLE
+ora.oc4j
+      1        ONLINE  ONLINE       ol6tocn1                 STABLE
+ora.ol6tocn1.vip
+      1        ONLINE  ONLINE       ol6tocn1                 STABLE
+ora.ol6tocn2.vip
+      1        ONLINE  ONLINE       ol6tocn2                 STABLE
+ora.scan1.vip
+      1        ONLINE  ONLINE       ol6tocn2                 STABLE
+ora.scan2.vip
+      1        ONLINE  ONLINE       ol6tocn1                 STABLE
+ora.scan3.vip
+      1        ONLINE  ONLINE       ol6tocn1                 STABLE
+--------------------------------------------------------------------------------
+$
+</pre>
+<p>ora.MGMTDB is the new GIMR database that is mandatory with Oracle RAC 12.1.0.2:<br />
+this database and its listener have specific clusterware resource types:</p>
+<pre>
+$ crsctl status resource ora.mgmtdb
+NAME=ora.mgmtdb
+TYPE=ora.mgmtdb.type
+TARGET=ONLINE
+STATE=ONLINE on ol6tocn1
+
+$ crsctl status resource ora.MGMTLSNR
+NAME=ora.MGMTLSNR
+TYPE=ora.mgmtlsnr.type
+TARGET=ONLINE
+STATE=ONLINE on ol6tocn1
+
+$
+
+</pre>
+<p>This new database instance is named -MGMTDB (note the '-' !) on first cluster node. I have set the right environment with: </p>
+<pre>
+$ . oraenv
+ORACLE_SID = [+ASM1] ? -MGMTDB
+The Oracle base remains unchanged with value /u01/app/base
+</pre>
+<p>I have connected with SQL*Plus to check database properties:</p>
+<pre>
+$ sqlplus / as sysdba
+
+SQL*Plus: Release 12.1.0.2.0 Production on Sun Sep 13 14:17:35 2015
+
+Copyright (c) 1982, 2014, Oracle.  All rights reserved.
+
+
+Connected to:
+Oracle Database 12c Enterprise Edition Release 12.1.0.2.0 - 64bit Production
+With the Partitioning, Automatic Storage Management and Advanced Analytics options
+
+SQL&gt; select name, cdb from v$database;
+
+NAME      CDB
+--------- ---
+_MGMTDB   YES
+
+SQL&gt; show parameter instance_name
+
+NAME                                 TYPE        VALUE
+------------------------------------ ----------- ------------------------------
+instance_name                        string      -MGMTDB
+SQL&gt; select con_id, name from v$pdbs;
+
+    CON_ID NAME
+---------- ------------------------------
+         2 PDB$SEED
+         3 OL6TOC
+
+SQL&gt; column name format a110
+SQL&gt; set linesize 120
+SQL&gt; select name from v$datafile union select name from v$tempfile;
+
+NAME
+--------------------------------------------------------------------------------------------------------------
++OCRVD/_MGMTDB/DATAFILE/sysaux.257.890315769
++OCRVD/_MGMTDB/DATAFILE/system.258.890315791
++OCRVD/_MGMTDB/DATAFILE/undotbs1.259.890315807
++OCRVD/_MGMTDB/FD9AC0F7C36E4438E043B6A9E80A24D5/DATAFILE/pdbseed_temp012015-09-13_01-58-13-pm.dbf
++OCRVD/_MGMTDB/FD9AC0F7C36E4438E043B6A9E80A24D5/DATAFILE/sysaux.266.890315875
++OCRVD/_MGMTDB/FD9AC0F7C36E4438E043B6A9E80A24D5/DATAFILE/system.265.890315875
++OCRVD/_MGMTDB/FD9B43BF6A646F8CE043B6A9E80A2815/DATAFILE/ol6toc_temp012015-09-13_02-04-30-pm.dbf
++OCRVD/_MGMTDB/FD9B43BF6A646F8CE043B6A9E80A2815/DATAFILE/sysaux.271.890316173
++OCRVD/_MGMTDB/FD9B43BF6A646F8CE043B6A9E80A2815/DATAFILE/sysgridhomedata.272.890316173
++OCRVD/_MGMTDB/FD9B43BF6A646F8CE043B6A9E80A2815/DATAFILE/sysmgmtdata.269.890316173
++OCRVD/_MGMTDB/FD9B43BF6A646F8CE043B6A9E80A2815/DATAFILE/sysmgmtdatadb.273.890316173
+
+NAME
+--------------------------------------------------------------------------------------------------------------
++OCRVD/_MGMTDB/FD9B43BF6A646F8CE043B6A9E80A2815/DATAFILE/system.270.890316173
++OCRVD/_MGMTDB/FD9B43BF6A646F8CE043B6A9E80A2815/DATAFILE/users.274.890316173
++OCRVD/_MGMTDB/TEMPFILE/temp.264.890315869
+
+14 rows selected.
+
+SQL&gt; select name from v$controlfile;
+
+NAME
+--------------------------------------------------------------------------------------------------------------
++OCRVD/_MGMTDB/CONTROLFILE/current.260.890315849
+
+SQL&gt; select member from v$logfile;
+
+MEMBER
+------------------------------------------------------------------------------------------------------------------------
++OCRVD/_MGMTDB/ONLINELOG/group_3.263.890315857
++OCRVD/_MGMTDB/ONLINELOG/group_2.262.890315855
++OCRVD/_MGMTDB/ONLINELOG/group_1.261.890315853
+
+SQL&gt; archive log list;
+Database log mode              No Archive Mode
+Automatic archival             Disabled
+Archive destination            /u01/app/12.1.0.2/grid/dbs/arch
+Oldest online log sequence     3
+Current log sequence           5
+SQL&gt;
+
+</pre>
+<p>_MGMTDB is a multitenant database with 1 pluggable database using cluster name as name and using OCR and voting disk group storage.<br />
+</p>
+<h2> Oracle Database SE2 silent installation </h2>
+<p>I have uploaded and unzipped the media files in /stage directory:</p>
+<pre>
+$ ls -al *se2*
+-rw-r--r-- 1 oracle oinstall 1673591558 Sep 14 19:41 linuxamd64_12102_database_se2_1of2.zip
+-rw-r--r-- 1 oracle oinstall 1015358809 Sep 14 19:42 linuxamd64_12102_database_se2_2of2.zip
+$ unzip linuxamd64_12102_database_se2_1of2.zip
+$ unzip linuxamd64_12102_database_se2_2of2.zip
+</pre>
+<p>I have created Oracle Home directory on both nodes:</p>
+<pre>
+# mkdir -p /u01/app/12.1.0.2/se2
+# chown oracle:dba /u01/app/12.1.0.2/se2
+</pre>
+<p>On first node I have run following script:</p>
+<pre>
+cd database
+export DISTRIB=`pwd`
+./runInstaller -silent \
+   -responseFile $DISTRIB/response/db_install.rsp      \
+   oracle.install.option=INSTALL_DB_SWONLY             \
+   CLUSTER_NODES=ol6tocn1,ol6tocn2                     \
+   UNIX_GROUP_NAME=oinstall                            \
+   INVENTORY_LOCATION=/u01/app/oraInventory            \
+   SELECTED_LANGUAGES=en                               \
+   ORACLE_HOME=/u01/app/12.1.0.2/se2                   \
+   ORACLE_BASE=/u01/app/base                           \
+   oracle.install.db.InstallEdition=SE2                \
+   oracle.install.db.isCustomInstall=false             \
+   oracle.install.db.DBA_GROUP=dba                     \
+   oracle.install.db.OPER_GROUP=dba                    \
+   oracle.install.db.BACKUPDBA_GROUP=dba               \
+   oracle.install.db.DGDBA_GROUP=dba                   \
+   oracle.install.db.KMDBA_GROUP=dba                   \
+   SECURITY_UPDATES_VIA_MYORACLESUPPORT=false          \
+   DECLINE_SECURITY_UPDATES=true                       \
+   -waitForCompletion
+</pre>
+<p>I have ignored following failed prerequisite:</p>
+<pre>
+INFO: ------------------List of failed Tasks------------------
+INFO: *********************************************
+INFO: Maximum locked memory check: Check maximum locked memory setting on the system
+INFO: Severity:IGNORABLE
+INFO: OverallStatus:VERIFICATION_FAILED
+INFO: -----------------End of failed Tasks List----------------
+</pre>
+<p>Running this script has produced following output:</p>
+<pre>
+Starting Oracle Universal Installer...
+
+Checking Temp space: must be greater than 500 MB.   Actual 14233 MB    Passed
+Checking swap space: must be greater than 150 MB.   Actual 3962 MB    Passed
+Preparing to launch Oracle Universal Installer from /tmp/OraInstall2015-09-14_07-55-34PM. Please wait ...
+[WARNING] [INS-32018] The selected Oracle home is outside of Oracle base.
+   ACTION: Oracle recommends installing Oracle software within the Oracle base directory. Adjust the Oracle home or Oracle base accordingly.
+[WARNING] [INS-13014] Target environment does not meet some optional requirements.
+   CAUSE: Some of the optional prerequisites are not met. See logs for details. /u01/app/oraInventory/logs/installActions2015-09-14_07-55-34PM.log
+   ACTION: Identify the list of failed prerequisite checks from the log: /u01/app/oraInventory/logs/installActions2015-09-14_07-55-34PM.log. Then either from the log file or from installation manual find the appropriate configuration to meet the prerequisites and fix it manually.
+You can find the log of this install session at:
+ /u01/app/oraInventory/logs/installActions2015-09-14_07-55-34PM.log
+The installation of Oracle Database 12c was successful.
+Please check '/u01/app/oraInventory/logs/silentInstall2015-09-14_07-55-34PM.log' for more details.
+
+As a root user, execute the following script(s):
+        1. /u01/app/12.1.0.2/se2/root.sh
+
+Execute /u01/app/12.1.0.2/se2/root.sh on the following nodes:
+[ol6tocn1, ol6tocn2]
+
+
+Successfully Setup Software.
+$
+</pre>
+<p>I have run root.sh on first node ...</p>
+<pre>
+# /u01/app/12.1.0.2/se2/root.sh
+Check /u01/app/12.1.0.2/se2/install/root_ol6tocn1.localdomain_2015-09-14_20-22-53.log for the output of root script
+# cat /u01/app/12.1.0.2/se2/install/root_ol6tocn1.localdomain_2015-09-14_20-22-53.log
+Performing root user operation.
+
+The following environment variables are set as:
+    ORACLE_OWNER= oracle
+    ORACLE_HOME=  /u01/app/12.1.0.2/se2
+   Copying dbhome to /usr/local/bin ...
+   Copying oraenv to /usr/local/bin ...
+   Copying coraenv to /usr/local/bin ...
+
+Entries will be added to the /etc/oratab file as needed by
+Database Configuration Assistant when a database is created
+Finished running generic part of root script.
+Now product-specific root actions will be performed.
+#
+</pre>
+<p>... and on second node:</p>
+<pre>
+# /u01/app/12.1.0.2/se2/root.sh
+Check /u01/app/12.1.0.2/se2/install/root_ol6tocn2.localdomain_2015-09-14_20-23-44.log for the output of root script
+# cat /u01/app/12.1.0.2/se2/install/root_ol6tocn2.localdomain_2015-09-14_20-23-44.log
+Performing root user operation.
+
+The following environment variables are set as:
+    ORACLE_OWNER= oracle
+    ORACLE_HOME=  /u01/app/12.1.0.2/se2
+   Copying dbhome to /usr/local/bin ...
+   Copying oraenv to /usr/local/bin ...
+   Copying coraenv to /usr/local/bin ...
+
+Entries will be added to the /etc/oratab file as needed by
+Database Configuration Assistant when a database is created
+Finished running generic part of root script.
+Now product-specific root actions will be performed.
+#
+</pre>
+<h3>Fast Recovery Area (FRA) disk group creation</h3>
+<p>I have switched to oracle account to create FRA disk group that will be used for database creation.<br />
+<br />
+First I have set current instance to ASM instance on first cluster node:</p>
+<pre>
+$ . oraenv
+ORACLE_SID = [oracle] ? +ASM1
+The Oracle base has been set to /u01/app/base
+$
+</pre>
+<p>I have connected to ASM instance and created disk group using second disk device created during OS configuration steps:</p>
+<pre>
+$ sqlplus / as sysasm
+
+SQL*Plus: Release 12.1.0.2.0 Production on Mon Sep 14 20:25:26 2015
+
+Copyright (c) 1982, 2014, Oracle.  All rights reserved.
+
+
+Connected to:
+Oracle Database 12c Enterprise Edition Release 12.1.0.2.0 - 64bit Production
+With the Real Application Clusters and Automatic Storage Management options
+
+SQL&gt; show parameter string
+
+NAME                                 TYPE        VALUE
+------------------------------------ ----------- ------------------------------
+asm_diskstring                       string      ORCL:ASM*
+
+SQL&gt; create diskgroup FRA external redundancy disk 'ORCL:ASM2';
+
+Diskgroup created.
+
+SQL&gt;
+</pre>
+<p>I have checked that disk group resource ora.FRA.dg has been added to OCR:</p>
+<pre>
+$ crsctl stat res -t
+--------------------------------------------------------------------------------
+Name           Target  State        Server                   State details
+--------------------------------------------------------------------------------
+Local Resources
+--------------------------------------------------------------------------------
+ora.FRA.dg
+               ONLINE  ONLINE       ol6tocn1                 STABLE
+               OFFLINE OFFLINE      ol6tocn2                 STABLE
+ora.LISTENER.lsnr
+               ONLINE  ONLINE       ol6tocn1                 STABLE
+               ONLINE  ONLINE       ol6tocn2                 STABLE
+ora.OCRVD.dg
+               ONLINE  ONLINE       ol6tocn1                 STABLE
+               ONLINE  ONLINE       ol6tocn2                 STABLE
+ora.asm
+               ONLINE  ONLINE       ol6tocn1                 Started,STABLE
+               ONLINE  ONLINE       ol6tocn2                 Started,STABLE
+ora.net1.network
+               ONLINE  ONLINE       ol6tocn1                 STABLE
+               ONLINE  ONLINE       ol6tocn2                 STABLE
+ora.ons
+               ONLINE  ONLINE       ol6tocn1                 STABLE
+               ONLINE  ONLINE       ol6tocn2                 STABLE
+--------------------------------------------------------------------------------
+Cluster Resources
+--------------------------------------------------------------------------------
+ora.LISTENER_SCAN1.lsnr
+      1        ONLINE  ONLINE       ol6tocn1                 STABLE
+ora.LISTENER_SCAN2.lsnr
+      1        ONLINE  ONLINE       ol6tocn1                 STABLE
+ora.LISTENER_SCAN3.lsnr
+      1        ONLINE  ONLINE       ol6tocn1                 STABLE
+ora.MGMTLSNR
+      1        ONLINE  ONLINE       ol6tocn1                 169.254.72.152 192.1
+                                                             68.43.41,STABLE
+ora.cvu
+      1        ONLINE  ONLINE       ol6tocn2                 STABLE
+ora.mgmtdb
+      1        ONLINE  ONLINE       ol6tocn1                 Open,STABLE
+ora.oc4j
+      1        ONLINE  ONLINE       ol6tocn2                 STABLE
+ora.ol6tocn1.vip
+      1        ONLINE  ONLINE       ol6tocn1                 STABLE
+ora.ol6tocn2.vip
+      1        ONLINE  ONLINE       ol6tocn2                 STABLE
+ora.scan1.vip
+      1        ONLINE  ONLINE       ol6tocn1                 STABLE
+ora.scan2.vip
+      1        ONLINE  ONLINE       ol6tocn1                 STABLE
+ora.scan3.vip
+      1        ONLINE  ONLINE       ol6tocn1                 STABLE
+--------------------------------------------------------------------------------
+$
+</pre>
+<p>I have started disk group on cluster node 2:</p>
+<pre>
+$ srvctl start diskgroup -diskgroup FRA
+$ srvctl status diskgroup -diskgroup FRA
+Disk Group FRA is running on ol6tocn2,ol6tocn1
+</pre>
+<h3>Database files disk group creation</h3>
+<p>I have run similar steps for last ASM disk group.</p>
+<pre>
+$ sqlplus / as sysasm
+
+SQL*Plus: Release 12.1.0.2.0 Production on Mon Sep 14 20:30:06 2015
+
+Copyright (c) 1982, 2014, Oracle.  All rights reserved.
+
+
+Connected to:
+Oracle Database 12c Enterprise Edition Release 12.1.0.2.0 - 64bit Production
+With the Real Application Clusters and Automatic Storage Management options
+
+SQL&gt; create diskgroup DATA external redundancy disk 'ORCL:ASM3';
+
+Diskgroup created.
+
+SQL&gt; Disconnected from Oracle Database 12c Enterprise Edition Release 12.1.0.2.0 - 64bit Production
+With the Real Application Clusters and Automatic Storage Management options
+$ crsctl stat res -t
+--------------------------------------------------------------------------------
+Name           Target  State        Server                   State details
+--------------------------------------------------------------------------------
+Local Resources
+--------------------------------------------------------------------------------
+ora.DATA.dg
+               ONLINE  ONLINE       ol6tocn1                 STABLE
+               OFFLINE OFFLINE      ol6tocn2                 STABLE
+ora.FRA.dg
+               ONLINE  ONLINE       ol6tocn1                 STABLE
+               ONLINE  ONLINE       ol6tocn2                 STABLE
+ora.LISTENER.lsnr
+               ONLINE  ONLINE       ol6tocn1                 STABLE
+               ONLINE  ONLINE       ol6tocn2                 STABLE
+ora.OCRVD.dg
+               ONLINE  ONLINE       ol6tocn1                 STABLE
+               ONLINE  ONLINE       ol6tocn2                 STABLE
+ora.asm
+               ONLINE  ONLINE       ol6tocn1                 Started,STABLE
+               ONLINE  ONLINE       ol6tocn2                 Started,STABLE
+ora.net1.network
+               ONLINE  ONLINE       ol6tocn1                 STABLE
+               ONLINE  ONLINE       ol6tocn2                 STABLE
+ora.ons
+               ONLINE  ONLINE       ol6tocn1                 STABLE
+               ONLINE  ONLINE       ol6tocn2                 STABLE
+--------------------------------------------------------------------------------
+Cluster Resources
+--------------------------------------------------------------------------------
+ora.LISTENER_SCAN1.lsnr
+      1        ONLINE  ONLINE       ol6tocn1                 STABLE
+ora.LISTENER_SCAN2.lsnr
+      1        ONLINE  ONLINE       ol6tocn1                 STABLE
+ora.LISTENER_SCAN3.lsnr
+      1        ONLINE  ONLINE       ol6tocn1                 STABLE
+ora.MGMTLSNR
+      1        ONLINE  ONLINE       ol6tocn1                 169.254.72.152 192.1
+                                                             68.43.41,STABLE
+ora.cvu
+      1        ONLINE  ONLINE       ol6tocn2                 STABLE
+ora.mgmtdb
+      1        ONLINE  ONLINE       ol6tocn1                 Open,STABLE
+ora.oc4j
+      1        ONLINE  ONLINE       ol6tocn2                 STABLE
+ora.ol6tocn1.vip
+      1        ONLINE  ONLINE       ol6tocn1                 STABLE
+ora.ol6tocn2.vip
+      1        ONLINE  ONLINE       ol6tocn2                 STABLE
+ora.scan1.vip
+      1        ONLINE  ONLINE       ol6tocn1                 STABLE
+ora.scan2.vip
+      1        ONLINE  ONLINE       ol6tocn1                 STABLE
+ora.scan3.vip
+      1        ONLINE  ONLINE       ol6tocn1                 STABLE
+--------------------------------------------------------------------------------
+$ srvctl start diskgroup -diskgroup DATA
+$ srvctl status diskgroup -diskgroup DATA
+Disk Group DATA is running on ol6tocn2,ol6tocn1
+$ crsctl stat res -t
+--------------------------------------------------------------------------------
+Name           Target  State        Server                   State details
+--------------------------------------------------------------------------------
+Local Resources
+--------------------------------------------------------------------------------
+ora.DATA.dg
+               ONLINE  ONLINE       ol6tocn1                 STABLE
+               ONLINE  ONLINE       ol6tocn2                 STABLE
+ora.FRA.dg
+               ONLINE  ONLINE       ol6tocn1                 STABLE
+               ONLINE  ONLINE       ol6tocn2                 STABLE
+ora.LISTENER.lsnr
+               ONLINE  ONLINE       ol6tocn1                 STABLE
+               ONLINE  ONLINE       ol6tocn2                 STABLE
+ora.OCRVD.dg
+               ONLINE  ONLINE       ol6tocn1                 STABLE
+               ONLINE  ONLINE       ol6tocn2                 STABLE
+ora.asm
+               ONLINE  ONLINE       ol6tocn1                 Started,STABLE
+               ONLINE  ONLINE       ol6tocn2                 Started,STABLE
+ora.net1.network
+               ONLINE  ONLINE       ol6tocn1                 STABLE
+               ONLINE  ONLINE       ol6tocn2                 STABLE
+ora.ons
+               ONLINE  ONLINE       ol6tocn1                 STABLE
+               ONLINE  ONLINE       ol6tocn2                 STABLE
+--------------------------------------------------------------------------------
+Cluster Resources
+--------------------------------------------------------------------------------
+ora.LISTENER_SCAN1.lsnr
+      1        ONLINE  ONLINE       ol6tocn1                 STABLE
+ora.LISTENER_SCAN2.lsnr
+      1        ONLINE  ONLINE       ol6tocn1                 STABLE
+ora.LISTENER_SCAN3.lsnr
+      1        ONLINE  ONLINE       ol6tocn1                 STABLE
+ora.MGMTLSNR
+      1        ONLINE  ONLINE       ol6tocn1                 169.254.72.152 192.1
+                                                             68.43.41,STABLE
+ora.cvu
+      1        ONLINE  ONLINE       ol6tocn2                 STABLE
+ora.mgmtdb
+      1        ONLINE  ONLINE       ol6tocn1                 Open,STABLE
+ora.oc4j
+      1        ONLINE  ONLINE       ol6tocn2                 STABLE
+ora.ol6tocn1.vip
+      1        ONLINE  ONLINE       ol6tocn1                 STABLE
+ora.ol6tocn2.vip
+      1        ONLINE  ONLINE       ol6tocn2                 STABLE
+ora.scan1.vip
+      1        ONLINE  ONLINE       ol6tocn1                 STABLE
+ora.scan2.vip
+      1        ONLINE  ONLINE       ol6tocn1                 STABLE
+ora.scan3.vip
+      1        ONLINE  ONLINE       ol6tocn1                 STABLE
+--------------------------------------------------------------------------------
+</pre>
+<p>All disk groups are now started on each cluster node.</p>
+<p>I have changed disk groups compatibility to make sure that I can create a 12.1.0.2 database.<br />
+<br />I have run using a SYSASM connection to local ASM instance:</p>
+<pre>
+SQL&gt; select name, compatibility, database_compatibility from v$asm_diskgroup;
+
+
+NAME                           COMPATIBILITY   DATABASE_COMPATIBILITY
+------------------------------ --------------- ------------------------------------------------------------
+OCRVD                          12.1.0.0.0      10.1.0.0.0
+FRA                            10.1.0.0.0      10.1.0.0.0
+DATA                           10.1.0.0.0      10.1.0.0.0
+
+
+SQL&gt;  alter diskgroup DATA set attribute 'compatible.asm'='12.1.0.0';
+
+Diskgroup altered.
+
+SQL&gt; alter diskgroup DATA set attribute 'compatible.rdbms'='12.1.0.0';
+
+Diskgroup altered.
+
+SQL&gt;  alter diskgroup FRA set attribute 'compatible.asm'='12.1.0.0';
+
+Diskgroup altered.
+
+SQL&gt;  alter diskgroup FRA set attribute 'compatible.rdbms'='12.1.0.0';
+
+Diskgroup altered.
+
+SQL&gt; select name, compatibility, database_compatibility from v$asm_diskgroup;
+
+NAME                           COMPATIBILITY   DATABASE_COMPATIBILITY
+------------------------------ --------------- ------------------------------
+OCRVD                          12.1.0.0.0      10.1.0.0.0
+FRA                            12.1.0.0.0      12.1.0.0.0
+DATA                           12.1.0.0.0      12.1.0.0.0
+
+SQL&gt;
+</pre>
+<h2>Silent RAC database creation</h2>
+<p>I have run following script to a container database named SE2RAC with 1 pluggable database named pdb:</p>
+<pre>
+/u01/app/12.1.0.2/se2/bin/dbca \
+ -silent \
+ -nodelist ol6tocn1,ol6tocn2 \
+ -createDatabase \
+ -templateName General_Purpose.dbc   \
+ -gdbName SE2RAC \
+ -createAsContainerDatabase true \
+ -numberOfPdbs 1 \
+ -pdbName pdb \
+ -pdbadminUsername pdba \
+ -pdbadminPassword oracle12c \
+ -SysPassword oracle12c \
+ -SystemPassword oracle12c \
+ -emConfiguration NONE \
+ -storageType ASM \
+ -asmSysPassword oracle12c \
+ -diskGroupName DATA \
+ -characterSet AL32UTF8 \
+ -totalMemory 1024 \
+ -recoveryGroupName FRA
+</pre>
+<p>This script has printed following output:</p>
+<pre>
+Copying database files
+1% complete
+2% complete
+23% complete
+Creating and starting Oracle instance
+24% complete
+27% complete
+28% complete
+29% complete
+32% complete
+35% complete
+36% complete
+38% complete
+Creating cluster database views
+40% complete
+54% complete
+Completing Database Creation
+56% complete
+58% complete
+65% complete
+72% complete
+77% complete
+Creating Pluggable Databases
+81% complete
+100% complete
+Look at the log file "/u01/app/base/cfgtoollogs/dbca/SE2RAC/SE2RAC.log" for further details.
+</pre>
+<p>I have fixed <b>/etc/oratab</b> on both nodes to replace database name with instance name on first node ...:</p>
+<pre>
+$ tail -n3 /etc/oratab
++ASM1:/u01/app/12.1.0.2/grid:N          # line added by Agent
+-MGMTDB:/u01/app/12.1.0.2/grid:N                # line added by Agent
+SE2RAC1:/u01/app/12.1.0.2/se2:N         # line added by Agent
+</pre>
+<p>... and on node 2:</p>
+<pre>
+$ tail -n3 /etc/oratab
+-MGMTDB:/u01/app/12.1.0.2/grid:N                # line added by Agent
++ASM2:/u01/app/12.1.0.2/grid:N          # line added by Agent
+SE2RAC2:/u01/app/12.1.0.2/se2:N         # line added by Agent
+</pre>
+<p>I have connected to database instance to check database files location and some database properties:</p>
+<pre>
+SQL&gt; select con_id, name from v$datafile order by 1;
+
+    CON_ID NAME
+---------- --------------------------------------------------------------------------------
+         1 +DATA/SE2RAC/DATAFILE/system.258.890426577
+         1 +DATA/SE2RAC/DATAFILE/sysaux.257.890426531
+         1 +DATA/SE2RAC/DATAFILE/undotbs1.260.890426623
+         1 +DATA/SE2RAC/DATAFILE/users.259.890426623
+         1 +DATA/SE2RAC/DATAFILE/undotbs2.268.890427371
+         2 +DATA/SE2RAC/1A39DC2FE24C7067E053B6A9E80A29BF/DATAFILE/sysaux.265.890426751
+         2 +DATA/SE2RAC/1A39DC2FE24C7067E053B6A9E80A29BF/DATAFILE/system.266.890426751
+         3 +DATA/SE2RAC/1FBABB29FD2E3604E0532938A8C02046/DATAFILE/sysaux.273.890427897
+         3 +DATA/SE2RAC/1FBABB29FD2E3604E0532938A8C02046/DATAFILE/system.272.890427883
+         3 +DATA/SE2RAC/1FBABB29FD2E3604E0532938A8C02046/DATAFILE/users.275.890427995
+
+10 rows selected.
+
+SQL&gt;
+SQL&gt; select con_id, name from v$controlfile order by 1;
+
+    CON_ID NAME
+---------- --------------------------------------------------------------------------------
+         0 +FRA/SE2RAC/CONTROLFILE/current.256.890426681
+         0 +DATA/SE2RAC/CONTROLFILE/current.261.890426679
+
+SQL&gt; column member format a50
+SQL&gt; select l.con_id, l.group#, l.thread#, lf.member
+from v$log l, v$logfile lf
+where l.group# = lf.group#
+order by 1,2;  2    3    4
+
+    CON_ID     GROUP#    THREAD# MEMBER
+---------- ---------- ---------- --------------------------------------------------
+         0          1          1 +FRA/SE2RAC/ONLINELOG/group_1.257.890426687
+         0          1          1 +DATA/SE2RAC/ONLINELOG/group_1.262.890426685
+         0          2          1 +FRA/SE2RAC/ONLINELOG/group_2.258.890426695
+         0          2          1 +DATA/SE2RAC/ONLINELOG/group_2.263.890426691
+         0          3          2 +DATA/SE2RAC/ONLINELOG/group_3.269.890427537
+         0          3          2 +FRA/SE2RAC/ONLINELOG/group_3.259.890427541
+         0          4          2 +DATA/SE2RAC/ONLINELOG/group_4.270.890427543
+         0          4          2 +FRA/SE2RAC/ONLINELOG/group_4.260.890427545
+
+8 rows selected.
+
+
+SQL&gt; set linesize 120
+SQL&gt; column name format a30
+SQL&gt; column parameter format a40
+SQL&gt; column value format a20
+SQL&gt; select * from v$version;
+
+BANNER                                                                               CON_ID
+-------------------------------------------------------------------------------- ----------
+Oracle Database 12c Standard Edition Release 12.1.0.2.0 - 64bit Production                0
+PL/SQL Release 12.1.0.2.0 - Production                                                    0
+CORE    12.1.0.2.0      Production                                                                0
+TNS for Linux: Version 12.1.0.2.0 - Production                                            0
+NLSRTL Version 12.1.0.2.0 - Production                                                    0
+
+SQL&gt; select name, cdb from v$database;
+
+NAME                           CDB
+------------------------------ ---
+SE2RAC                         YES
+
+SQL&gt; select con_id, name from v$pdbs;
+
+    CON_ID NAME
+---------- ------------------------------
+         2 PDB$SEED
+         3 PDB
+
+SQL&gt; show parameter inmemory
+
+NAME                                 TYPE        VALUE
+------------------------------------ ----------- ------------------------------
+inmemory_clause_default              string
+inmemory_force                       string      DEFAULT
+inmemory_max_populate_servers        integer     0
+inmemory_query                       string      ENABLE
+inmemory_size                        big integer 0
+inmemory_trickle_repopulate_servers_ integer     1
+percent
+optimizer_inmemory_aware             boolean     TRUE
+SQL&gt; select * from v$option where parameter like '%Mem%';
+
+PARAMETER                                VALUE                    CON_ID
+---------------------------------------- -------------------- ----------
+In-Memory Column Store                   FALSE                         0
+In-Memory Aggregation                    FALSE                         0
+
+SQL&gt; select * from v$option where value='TRUE';
+
+PARAMETER                                VALUE                    CON_ID
+---------------------------------------- -------------------- ----------
+Objects                                  TRUE                          0
+Real Application Clusters                TRUE                          0
+Connection multiplexing                  TRUE                          0
+Connection pooling                       TRUE                          0
+Database queuing                         TRUE                          0
+Incremental backup and recovery          TRUE                          0
+Instead-of triggers                      TRUE                          0
+Parallel load                            TRUE                          0
+Proxy authentication/authorization       TRUE                          0
+Plan Stability                           TRUE                          0
+Coalesce Index                           TRUE                          0
+
+PARAMETER                                VALUE                    CON_ID
+---------------------------------------- -------------------- ----------
+Automatic Storage Management             TRUE                          0
+Transparent Application Failover         TRUE                          0
+Sample Scan                              TRUE                          0
+Java                                     TRUE                          0
+OLAP Window Functions                    TRUE                          0
+Flashback Data Archive                   TRUE                          0
+DICOM                                    TRUE                          0
+XStream                                  TRUE                          0
+
+19 rows selected.
+
+SQL&gt; select * from v$option where value='FALSE';
+
+PARAMETER                                VALUE                    CON_ID
+---------------------------------------- -------------------- ----------
+Partitioning                             FALSE                         0
+Advanced replication                     FALSE                         0
+Bit-mapped indexes                       FALSE                         0
+Parallel backup and recovery             FALSE                         0
+Parallel execution                       FALSE                         0
+Point-in-time tablespace recovery        FALSE                         0
+Fine-grained access control              FALSE                         0
+Change Data Capture                      FALSE                         0
+Online Index Build                       FALSE                         0
+Managed Standby                          FALSE                         0
+Materialized view rewrite                FALSE                         0
+
+PARAMETER                                VALUE                    CON_ID
+---------------------------------------- -------------------- ----------
+Database resource manager                FALSE                         0
+Spatial                                  FALSE                         0
+Export transportable tablespaces         FALSE                         0
+Fast-Start Fault Recovery                FALSE                         0
+Duplexed backups                         FALSE                         0
+Block Media Recovery                     FALSE                         0
+Fine-grained Auditing                    FALSE                         0
+Application Role                         FALSE                         0
+Enterprise User Security                 FALSE                         0
+Oracle Data Guard                        FALSE                         0
+Oracle Label Security                    FALSE                         0
+
+PARAMETER                                VALUE                    CON_ID
+---------------------------------------- -------------------- ----------
+OLAP                                     FALSE                         0
+Basic Compression                        FALSE                         0
+Join index                               FALSE                         0
+Trial Recovery                           FALSE                         0
+Advanced Analytics                       FALSE                         0
+Online Redefinition                      FALSE                         0
+Streams Capture                          FALSE                         0
+File Mapping                             FALSE                         0
+Block Change Tracking                    FALSE                         0
+Flashback Table                          FALSE                         0
+Flashback Database                       FALSE                         0
+
+PARAMETER                                VALUE                    CON_ID
+---------------------------------------- -------------------- ----------
+Transparent Data Encryption              FALSE                         0
+Backup Encryption                        FALSE                         0
+Unused Block Compression                 FALSE                         0
+Oracle Database Vault                    FALSE                         0
+Result Cache                             FALSE                         0
+SQL Plan Management                      FALSE                         0
+SecureFiles Encryption                   FALSE                         0
+Real Application Testing                 FALSE                         0
+Active Data Guard                        FALSE                         0
+Server Flash Cache                       FALSE                         0
+Advanced Compression                     FALSE                         0
+
+PARAMETER                                VALUE                    CON_ID
+---------------------------------------- -------------------- ----------
+Deferred Segment Creation                FALSE                         0
+Unified Auditing                         FALSE                         0
+Management Database                      FALSE                         0
+I/O Server                               FALSE                         0
+ASM Proxy Instance                       FALSE                         0
+Exadata Discovery                        FALSE                         0
+Data Mining                              FALSE                         0
+Global Data Services                     FALSE                         0
+Adaptive Execution Plans                 FALSE                         0
+Table Clustering                         FALSE                         0
+Zone Maps                                FALSE                         0
+
+PARAMETER                                VALUE                    CON_ID
+---------------------------------------- -------------------- ----------
+Real Application Security                FALSE                         0
+Privilege Analysis                       FALSE                         0
+Data Redaction                           FALSE                         0
+Cross Transportable Backups              FALSE                         0
+Cache Fusion Lock Accelerator            FALSE                         0
+Snapshot time recovery                   FALSE                         0
+Heat Map                                 FALSE                         0
+Automatic Data Optimization              FALSE                         0
+Transparent Sensitive Data Protection    FALSE                         0
+In-Memory Column Store                   FALSE                         0
+Advanced Index Compression               FALSE                         0
+
+PARAMETER                                VALUE                    CON_ID
+---------------------------------------- -------------------- ----------
+In-Memory Aggregation                    FALSE                         0
+
+67 rows selected.
+
+SQL&gt; column comp_name format a35
+SQL&gt; column version format a12
+SQL&gt; column status format a10
+SQL&gt; select comp_name, version, status from dba_registry;
+
+COMP_NAME                           VERSION      STATUS
+----------------------------------- ------------ ----------
+Oracle Database Vault               12.1.0.2.0   VALID
+Oracle Application Express          4.2.5.00.08  VALID
+Oracle Label Security               12.1.0.2.0   VALID
+Spatial                             12.1.0.2.0   OPTION OFF
+Oracle Multimedia                   12.1.0.2.0   VALID
+Oracle Text                         12.1.0.2.0   VALID
+Oracle Workspace Manager            12.1.0.2.0   VALID
+Oracle XML Database                 12.1.0.2.0   VALID
+Oracle Database Catalog Views       12.1.0.2.0   VALID
+Oracle Database Packages and Types  12.1.0.2.0   VALID
+JServer JAVA Virtual Machine        12.1.0.2.0   VALID
+
+COMP_NAME                           VERSION      STATUS
+----------------------------------- ------------ ----------
+Oracle XDK                          12.1.0.2.0   VALID
+Oracle Database Java Packages       12.1.0.2.0   VALID
+OLAP Analytic Workspace             12.1.0.2.0   OPTION OFF
+Oracle OLAP API                     12.1.0.2.0   OPTION OFF
+Oracle Real Application Clusters    12.1.0.2.0   VALID
+
+16 rows selected.
+
+SQL&gt;
+</pre>
+<p>The only differences with <a href="https://pierreforstmanndotcom.wordpress.com/2015/09/01/how-to-install-oracle-12-1-0-2-standard-edition-2-se2-and-to-create-a-se2-database-in-silent-mode/" />a single instance SE2 database created on file system</a> are ASM and RAC options.</p>
+<p>I  have exited SQL*Plus and check database configuration OCR:</p>
+<pre>
+$ srvctl config database -d SE2RAC
+Database unique name: SE2RAC
+Database name: SE2RAC
+Oracle home: /u01/app/12.1.0.2/se2
+Oracle user: oracle
+Spfile: +DATA/SE2RAC/PARAMETERFILE/spfile.271.890427549
+Password file: +DATA/SE2RAC/PASSWORD/pwdse2rac.256.890426495
+Domain:
+Start options: open
+Stop options: immediate
+Database role: PRIMARY
+Management policy: AUTOMATIC
+Server pools:
+Disk Groups: FRA,DATA
+Mount point paths:
+Services:
+Type: RAC
+Start concurrency:
+Stop concurrency:
+OSDBA group: dba
+OSOPER group: dba
+Database instances: SE2RAC1,SE2RAC2
+Configured nodes: ol6tocn1,ol6tocn2
+Database is administrator managed
+$
+</pre>
+<p>Note that password file is by default stored in database disk group.</p>
+<p>I have also checked that crsctl displays now all resources including the new cluster database:</p>
+<pre>
+$ . oraenv
+ORACLE_SID = [SE2RAC1] ? +ASM1
+The Oracle base remains unchanged with value /u01/app/base
+$ crsctl stat res -t
+--------------------------------------------------------------------------------
+Name           Target  State        Server                   State details
+--------------------------------------------------------------------------------
+Local Resources
+--------------------------------------------------------------------------------
+ora.DATA.dg
+               ONLINE  ONLINE       ol6tocn1                 STABLE
+               ONLINE  ONLINE       ol6tocn2                 STABLE
+ora.FRA.dg
+               ONLINE  ONLINE       ol6tocn1                 STABLE
+               ONLINE  ONLINE       ol6tocn2                 STABLE
+ora.LISTENER.lsnr
+               ONLINE  ONLINE       ol6tocn1                 STABLE
+               ONLINE  ONLINE       ol6tocn2                 STABLE
+ora.OCRVD.dg
+               ONLINE  ONLINE       ol6tocn1                 STABLE
+               ONLINE  ONLINE       ol6tocn2                 STABLE
+ora.asm
+               ONLINE  ONLINE       ol6tocn1                 Started,STABLE
+               ONLINE  ONLINE       ol6tocn2                 Started,STABLE
+ora.net1.network
+               ONLINE  ONLINE       ol6tocn1                 STABLE
+               ONLINE  ONLINE       ol6tocn2                 STABLE
+ora.ons
+               ONLINE  ONLINE       ol6tocn1                 STABLE
+               ONLINE  ONLINE       ol6tocn2                 STABLE
+--------------------------------------------------------------------------------
+Cluster Resources
+--------------------------------------------------------------------------------
+ora.LISTENER_SCAN1.lsnr
+      1        ONLINE  ONLINE       ol6tocn1                 STABLE
+ora.LISTENER_SCAN2.lsnr
+      1        ONLINE  ONLINE       ol6tocn1                 STABLE
+ora.LISTENER_SCAN3.lsnr
+      1        ONLINE  ONLINE       ol6tocn1                 STABLE
+ora.MGMTLSNR
+      1        ONLINE  ONLINE       ol6tocn1                 169.254.72.152 192.1
+                                                             68.43.41,STABLE
+ora.cvu
+      1        ONLINE  ONLINE       ol6tocn2                 STABLE
+ora.mgmtdb
+      1        ONLINE  ONLINE       ol6tocn1                 Open,STABLE
+ora.oc4j
+      1        ONLINE  ONLINE       ol6tocn2                 STABLE
+ora.ol6tocn1.vip
+      1        ONLINE  ONLINE       ol6tocn1                 STABLE
+ora.ol6tocn2.vip
+      1        ONLINE  ONLINE       ol6tocn2                 STABLE
+ora.scan1.vip
+      1        ONLINE  ONLINE       ol6tocn1                 STABLE
+ora.scan2.vip
+      1        ONLINE  ONLINE       ol6tocn1                 STABLE
+ora.scan3.vip
+      1        ONLINE  ONLINE       ol6tocn1                 STABLE
+ora.se2rac.db
+      1        ONLINE  ONLINE       ol6tocn1                 Open,STABLE
+      2        ONLINE  ONLINE       ol6tocn2                 Open,STABLE
+--------------------------------------------------------------------------------
+$
+</pre>
+<p>Note that some cluster resources are displayed in alphabetical order.<br />
+<br />
+I have also rebooted both cluster node to check to each resource is started automatically: this is the case after 6 minutes.</p>
+<p>The 2-node RAC 12.1.0.2 SE2 cluster on Oracle Linux 6.7 is now ready.</p>
