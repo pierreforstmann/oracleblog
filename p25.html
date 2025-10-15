@@ -1,0 +1,638 @@
+<p>The 26th of September 2014 Oracle Corp. has released <a href="http://www.oracle.com/technetwork/database/enterprise-edition/downloads/database12c-win64-download-2297732.html">Oracle Database 12.1.0.2 for Windows</a>.</p>
+<p>This blog post shows how to install Grid Infrastructure (GI) 12.1.0.2  on Windows 2012 in OUI silent mode <u>and</u> with Windows command line tools powershell.exe, diskpart.exe and net.exe.</p>
+<p>I have used following configuration:</p>
+<li>
+Windows 2012 Data Server Evaluation build 9200 <a href="http://www.microsoft.com/en-us/evalcenter/evaluate-windows-server-2012"> downloaded from microsoft.com</a> with 180 days free license
+</li>
+<li>
+Virtual Box 4.3.16 on Windows 8.1
+</li>
+<p>
+I have configured the Windows Server virtual machine with:</p>
+<li>
+4 Gb RAM
+</li>
+<li>
+4 virtual disks : one 25 Gb for Windows operating system, one 25 Gb for Oracle software and two 10 Gb disks for ASM
+</li>
+<p>
+The documentation I have used is <a href="http://docs.oracle.com/database/121/CWWIN/toc.htm">Oracle Grid Infrastructure Installation Guide 12c Release 1 (12.1) for Microsoft Windows x64 (64-Bit) </a>.<br />
+<br />
+Note that this is a standalone server: this is neither an Oracle RAC installation nor is Active Directory involved.<br />
+Nevertheless I have used <a href="http://www.oracle-base.com/articles/12c/oracle-db-12cr1-rac-installation-on-windows-2012-using-virtualbox.php#guest_os_installation">Tim Hall instructions for Windows 2012 installation and configuration with VirtualBox</a>.<br />
+F:\ is the file system on guest virtual machine that corresponds to host VirtualBox Shared Folder where GI media has been downloaded.</p>
+<h3>Oracle software owner account creation</h3>
+<p>With Administrator account run following commands in a Powershell session:</p>
+<pre>
+PS C:\Users\Administrator&gt; net user /add oracle
+The command completed successfully.
+
+PS C:\Users\Administrator&gt; net localgroup Administrators oracle /add
+The command completed successfully.
+
+PS C:\Users\Administrator&gt; net user oracle *
+Type a password for the user:
+Retype the password to confirm:
+The command completed successfully.
+
+PS C:\Users\Administrator&gt;
+
+</pre>
+<p>Check that you can connect to Windows server with the oracle user account.</p>
+<h3> Oracle software file system creation</h3>
+<p>On my server I have assigned letter H to new file system with following commands run with Administrator account in a Powershell session:</p>
+<pre>
+PS C:\Users\Administrator&gt; diskpart
+
+Microsoft DiskPart version 6.2.9200
+
+Copyright (C) 1999-2012 Microsoft Corporation.
+On computer: W12DC02
+
+DISKPART&gt; list disk
+
+  Disk ###  Status         Size     Free     Dyn  Gpt
+  --------  -------------  -------  -------  ---  ---
+  Disk 0    Online           25 GB      0 B
+  Disk 1    Online           25 GB    25 GB
+  Disk 2    Online           10 GB    10 GB
+  Disk 3    Online           10 GB    10 GB
+
+DISKPART&gt; select disk 1
+
+Disk 1 is now the selected disk.
+
+DISKPART&gt; create partition extended
+
+DiskPart succeeded in creating the specified partition.
+
+DISKPART&gt; create partition logical
+
+DiskPart succeeded in creating the specified partition.
+
+DISKPART&gt;
+
+
+DISKPART&gt; list volume
+
+  Volume ###  Ltr  Label        Fs     Type        Size     Status     Info
+  ----------  ---  -----------  -----  ----------  -------  ---------  --------
+  Volume 0     D   VBOXADDITIO  CDFS   CD-ROM        55 MB  Healthy
+  Volume 1     E                       CD-ROM          0 B  No Media
+  Volume 2         System Rese  NTFS   Partition    350 MB  Healthy    System
+  Volume 3     C                NTFS   Partition     24 GB  Healthy    Boot
+  Volume 4                      RAW    Partition     24 GB  Healthy
+
+DISKPART&gt; select volume 4
+
+Volume 4 is the selected volume.
+
+DISKPART&gt; format fs=ntfs
+
+  100 percent completed
+
+DiskPart successfully formatted the volume.
+
+DISKPART&gt; assign letter=h
+
+DiskPart successfully assigned the drive letter or mount point.
+
+DISKPART&gt; detail partition
+
+Partition 1
+Type  : 07
+Hidden: No
+Active: No
+Offset in Bytes: 2097152
+
+  Volume ###  Ltr  Label        Fs     Type        Size     Status     Info
+  ----------  ---  -----------  -----  ----------  -------  ---------  --------
+* Volume 4     H                NTFS   Partition     24 GB  Healthy
+
+DISKPART&gt; exit
+
+Leaving DiskPart...
+PS C:\Users\Administrator&gt; cmd.exe
+Microsoft Windows [Version 6.2.9200]
+(c) 2012 Microsoft Corporation. All rights reserved.
+
+C:\Users\Administrator&gt;dir h:
+ Volume in drive H has no label.
+ Volume Serial Number is E837-1047
+
+ Directory of H:\
+
+File Not Found
+
+C:\Users\Administrator&gt;
+</pre>
+<h3>ASM storage configuration</h3>
+<p>Run following commands with Administrator account from a Powershell session:</p>
+<pre>
+PS C:\Users\Administrator&gt; diskpart
+
+Microsoft DiskPart version 6.2.9200
+
+Copyright (C) 1999-2012 Microsoft Corporation.
+On computer: W12DC02
+
+DISKPART&gt; list disk
+
+  Disk ###  Status         Size     Free     Dyn  Gpt
+  --------  -------------  -------  -------  ---  ---
+  Disk 0    Online           25 GB      0 B
+  Disk 1    Online           25 GB  1024 KB
+  Disk 2    Online           10 GB    10 GB
+  Disk 3    Online           10 GB    10 GB
+
+DISKPART&gt; select disk 2
+
+Disk 2 is now the selected disk.
+
+DISKPART&gt; create partition extended
+
+DiskPart succeeded in creating the specified partition.
+
+DISKPART&gt; create partition logical
+
+DiskPart succeeded in creating the specified partition.
+
+DISKPART&gt; select disk 3
+
+Disk 3 is now the selected disk.
+
+DISKPART&gt; create partition extended
+
+DiskPart succeeded in creating the specified partition.
+
+DISKPART&gt; create partition logical
+
+DiskPart succeeded in creating the specified partition.
+
+DISKPART&gt; list volume
+
+  Volume ###  Ltr  Label        Fs     Type        Size     Status     Info
+  ----------  ---  -----------  -----  ----------  -------  ---------  --------
+  Volume 0     D   VBOXADDITIO  CDFS   CD-ROM        55 MB  Healthy
+  Volume 1     E                       CD-ROM          0 B  No Media
+  Volume 2         System Rese  NTFS   Partition    350 MB  Healthy    System
+  Volume 3     C                NTFS   Partition     24 GB  Healthy    Boot
+  Volume 4     H                NTFS   Partition     24 GB  Healthy
+  Volume 5                      RAW    Partition      9 GB  Healthy
+* Volume 6                      RAW    Partition      9 GB  Healthy
+
+DISKPART&gt; exit
+
+Leaving DiskPart...
+PS C:\Users\Administrator&gt;
+</pre>
+<p>On host machine unzip <b>winx64_12102_grid_1of2.zip</b> and <b>winx64_12102_grid_2of2.zip</b> in the same target directory <b>winx64_12102_grid</b> (this host machine directory is the VirtualBox Shared Folder mapped to guest virtual machine F:\). On guest virtual machine run following commands with Administrator account from a Powsershell session to stamp disk partitions with asmtool:</p>
+<pre>
+Windows PowerShell
+Copyright (C) 2012 Microsoft Corporation. All rights reserved.
+
+PS C:\Users\Administrator&gt; cd F:\winx64_12102_grid\grid\asmtool
+PS F:\winx64_12102_grid\grid\asmtool&gt; dir
+
+
+    Directory: F:\winx64_12102_grid\grid\asmtool
+
+
+Mode                LastWriteTime     Length Name
+----                -------------     ------ ----
+-----        11/09/2014     09:56      11776 asmtool.exe
+-----        11/09/2014     09:56      25088 asmtoolg.exe
+-----        30/04/2012     01:57     608080 msvcp100.dll
+-----        30/04/2012     01:57     829264 msvcr100.dll
+-----        22/05/2012     11:13     362496 msvcrt.dll
+-----        11/09/2014     09:56       4608 oraasmtoolus.msb
+-----        02/08/2014     02:46    1755136 oracore12.dll
+-----        11/09/2014     10:51     117248 oraimr12.dll
+-----        04/08/2014     16:17    1041408 oranls12.dll
+-----        04/08/2014     15:53     241664 orasnls12.dll
+-----        04/08/2014     15:53     105472 oraunls12.dll
+-----        02/08/2014     02:46       9728 orauts.dll
+
+
+PS F:\winx64_12102_grid\grid\asmtool&gt;
+PS F:\winx64_12102_grid\grid\asmtool&gt; .\asmtool -list
+NTFS                             \Device\Harddisk0\Partition1              350M
+NTFS                             \Device\Harddisk0\Partition2            25248M
+NTFS                             \Device\Harddisk1\Partition1            25597M
+                                 \Device\Harddisk2\Partition1            10237M
+                                 \Device\Harddisk3\Partition1            10237M
+PS F:\winx64_12102_grid\grid\asmtool&gt; .\asmtool -add  \Device\Harddisk2\Partition1 ORCLDISK1
+PS F:\winx64_12102_grid\grid\asmtool&gt; .\asmtool -add  \Device\Harddisk3\Partition1 ORCLDISK2
+PS F:\winx64_12102_grid\grid\asmtool&gt; .\asmtool -list
+NTFS                             \Device\Harddisk0\Partition1              350M
+NTFS                             \Device\Harddisk0\Partition2            25248M
+NTFS                             \Device\Harddisk1\Partition1            25597M
+ORCLDISK1                        \Device\Harddisk2\Partition1            10237M
+ORCLDISK2                        \Device\Harddisk3\Partition1            10237M
+PS F:\winx64_12102_grid\grid\asmtool&gt;
+</pre>
+<p>The 2 10 Gb raw disk partitions are now ready to be used by ASM.</p>
+<h3>Running Oracle Universtal Installer (OUI)</h3>
+<p>From this step on all steps have been run with oracle user account unless otherwise stated.<br />
+<br />
+I have not been able to run OUI setup.exe from Shared Folder: Windows always complains that it cannot find setup.exe although file is there. So I copied all grid directory to H:\ local file system with oracle account:</p>
+<pre>
+PS H:\&gt; mkdir stage
+PS H:\&gt; xcopy F:\winx64_12102_grid\grid stage /e
+</pre>
+<p>With notepad.exe I created following script (script has been edited - the actual script has all parameters on one single line):</p>
+<pre>
+PS H:\stage&gt; type gi.bat
+.\setup.exe 
+-silent 
+selected_languages=en 
+oracle.install.option=HA_CONFIG 
+ORACLE_BASE=H:\oracle\base 
+ORACLE_HOME=H:\oracle\gi12102 
+oracle.install.IsBuiltInAccount=true  
+oracle.install.OracleHomeUserName="NT AUTHORITY\SYSTEM" 
+oracle.install.asm.diskGroup.name=DATA 
+oracle.install.asm.diskGroup.redundancy=EXTERNAL 
+oracle.install.asm.diskGroup.disks=\\.\ORCLDISK1 
+oracle.install.asm.SYSASMPassword=oracle12c 
+oracle.install.asm.monitorPassword=oracle12c
+</pre>
+<p>Note that explicit ASM parameters: if you forget one you may get the not very clear error message:</p>
+<pre>[WARNING] [INS-08109] Unexpected error occured while validating inputs at state 'CreateASMDiskGroup'.
+</pre>
+<p>I have started this script from Powershell session:</p>
+<pre>
+PS H:\stage&gt; .\gi.bat
+</pre>
+<p>This will trigger the UAC window to allow to run setup.exe: you must click Yes. Another window is opened that displays OUI output. This window must be kept open until you get the right ending message of OUI (this may be quite slow: it can take about 15 to 20 minutes and Java process started by setup.exe can use up to 99% of CPU time for several minutes):</p>
+<pre>
+Preparing to launch Oracle Universal Installer from C:\Users\oracle\AppData\Local\Temp\OraInstall2014-10-22_10-16-08PM. Please wait ... 
+[WARNING] [INS-30011] The SYS password entered does not conform to the Oracle recommended standards.
+   CAUSE: Oracle recommends that the password entered should be at least 8 characters in length, contain at least 1 uppercase character, 1 lower case character and 1 digit [0-9].
+   ACTION: Provide a password that conforms to the Oracle recommended standards.
+
+[WARNING] [INS-30011] The ASMSNMP password entered does not conform to the Oracle recommended standards.
+   CAUSE: Oracle recommends that the password entered should be at least 8 characters in length, contain at least 1 uppercase character, 1 lower case character and 1 digit [0-9].
+   ACTION: Provide a password that conforms to the Oracle recommended standards.
+
+[WARNING] [INS-32018] The selected Oracle home is outside of Oracle base.
+   ACTION: Oracle recommends installing Oracle software within the Oracle base directory. Adjust the Oracle home or Oracle base accordingly.
+[WARNING] [INS-13014] Target environment does not meet some optional requirements.
+   CAUSE: Some of the optional prerequisites are not met. See logs for details.
+C:\Users\oracle\AppData\Local\Temp\OraInstall2014-10-22_10-16-08PM\installActions2014-10-22_10-16-08PM.log
+   ACTION: Identify the list of failed prerequisite checks from the log: C:\Users\oracle\AppData\Local\Temp\OraInstall2014-10-22_10-16-08PM\installActions2014-10-22_10-16-08PM.log. Then either from the log file or from installation manual find the appropriate configuration to meet the prerequisites and fix it manually.
+
+You can find the log of this install session at:
+ C:\Program Files\Oracle\Inventory\logs\installActions2014-10-22_10-16-08PM.log
+envp[0]:path=C:\Users\oracle\AppData\Local\Temp\OraInstall2014-10-22_10-16-08PM\oui\lib\win64Dll to load is C:\Users\oracle\AppData\Local\Temp\OraInstall2014-10-22_10-16-08PM\Win64RunProcesses.dll
+Loading psapi.dll from C:\Users\oracle\AppData\Local\Temp\OraInstall2014-10-22_10-16-08PM\psapi.dll
+PersistEnv
+The installation of Oracle Grid Infrastructure 12c was successful.
+Please check 'C:\Program Files\Oracle\Inventory\logs\silentInstall2014-10-22_10-16-08PM.log' for more details.
+</pre>
+<p>I have ignored INS-30011, INS-32018 and INS-13014 warnings. Detailed prerequisite checks are in install session log <b><br />
+C:\Program Files\Oracle\Inventory\logs\installActions2014-10-22_10-16-08PM.log</b>:</p>
+<pre>
+INFO: INFO: *********************************************
+INFO: INFO: Physical Memory: This is a prerequisite condition to test whether the system has at least 4GB (4194304.0KB) of total physical memory.
+INFO: INFO: Severity:IGNORABLE
+INFO: INFO: OverallStatus:VERIFICATION_FAILED
+INFO: INFO: -----------------------------------------------
+INFO: INFO: Verification Result for Node:w12dc01
+INFO: INFO: Expected Value:4GB (4194304.0KB)
+INFO: INFO: Actual Value:3.9996GB (4193844.0KB)
+INFO: INFO: Error Message:PRVF-7530 : Sufficient physical memory is not available on node "w12dc01" [Required physical memory = 4GB (4194304.0KB)]
+INFO: INFO: Cause: Amount of physical memory (RAM) found does not meet minimum memory requirements.
+INFO: INFO: Action: Add physical memory (RAM) to the node specified.
+INFO: INFO: -----------------------------------------------
+INFO: INFO: *********************************************
+INFO: INFO: Available Physical Memory: This is a prerequisite condition to test whether the system has at least 50MB (51200.0KB) of available physical memory.
+INFO: INFO: Severity:IGNORABLE
+INFO: INFO: OverallStatus:SUCCESSFUL
+INFO: INFO: -----------------------------------------------
+INFO: INFO: Verification Result for Node:w12dc01
+INFO: INFO: Expected Value:50MB (51200.0KB)
+INFO: INFO: Actual Value:3.0216GB (3168368.0KB)
+INFO: INFO: -----------------------------------------------
+INFO: INFO: *********************************************
+INFO: INFO: Swap Size: This is a prerequisite condition to test whether sufficient total swap space is available on the system.
+INFO: INFO: Severity:IGNORABLE
+INFO: INFO: OverallStatus:SUCCESSFUL
+INFO: INFO: -----------------------------------------------
+INFO: INFO: Verification Result for Node:w12dc01
+INFO: INFO: Expected Value:3.9996GB (4193844.0KB)
+INFO: INFO: Actual Value:7.4996GB (7863860.0KB)
+INFO: INFO: -----------------------------------------------
+INFO: INFO: *********************************************
+INFO: INFO: Free Space: w12dc01:H:\oracle\gi12102: This is a prerequisite condition to test whether sufficient free space is available in the file system.
+INFO: INFO: Severity:IGNORABLE
+INFO: INFO: OverallStatus:SUCCESSFUL
+INFO: INFO: -----------------------------------------------
+INFO: INFO: Verification Result for Node:w12dc01
+INFO: INFO: Expected Value:7GB 
+INFO: INFO: Actual Value:23.1043GB 
+INFO: INFO: -----------------------------------------------
+INFO: INFO: *********************************************
+INFO: INFO: Free Space: w12dc01:C:\Users\oracle\AppData\Local\Temp: This is a prerequisite condition to test whether sufficient free space is available in the file system.
+INFO: INFO: Severity:IGNORABLE
+INFO: INFO: OverallStatus:SUCCESSFUL
+INFO: INFO: -----------------------------------------------
+INFO: INFO: Verification Result for Node:w12dc01
+INFO: INFO: Expected Value:1GB 
+INFO: INFO: Actual Value:10.5462GB 
+INFO: INFO: -----------------------------------------------
+INFO: INFO: *********************************************
+INFO: INFO: Architecture: This is a prerequisite condition to test whether the system has a certified architecture.
+INFO: INFO: Severity:CRITICAL
+INFO: INFO: OverallStatus:SUCCESSFUL
+INFO: INFO: -----------------------------------------------
+INFO: INFO: Verification Result for Node:w12dc01
+INFO: INFO: Expected Value:64-bit
+INFO: INFO: Actual Value:64-bit
+INFO: INFO: -----------------------------------------------
+INFO: INFO: *********************************************
+INFO: INFO: Environment variable: "PATH": This test checks whether the length of the environment variable "PATH" does not exceed the recommended length.
+INFO: INFO: Severity:CRITICAL
+INFO: INFO: OverallStatus:SUCCESSFUL
+INFO: INFO: -----------------------------------------------
+INFO: INFO: Verification Result for Node:w12dc01
+INFO: INFO: Expected Value:5097
+INFO: INFO: Actual Value:249
+INFO: INFO: -----------------------------------------------
+INFO: INFO: *********************************************
+INFO: INFO: Port Availability for component "Oracle Notification Service (ONS)": This test checks the availability of ports required for component "Oracle Notification Service (ONS)" across the cluster nodes.
+INFO: INFO: Severity:CRITICAL
+INFO: INFO: OverallStatus:SUCCESSFUL
+INFO: INFO: -----------------------------------------------
+INFO: INFO: Verification Result for Node:w12dc01
+INFO: INFO: Expected Value:Available
+INFO: INFO: Actual Value:Available
+INFO: INFO: -----------------------------------------------
+INFO: INFO: *********************************************
+INFO: INFO: Disk Automount feature status: This is a prerequisite check to verify that Automount feature on Windows operating system is enabled
+INFO: INFO: Severity:IGNORABLE
+INFO: INFO: OverallStatus:SUCCESSFUL
+INFO: INFO: -----------------------------------------------
+INFO: INFO: Verification Result for Node:w12dc01
+INFO: INFO: Expected Value:enabled
+INFO: INFO: Actual Value:enabled
+INFO: INFO: -----------------------------------------------
+INFO: INFO: ****************** CVU Error logs ******************
+INFO: INFO: FINE: [Task.perform:493]  
+INFO: TaskPhysicalMemory:Physical Memory[TASKPHYSICALMEMORY]:TASK_START
+INFO: INFO: FINE: [Task.perform:514]  
+INFO: m_nodeList='w12dc01'
+INFO: INFO: FINE: [VerificationCommand.execute:297]  
+INFO: Output: '42944962560Exectask: Memory size retrieval was successfulC:\Users\oracle\AppData\Local\Temp\CVU_12.1.0.2.0_oracle\exectask.exe -getmemory 0'
+INFO: INFO: ERROR: [Result.addErrorDescription:624]  PRVF-7530 : Sufficient physical memory is not available on node "w12dc01" [Required physical memory = 4GB (4194304.0KB)]
+INFO: INFO: FINE: [Task.perform:594]  
+INFO: TaskPhysicalMemory:Physical Memory[TASKPHYSICALMEMORY]:TASK_SUMMARY:FAILED:IGNORABLE:VERIFICATION_FAILED
+INFO:           ERRORMSG(w12dc01): PRVF-7530 : Sufficient physical memory is not available on node "w12dc01" [Required physical memory = 4GB (4194304.0KB)]
+INFO: INFO: *************** End of CVU Error logs ***************
+INFO: INFO: All forked task are completed at state performChecks
+INFO: INFO: Completed background operations
+INFO: INFO: Moved to state 
+INFO: INFO: Waiting for completion of background operations
+INFO: INFO: Completed background operations
+INFO: INFO: Validating state 
+INFO: INFO: Using default Validator configured in the Action class oracle.install.ivw.crs.action.PrereqAction
+INFO: INFO: ------------------List of failed Tasks------------------
+INFO: INFO: *********************************************
+INFO: INFO: Physical Memory: This is a prerequisite condition to test whether the system has at least 4GB (4194304.0KB) of total physical memory.
+INFO: INFO: Severity:IGNORABLE
+INFO: INFO: OverallStatus:VERIFICATION_FAILED
+INFO: INFO: -----------------End of failed Tasks List----------------
+INFO: WARNING: [WARNING] [INS-13014] Target environment does not meet some optional requirements.
+INFO:    CAUSE: Some of the optional prerequisites are not met. See logs for details. C:\Users\oracle\AppData\Local\Temp\OraInstall2014-10-22_10-16-08PM\installActions2014-10-22_10-16-08PM.log
+INFO:    ACTION: Identify the list of failed prerequisite checks from the log: C:\Users\oracle\AppData\Local\Temp\OraInstall2014-10-22_10-16-08PM\installActions2014-10-22_10-16-08PM.log. Then either from the log file or from installation manual find the appropriate configuration to meet the prerequisites and fix it manually.
+INFO: INFO: Advice is CONTINUE
+</pre>
+<p>
+On Windows there is no root.sh or InstallRoot.sh or ConfigAllToolCommands script to be run: all setup and configuration scripts have been run by OUI. Take also into account that some scripts may still run in the background after OUI ending message for a couple of minutes.</p>
+<p>Note that you could avoid to have the OUI window with the -noconsole option: however there is no easy way to check that OUI has ended successfully or not because I did not find any log file in <b>C:\Users\oracle\AppData\Local\Temp\OraInstallXXX</b> directory tree containing the final message "The installation of Oracle Grid Infrastructure 12c was successful."<br />
+</p>
+<h3>Check GI status</h3>
+<p>PATH has not been updated in current session. Open a new PowerShell session to check current server configuration with:</p>
+<pre>
+PS C:\Users\oracle&gt; crsctl stat res -t
+--------------------------------------------------------------------------------
+Name           Target  State        Server                   State details
+--------------------------------------------------------------------------------
+Local Resources
+--------------------------------------------------------------------------------
+ora.DATA.dg
+               ONLINE  ONLINE       w12dc01                  STABLE
+ora.LISTENER.lsnr
+               ONLINE  ONLINE       w12dc01                  STABLE
+ora.asm
+               ONLINE  ONLINE       w12dc01                  Started,STABLE
+ora.ons
+               OFFLINE OFFLINE      w12dc01                  STABLE
+--------------------------------------------------------------------------------
+Cluster Resources
+--------------------------------------------------------------------------------
+ora.cssd
+      1        ONLINE  ONLINE       w12dc01                  STABLE
+ora.evmd
+      1        ONLINE  ONLINE       w12dc01                  STABLE
+--------------------------------------------------------------------------------
+PS C:\Users\oracle&gt;
+PS C:\Users\oracle&gt; $env:ORACLE_HOME = "H:\oracle\gi12102"
+PS C:\Users\oracle&gt; $env:PATH = "$env:ORACLE_HOME" + "\perl\bin" + ";" + "$env:PATH"
+PS C:\Users\oracle&gt; $env:ORACLE_SID = "+ASM"
+PS C:\Users\oracle&gt; asmcmd lsdg
+State    Type    Rebal  Sector  Block       AU  Total_MB  Free_MB  Req_mir_free_MB  Usable_file_MB  Offline_disks  Votin
+g_files  Name
+MOUNTED  EXTERN  N         512   4096  1048576     10237    10175                0           10175              0
+      N  DATA/
+PS C:\Users\oracle&gt;
+</pre>
+<h3>Windows configuration changes</h3>
+<p>OUI has created local groups that have been added to oracle user account:</p>
+<pre>
+PS C:\Users\oracle&gt; net user oracle
+User name                    oracle
+Full Name
+Comment
+User's comment
+Country/region code          000 (System Default)
+Account active               Yes
+Account expires              Never
+
+Password last set            10/22/2014 8:37:36 PM
+Password expires             12/3/2014 8:37:36 PM
+Password changeable          10/22/2014 8:37:36 PM
+Password required            Yes
+User may change password     Yes
+
+Workstations allowed         All
+Logon script
+User profile
+Home directory
+Last logon                   10/22/2014 10:10:48 PM
+
+Logon hours allowed          All
+
+Local Group Memberships      *Administrators       *ORA_ASMADMIN
+                             *ORA_ASMDBA           *ORA_DBA
+                             *ORA_OraGI12Home1_SYSB*ORA_OraGI12Home1_SYSD
+                             *ORA_OraGI12Home1_SYSK*Users
+Global Group memberships     *None
+The command completed successfully.
+
+PS C:\Users\oracle&gt;
+</pre>
+<p>Following Windows services have been created (I have switched to cmd.exe from PowerShell):</p>
+<pre>
+C:\Users\oracle&gt;sc query | findstr SERVICE | findStr Oracle
+SERVICE_NAME: OracleRemExecServiceV2
+SERVICE_NAME: OracleOHService
+SERVICE_NAME: OracleOraGI12Home1TNSListener
+SERVICE_NAME: OracleASMService+ASM
+
+C:\Users\oracle&gt;sc qc OracleASMService+ASM
+[SC] QueryServiceConfig SUCCESS
+
+SERVICE_NAME: OracleASMService+ASM
+        TYPE               : 10  WIN32_OWN_PROCESS
+        START_TYPE         : 3   DEMAND_START
+        ERROR_CONTROL      : 1   NORMAL
+        BINARY_PATH_NAME   : h:\oracle\gi12102\bin\ORACLE.EXE +
+        LOAD_ORDER_GROUP   :
+        TAG                : 0
+        DISPLAY_NAME       : OracleASMService+ASM
+        DEPENDENCIES       :
+        SERVICE_START_NAME : LocalSystem
+
+C:\Users\oracle&gt;sc qc OracleOraGI12Home1TNSListener
+[SC] QueryServiceConfig SUCCESS
+
+SERVICE_NAME: OracleOraGI12Home1TNSListener
+        TYPE               : 10  WIN32_OWN_PROCESS
+        START_TYPE         : 2   AUTO_START
+        ERROR_CONTROL      : 1   NORMAL
+        BINARY_PATH_NAME   : H:\oracle\gi12102\BIN\TNSLSNR
+        LOAD_ORDER_GROUP   :
+        TAG                : 0
+        DISPLAY_NAME       : OracleOraGI12Home1TNSListener
+        DEPENDENCIES       :
+        SERVICE_START_NAME : NT AUTHORITY\LOCAL SERVICE
+
+C:\Users\oracle&gt;sc qc OracleOHService
+[SC] QueryServiceConfig SUCCESS
+
+SERVICE_NAME: OracleOHService
+        TYPE               : 10  WIN32_OWN_PROCESS
+        START_TYPE         : 2   AUTO_START
+        ERROR_CONTROL      : 1   NORMAL
+        BINARY_PATH_NAME   : H:\oracle\gi12102\bin\ohasd.exe serviceOracleOHService
+        LOAD_ORDER_GROUP   :
+        TAG                : 0
+        DISPLAY_NAME       : OracleOHService
+        DEPENDENCIES       :
+        SERVICE_START_NAME : LocalSystem
+
+C:\Users\oracle&gt;sc qc OracleRemExecServiceV2
+[SC] QueryServiceConfig SUCCESS
+
+SERVICE_NAME: OracleRemExecServiceV2
+        TYPE               : 10  WIN32_OWN_PROCESS
+        START_TYPE         : 3   DEMAND_START
+        ERROR_CONTROL      : 1   NORMAL
+        BINARY_PATH_NAME   : C:\Users\oracle\AppData\Local\Temp\\oraremservicev2\RemoteExecService.exe
+        LOAD_ORDER_GROUP   :
+        TAG                : 0
+        DISPLAY_NAME       : OracleRemExecServiceV2
+        DEPENDENCIES       :
+        SERVICE_START_NAME : LocalSystem
+</pre>
+<p>Last service looks somewhat strange because it is using an executable created in a temporary directory created by OUI but not removed by OUI after successfull installation.<br />
+<br />
+OUI has also created Windows registry entries:</p>
+<pre>
+PS C:\Users\oracle&gt; reg query hklm\software\oracle /s
+
+HKEY_LOCAL_MACHINE\software\oracle
+    inst_loc    REG_SZ    C:\Program Files\Oracle\Inventory
+
+HKEY_LOCAL_MACHINE\software\oracle\KEY_OraGI12Home1
+    ORACLE_HOME    REG_SZ    H:\oracle\gi12102
+    ORACLE_HOME_NAME    REG_SZ    OraGI12Home1
+    ORACLE_GROUP_NAME    REG_SZ    Oracle - OraGI12Home1
+    NLS_LANG    REG_SZ    AMERICAN_AMERICA.WE8MSWIN1252
+    ORACLE_BUNDLE_NAME    REG_SZ    Enterprise
+    ORACLE_HOME_TYPE    REG_SZ    0
+    ORACLE_SVCUSER    REG_SZ    NT AUTHORITY\SYSTEM
+    ORACLE_SVCUSER_PWDREQ    REG_SZ    0
+    ORACLE_BASE    REG_SZ    H:\oracle\base
+    ORACLE_HOME_KEY    REG_SZ    SOFTWARE\ORACLE\KEY_OraGI12Home1
+    MSHELP_TOOLS    REG_SZ    H:\oracle\gi12102\MSHELP
+    SQLPATH    REG_SZ    H:\oracle\gi12102\dbs
+    RDBMS_CONTROL    REG_SZ    H:\oracle\gi12102\DATABASE
+    RDBMS_ARCHIVE    REG_SZ    H:\oracle\gi12102\DATABASE\ARCHIVE
+    ORA_+ASM_AUTOSTART    REG_EXPAND_SZ    FALSE
+    ORA_+ASM_SHUTDOWN    REG_EXPAND_SZ    TRUE
+    ORA_+ASM_SHUTDOWNTYPE    REG_EXPAND_SZ    immediate
+    ORA_+ASM_SHUTDOWN_TIMEOUT    REG_EXPAND_SZ    90
+
+HKEY_LOCAL_MACHINE\software\oracle\ocr
+    local_only    REG_SZ    TRUE
+    ocrconfig_loc    REG_SZ    H:\oracle\gi12102\cdata\localhost\local.ocr
+
+HKEY_LOCAL_MACHINE\software\oracle\olr
+    crs_home    REG_SZ    H:\oracle\gi12102
+    olrconfig_loc    REG_SZ    H:\oracle\gi12102\cdata\localhost\w12dc01.olr
+
+HKEY_LOCAL_MACHINE\software\oracle\VirtualBox Guest Additions
+    Version    REG_SZ    4.3.16
+    VersionExt    REG_SZ    4.3.16
+    Revision    REG_SZ    95972
+    InstallDir    REG_SZ    C:\Program Files\Oracle\VirtualBox Guest Additions
+
+HKEY_LOCAL_MACHINE\software\oracle\_DosLinks
+    Scan    REG_EXPAND_SZ    0
+
+PS C:\Users\oracle&gt;
+</pre>
+<h3>Oracle Inventory</h3>
+<p>Oracle Inventory has been created in <b>\Program Files\Oracle\Inventory</b> (HKEY_LOCAL_MACHINE\software\oracle\inst_loc registry key). You can check opatch in a cmd.exe session started from the PowerShell session where ORACLE_HOME has already been set:</p>
+<pre>
+PS C:\Users\oracle&gt; cmd.exe
+Microsoft Windows [Version 6.2.9200]
+(c) 2012 Microsoft Corporation. All rights reserved.
+
+C:\Users\oracle&gt;%ORACLE_HOME%\opatch\opatch lsinv
+Oracle Interim Patch Installer version 12.1.0.1.3
+Copyright (c) 2014, Oracle Corporation.  All rights reserved.
+
+
+Oracle Home       : H:\oracle\gi12102
+Central Inventory : C:\Program Files\Oracle\Inventory
+   from           : n/a
+OPatch version    : 12.1.0.1.3
+OUI version       : 12.1.0.2.0
+Log file location : H:\oracle\gi12102\cfgtoollogs\opatch\opatch2014-10-23_19-57-58PM_1.log
+
+Lsinventory Output file location : H:\oracle\gi12102\cfgtoollogs\opatch\lsinv\lsinventory2014-10-23_19-57-58PM.txt
+
+--------------------------------------------------------------------------------
+Installed Top-level Products (1):
+
+Oracle Grid Infrastructure 12c                                       12.1.0.2.0
+There are 1 products installed in this Oracle Home.
+
+
+There are no Interim patches installed in this Oracle Home.
+
+
+--------------------------------------------------------------------------------
+
+OPatch succeeded.
+
+C:\Users\oracle&gt;
+</pre>
+<h3> Remove OUI temporary files </h3>
+<p>OUI does not remove temporary files created by each installation run whether run is successfull or not: a failed installation run can leave large directories in <b> C:\Users\oracle\AppData\Local\Temp</b> that you should remove.</p>
+<pre>
+
+</pre>
