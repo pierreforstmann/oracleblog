@@ -1,0 +1,1223 @@
+<p>
+This may sound a litte bit strange and looks like an oxymoron but Oracle Grid Infrastructure (GI) allows to create a single node cluster. Of course you cannot have all high availability features but it is possible to install a single node cluster and to have it running: for example if you cannot have all cluster nodes available at the same time you can start by creating a single node cluster and add later the second node to have a full 2 node cluster.</p>
+<h2> Prerequisites </h2>
+<p>I have used VirtualBox 4.3.6 with Oracle Linux 6.4 64bit distribution and Oracle Database 12.1.0.1.<br />
+<br />
+I have reused the 12c cluster I created last year after uninstall all Oracle software and rewrite ASM disks headers with dd command. Same basic configuration has been used (operating system, network and storage).<br />
+This means I have the a system configuration valid for a 2 node cluster but I have only used one node.</p>
+<p>The same Oracle package for 11.2 is still installed:</p>
+<pre>
+# yum info oracle-rdbms-server-11gR2-preinstall.x86_64
+Loaded plugins: security
+Installed Packages
+Name        : oracle-rdbms-server-11gR2-preinstall
+Arch        : x86_64
+Version     : 1.0
+Release     : 7.el6
+Size        : 32 k
+Repo        : installed
+From repo   : ol6_latest
+Summary     : Sets the system for Oracle single instance and Real Application
+            : Cluster install for Oracle Linux 6
+License     : GPL
+Description : This package installs software packages and sets system parameters
+            : required for Oracle single instance and Real Application Cluster
+            : install for Oracle Linux Release 6 Files affected:
+            : /etc/sysctl.conf, /etc/security/limits.conf, /boot/grub/menu.lst.
+
+Available Packages
+Name        : oracle-rdbms-server-11gR2-preinstall
+Arch        : x86_64
+Version     : 1.0
+Release     : 9.el6
+Size        : 17 k
+Repo        : ol6_latest
+Summary     : Sets the system for Oracle single instance and Real Application
+            : Cluster install for Oracle Linux 6
+License     : GPLv2
+Description : This package installs software packages and sets system parameters
+            : required for Oracle single instance and Real Application Cluster
+            : install for Oracle Linux Release 6 Files affected:
+            : /etc/sysctl.conf, /etc/security/limits.conf, /boot/grub/menu.lst.
+
+</pre>
+<p>SELinux is still disabled:</p>
+<pre>
+# cat /etc/selinux/config
+
+# This file controls the state of SELinux on the system.
+# SELINUX= can take one of these three values:
+#     enforcing - SELinux security policy is enforced.
+#     permissive - SELinux prints warnings instead of enforcing.
+#     disabled - No SELinux policy is loaded.
+SELINUX=disabled
+# SELINUXTYPE= can take one of these two values:
+#     targeted - Targeted processes are protected,
+#     mls - Multi Level Security protection.
+SELINUXTYPE=targeted
+</pre>
+<p>This node has 3 network interfaces (the first is using NAT for Internet, the second one is the node public address and the third one is for the RAC interconnect):</p>
+<pre>
+# cat /etc/sysconfig/network-scripts/ifcfg-eth0
+DEVICE=eth0
+HWADDR=08:00:27:B1:F3:E5
+TYPE=Ethernet
+UUID=88285472-767a-4f91-b33e-243c13a4c173
+ONBOOT=yes
+NM_CONTROLLED=yes
+BOOTPROTO=dhcp
+# cat /etc/sysconfig/network-scripts/ifcfg-eth1
+DEVICE=eth1
+HWADDR=08:00:27:2A:EC:1A
+TYPE=Ethernet
+ONBOOT=yes
+IPADDR=192.168.56.111
+# cat /etc/sysconfig/network-scripts/ifcfg-eth2
+DEVICE=eth2
+HWADDR=08:00:27:EB:ED:D4
+TYPE=Ethernet
+ONBOOT=yes
+IPADDR=192.168.43.111
+#
+</pre>
+<p>The network configuration  is ready for a 3 node cluster but hostnames ending with digit 2 or 3 are not used for this installation):</p>
+<pre>
+# cat /etc/hosts
+127.0.0.1   localhost localhost.localdomain localhost4 localhost4.localdomain4
+::1         localhost localhost.localdomain localhost6 localhost6.localdomain6
+#
+# Public
+192.168.56.111 ol6twcn1 ol6twcn1.localdomain
+192.168.56.112 ol6twcn2 ol6twcn2.localdomain
+192.168.56.113 ol6twcn3 ol6twcn3.localdomain
+# Private
+192.168.43.111 ol6twcn1-priv ol6twcn1-priv.localdomain
+192.168.43.112 ol6twcn2-priv ol6twcn2-priv.localdomain
+192.168.43.113 ol6twcn3-priv ol6twcn3-priv.localdomain
+# VIP
+192.168.56.121 ol6twcn1-vip ol6twcn1-vip.localdomain
+192.168.56.122 ol6twcn2-vip ol6twcn2-vip.localdomain
+192.168.56.123 ol6twcn3-vip ol6twcn3-vip.localdomain
+</pre>
+<p>DNS is configured for SCAN listener:</p>
+<pre>
+# nslookup ol6twc-scan
+Server:         192.168.56.252
+Address:        192.168.56.252#53
+
+Name:   ol6twc-scan.localdomain
+Address: 192.168.56.132
+Name:   ol6twc-scan.localdomain
+Address: 192.168.56.133
+Name:   ol6twc-scan.localdomain
+Address: 192.168.56.131
+</pre>
+<p>NTP is not configured:</p>
+<pre>
+# chkconfig --list ntpd
+ntpd            0:off   1:off   2:off   3:off   4:off   5:off   6:off
+</pre>
+<p>Firewall is also not configured:</p>
+<pre>
+# chkconfig --list iptables
+iptables        0:off   1:off   2:off   3:off   4:off   5:off   6:off
+</pre>
+<p>Machine has 2 disks that will be used as ASM disks without ASMLib:</p>
+<pre>
+# fdisk -l /dev/sdb
+
+Disk /dev/sdb: 10.7 GB, 10737418240 bytes
+255 heads, 63 sectors/track, 1305 cylinders
+Units = cylinders of 16065 * 512 = 8225280 bytes
+Sector size (logical/physical): 512 bytes / 512 bytes
+I/O size (minimum/optimal): 512 bytes / 512 bytes
+Disk identifier: 0x9ce82f4a
+
+   Device Boot      Start         End      Blocks   Id  System
+/dev/sdb1               1        1305    10482381   83  Linux
+# fdisk -l /dev/sdc
+
+Disk /dev/sdc: 10.7 GB, 10737418240 bytes
+255 heads, 63 sectors/track, 1305 cylinders
+Units = cylinders of 16065 * 512 = 8225280 bytes
+Sector size (logical/physical): 512 bytes / 512 bytes
+I/O size (minimum/optimal): 512 bytes / 512 bytes
+Disk identifier: 0xe1321235
+
+   Device Boot      Start         End      Blocks   Id  System
+/dev/sdc1               1        1305    10482381   83  Linux
+# scsi_id -g /dev/sdb
+1ATA     VBOX HARDDISK                           VB78111c9d-6b7daca9
+# scsi_id -g /dev/sdc
+1ATA     VBOX HARDDISK                           VBe981dc9b-73ff6297
+# cat /etc/udev/rules.d/99-oracle-asmdevices.rules
+KERNEL=="sd?1", BUS=="scsi", PROGRAM=="/sbin/scsi_id -g -u -d /dev/$parent", RESULT=="1ATA_VBOX_HARDDISK_VB78111c9d-6b7daca9", NAME="asm-disk1", OWNER="oracle", GROUP="dba", MODE="0660"
+KERNEL=="sd?1", BUS=="scsi", PROGRAM=="/sbin/scsi_id -g -u -d /dev/$parent", RESULT=="1ATA_VBOX_HARDDISK_VBe981dc9b-73ff6297", NAME="asm-disk2", OWNER="oracle", GROUP="dba", MODE="0660"
+</pre>
+<h2>Installation</h2>
+<h3> Upload GI software and unzip </h3>
+<p>Unless otherwise stated all steps are run with oracle user account.</p>
+<pre>
+$ cd /stage
+$ unzip linuxamd64_12c_grid_1of2.zip
+$ unzip linuxamd64_12c_grid_2of2.zip
+</pre>
+<h3> Check single node configuration for GI installation </h3>
+<pre>
+$ /stage/grid/runcluvfy.sh stage -pre crsinst -n ol6twcn1
+
+Performing pre-checks for cluster services setup
+
+Checking node reachability...
+Node reachability check passed from node "ol6twcn1"
+
+
+Checking user equivalence...
+User equivalence check passed for user "oracle"
+
+Checking node connectivity...
+
+Checking hosts config file...
+
+Verification of the hosts config file successful
+
+Node connectivity passed for subnet "10.0.2.0" with node(s) ol6twcn1
+TCP connectivity check passed for subnet "10.0.2.0"
+
+Node connectivity passed for subnet "192.168.56.0" with node(s) ol6twcn1
+TCP connectivity check passed for subnet "192.168.56.0"
+
+Node connectivity passed for subnet "192.168.43.0" with node(s) ol6twcn1
+TCP connectivity check passed for subnet "192.168.43.0"
+
+
+Interfaces found on subnet "10.0.2.0" that are likely candidates for VIP are:
+ol6twcn1 eth0:10.0.2.15
+
+Interfaces found on subnet "192.168.56.0" that are likely candidates for a private interconnect are:
+ol6twcn1 eth1:192.168.56.111
+
+Interfaces found on subnet "192.168.43.0" that are likely candidates for a private interconnect are:
+ol6twcn1 eth2:192.168.43.111
+
+Node connectivity check passed
+
+Checking multicast communication...
+
+Checking subnet "10.0.2.0" for multicast communication with multicast group "224.0.0.251"...
+Check of subnet "10.0.2.0" for multicast communication with multicast group "224.0.0.251" passed.
+
+Check of multicast communication passed.
+
+Checking ASMLib configuration.
+Check for ASMLib configuration passed.
+Total memory check failed
+Check failed on nodes:
+        ol6twcn1
+Available memory check passed
+Swap space check passed
+Free disk space check passed for "ol6twcn1:/usr,ol6twcn1:/var,ol6twcn1:/etc,ol6twcn1:/sbin,ol6twcn1:/tmp"
+Check for multiple users with UID value 54321 passed
+User existence check passed for "oracle"
+Group existence check passed for "oinstall"
+Group existence check passed for "dba"
+Membership check for user "oracle" in group "oinstall" [as Primary] passed
+Membership check for user "oracle" in group "dba" passed
+Run level check passed
+Hard limits check passed for "maximum open file descriptors"
+Soft limits check passed for "maximum open file descriptors"
+Hard limits check passed for "maximum user processes"
+Soft limits check passed for "maximum user processes"
+System architecture check passed
+Kernel version check passed
+Kernel parameter check passed for "semmsl"
+Kernel parameter check passed for "semmns"
+Kernel parameter check passed for "semopm"
+Kernel parameter check passed for "semmni"
+Kernel parameter check passed for "shmmax"
+Kernel parameter check passed for "shmmni"
+Kernel parameter check passed for "shmall"
+Kernel parameter check passed for "file-max"
+Kernel parameter check passed for "ip_local_port_range"
+Kernel parameter check passed for "rmem_default"
+Kernel parameter check passed for "rmem_max"
+Kernel parameter check passed for "wmem_default"
+Kernel parameter check passed for "wmem_max"
+Kernel parameter check passed for "aio-max-nr"
+Package existence check passed for "binutils"
+Package existence check passed for "compat-libcap1"
+Package existence check passed for "compat-libstdc++-33(x86_64)"
+Package existence check passed for "libgcc(x86_64)"
+Package existence check passed for "libstdc++(x86_64)"
+Package existence check passed for "libstdc++-devel(x86_64)"
+Package existence check passed for "sysstat"
+Package existence check passed for "gcc"
+Package existence check passed for "gcc-c++"
+Package existence check passed for "ksh"
+Package existence check passed for "make"
+Package existence check passed for "glibc(x86_64)"
+Package existence check passed for "glibc-devel(x86_64)"
+Package existence check passed for "libaio(x86_64)"
+Package existence check passed for "libaio-devel(x86_64)"
+Package existence check passed for "nfs-utils"
+
+Checking availability of ports "6200,6100" required for component "Oracle Notification Service (ONS)"
+Port availability check passed for ports "6200,6100"
+Check for multiple users with UID value 0 passed
+Current group ID check passed
+
+Starting check for consistency of primary group of root user
+
+Check for consistency of root user's primary group passed
+
+Starting Clock synchronization checks using Network Time Protocol(NTP)...
+
+NTP Configuration file check started...
+No NTP Daemons or Services were found to be running
+
+Clock synchronization check using Network Time Protocol(NTP) passed
+
+Core file name pattern consistency check passed.
+
+User "oracle" is not part of "root" group. Check passed
+Default user file creation mask check passed
+Checking integrity of file "/etc/resolv.conf" across nodes
+
+"domain" and "search" entries do not coexist in any  "/etc/resolv.conf" file
+The DNS response time for an unreachable node is within acceptable limit on all nodes
+
+Check for integrity of file "/etc/resolv.conf" passed
+
+Time zone consistency check passed
+
+Checking integrity of name service switch configuration file "/etc/nsswitch.conf" ...
+Check for integrity of name service switch configuration file "/etc/nsswitch.conf" passed
+
+
+Checking daemon "avahi-daemon" is not configured and running
+Daemon not configured check passed for process "avahi-daemon"
+Daemon not running check passed for process "avahi-daemon"
+
+Starting check for /dev/shm mounted as temporary file system ...
+
+Check for /dev/shm mounted as temporary file system passed
+
+Pre-check for cluster services setup was unsuccessful on all the nodes.
+</pre>
+<p>Although ol6twcn1 has 4 GB of RAM, cluvfy reports "Total memory check failed": that is the only reason why cluvfy says that pre-check was unsuccessfull. I have ignored this error.</p>
+<h3>Install GI </h3>
+<p>I have used following script. Because a single node cluster is installed the parameter clusterNodes is only referencing the current node.</p>
+<pre>
+#!/bin/ksh
+#
+set -x
+cd /stage/grid
+export DISTRIB=`pwd`
+./runInstaller -silent         \
+       -responseFile $DISTRIB/response/grid_install.rsp        \
+       INVENTORY_LOCATION=/u01/app/oracle/oraInventory         \
+       SELECTED_LANGUAGES=en                                   \
+       oracle.install.option=CRS_CONFIG                        \
+       ORACLE_BASE=/u01/app/base/                              \
+       ORACLE_HOME=/u01/app/12.1.0.1/grid                      \
+       oracle.install.asm.OSDBA=dba                            \
+       oracle.install.asm.OSOPER=dba                           \
+       oracle.install.asm.OSASM=dba                            \
+       oracle.install.crs.config.gpnp.scanName=ol6twc-scan.localdomain \
+       oracle.install.crs.config.gpnp.scanPort=1521            \
+       oracle.install.crs.config.clusterName=ol6twc            \
+       oracle.install.crs.config.gpnp.configureGNS=false       \
+       oracle.install.crs.config.clusterNodes=ol6twcn1:ol6twcn1-vip \
+       oracle.install.crs.config.networkInterfaceList=eth1:192.168.56.0:1,eth2:192.168.43.0:2 \
+       oracle.install.crs.config.storageOption=ASM_STORAGE     \
+       oracle.install.crs.config.useIPMI=false                 \
+       oracle.install.asm.SYSASMPassword=oracle12c              \
+       oracle.install.asm.diskGroup.diskDiscoveryString=/dev/asm* \
+       oracle.install.asm.diskGroup.name=DATA                  \
+       oracle.install.asm.diskGroup.disks=/dev/asm-disk1       \
+       oracle.install.asm.diskGroup.redundancy=EXTERNAL        \
+       oracle.install.asm.monitorPassword=oracle12c
+</pre>
+<p>The full script output is the following (I have ignored all warnings about password and OSASM/OSDBA/OSOPER roles).<br />
+Note that you need to wait until you get the message "The installation of Oracle Grid Infrastructure 12c was successful." is displayed.</p>
+<pre>
+Starting Oracle Universal Installer...
+
+Checking Temp space: must be greater than 120 MB.   Actual 27655 MB    Passed
+Checking swap space: must be greater than 150 MB.   Actual 3967 MB    Passed
+Preparing to launch Oracle Universal Installer from /tmp/OraInstall2014-06-25_09-16-10PM. Please wait ...[oracle@ol6twcn1 stage]$ [WARNING] [INS-41170] You have chosen not to configure the Grid Infrastructure Management Repository. Not configuring the Grid Infrastructure Management Repository will permanently disable the Cluster Health Monitor, QoS Management, Memory Guard, and Rapid Home Provisioning features. Enabling of these features will require reinstallation of the Grid Infrastructure.
+[WARNING] [INS-30011] The SYS password entered does not conform to the Oracle recommended standards.
+   CAUSE: Oracle recommends that the password entered should be at least 8 characters in length, contain at least 1 uppercase character, 1 lower case character and 1 digit [0-9].
+   ACTION: Provide a password that conforms to the Oracle recommended standards.
+[WARNING] [INS-30011] The ASMSNMP password entered does not conform to the Oracle recommended standards.
+   CAUSE: Oracle recommends that the password entered should be at least 8 characters in length, contain at least 1 uppercase character, 1 lower case character and 1 digit [0-9].
+   ACTION: Provide a password that conforms to the Oracle recommended standards.
+[WARNING] [INS-41808] Possible invalid choice for OSASM Group.
+   CAUSE: The name of the group you selected for the OSASM group is commonly used to grant other system privileges (For example: asmdba, asmoper, dba, oper).
+   ACTION: Oracle recommends that you designate asmadmin as the OSASM group.
+[WARNING] [INS-41809] Possible invalid choice for OSDBA Group.
+   CAUSE: The group name you selected as the OSDBA for ASM group is commonly used for Oracle Database administrator privileges.
+   ACTION: Oracle recommends that you designate asmdba as the OSDBA for ASM group, and that the group should not be the same group as an Oracle Database OSDBA group.
+[WARNING] [INS-41810] Possible invalid choice for OSOPER Group.
+   CAUSE: The group name you selected as the OSOPER for ASM group is commonly used for Oracle Database administrator privileges.
+   ACTION: Oracle recommends that you designate asmoper as the OSOPER for ASM group, and that the group should not be the same group as an Oracle Database OSOPER group.
+[WARNING] [INS-41813] OSDBA for ASM, OSOPER for ASM, and OSASM are the same OS group.
+   CAUSE: The group you selected for granting the OSDBA for ASM group for database access, and the OSOPER for ASM group for startup and shutdown of Oracle ASM, is the same group as the OSASM group, whose members have SYSASM privileges on Oracle ASM.
+   ACTION: Choose different groups as the OSASM, OSDBA for ASM, and OSOPER for ASM groups.
+[WARNING] [INS-13014] Target environment does not meet some optional requirements.
+   CAUSE: Some of the optional prerequisites are not met. See logs for details. /tmp/OraInstall2014-06-25_09-16-10PM/installActions2014-06-25_09-16-10PM.log
+   ACTION: Identify the list of failed prerequisite checks from the log: /tmp/OraInstall2014-06-25_09-16-10PM/installActions2014-06-25_09-16-10PM.log. Then either from the log file or from installation manual find the appropriate configuration to meet the prerequisites and fix it manually.
+You can find the log of this install session at:
+ /u01/app/oracle/oraInventory/logs/installActions2014-06-25_09-16-10PM.log
+ The installation of Oracle Grid Infrastructure 12c was successful.
+Please check '/u01/app/oracle/oraInventory/logs/silentInstall2014-06-25_09-16-10PM.log' for more details.
+
+As a root user, execute the following script(s):
+        1. /u01/app/oracle/oraInventory/orainstRoot.sh
+        2. /u01/app/12.1.0.1/grid/root.sh
+
+Execute /u01/app/oracle/oraInventory/orainstRoot.sh on the following nodes:
+</pre>
+<p>Switch to user root to run the 2 scripts mentioned in runInstaller output:</p>
+<pre>
+# /u01/app/oracle/oraInventory/orainstRoot.sh
+Changing permissions of /u01/app/oracle/oraInventory.
+Adding read,write permissions for group.
+Removing read,write,execute permissions for world.
+
+Changing groupname of /u01/app/oracle/oraInventory to oinstall.
+The execution of the script is complete.
+]# /u01/app/12.1.0.1/grid/root.sh
+Check /u01/app/12.1.0.1/grid/install/root_ol6twcn1.localdomain_2014-06-25_21-21-10.log for the output of root script
+</pre>
+<p>Check that root.sh has similar output and especially ends with message "CLSRSC-325: Configure Oracle Grid Infrastructure for a Cluster ... succeeded":</p>
+<pre>
+Performing root user operation for Oracle 12c
+
+The following environment variables are set as:
+    ORACLE_OWNER= oracle
+    ORACLE_HOME=  /u01/app/12.1.0.1/grid
+   Copying dbhome to /usr/local/bin ...
+   Copying oraenv to /usr/local/bin ...
+   Copying coraenv to /usr/local/bin ...
+
+Entries will be added to the /etc/oratab file as needed by
+Database Configuration Assistant when a database is created
+Finished running generic part of root script.
+Now product-specific root actions will be performed.
+Using configuration parameter file: /u01/app/12.1.0.1/grid/crs/install/crsconfig_params
+2014/06/25 21:21:11 CLSRSC-363: User ignored prerequisites during installation
+
+OLR initialization - successful
+  root wallet
+  root wallet cert
+  root cert export
+  peer wallet
+  profile reader wallet
+  pa wallet
+  peer wallet keys
+  pa wallet keys
+  peer cert request
+  pa cert request
+  peer cert
+  pa cert
+  peer root cert TP
+  profile reader root cert TP
+  pa root cert TP
+  peer pa cert TP
+  pa peer cert TP
+  profile reader pa cert TP
+  profile reader peer cert TP
+  peer user cert
+  pa user cert
+2014/06/25 21:21:54 CLSRSC-330: Adding Clusterware entries to file 'oracle-ohasd.conf'
+
+CRS-4133: Oracle High Availability Services has been stopped.
+CRS-4123: Oracle High Availability Services has been started.
+CRS-4133: Oracle High Availability Services has been stopped.
+CRS-4123: Oracle High Availability Services has been started.
+CRS-2673: Attempting to stop 'ora.drivers.acfs' on 'ol6twcn1'
+CRS-2677: Stop of 'ora.drivers.acfs' on 'ol6twcn1' succeeded
+CRS-2672: Attempting to start 'ora.evmd' on 'ol6twcn1'
+CRS-2672: Attempting to start 'ora.mdnsd' on 'ol6twcn1'
+CRS-2676: Start of 'ora.mdnsd' on 'ol6twcn1' succeeded
+CRS-2676: Start of 'ora.evmd' on 'ol6twcn1' succeeded
+CRS-2672: Attempting to start 'ora.gpnpd' on 'ol6twcn1'
+CRS-2676: Start of 'ora.gpnpd' on 'ol6twcn1' succeeded
+CRS-2672: Attempting to start 'ora.cssdmonitor' on 'ol6twcn1'
+CRS-2672: Attempting to start 'ora.gipcd' on 'ol6twcn1'
+CRS-2676: Start of 'ora.cssdmonitor' on 'ol6twcn1' succeeded
+CRS-2676: Start of 'ora.gipcd' on 'ol6twcn1' succeeded
+CRS-2672: Attempting to start 'ora.cssd' on 'ol6twcn1'
+CRS-2672: Attempting to start 'ora.diskmon' on 'ol6twcn1'
+CRS-2676: Start of 'ora.diskmon' on 'ol6twcn1' succeeded
+CRS-2676: Start of 'ora.cssd' on 'ol6twcn1' succeeded
+
+ASM created and started successfully.
+
+Disk Group DATA created successfully.
+
+CRS-2672: Attempting to start 'ora.storage' on 'ol6twcn1'
+CRS-2676: Start of 'ora.storage' on 'ol6twcn1' succeeded
+CRS-2672: Attempting to start 'ora.crsd' on 'ol6twcn1'
+CRS-2676: Start of 'ora.crsd' on 'ol6twcn1' succeeded
+CRS-4256: Updating the profile
+Successful addition of voting disk 94aeb56a55614f99bfb8c3b94f2d0b5e.
+Successfully replaced voting disk group with +DATA.
+CRS-4256: Updating the profile
+CRS-4266: Voting file(s) successfully replaced
+##  STATE    File Universal Id                File Name Disk group
+--  -----    -----------------                --------- ---------
+ 1. ONLINE   94aeb56a55614f99bfb8c3b94f2d0b5e (/dev/asm-disk1) [DATA]
+Located 1 voting disk(s).
+CRS-2791: Starting shutdown of Oracle High Availability Services-managed resources on 'ol6twcn1'
+CRS-2673: Attempting to stop 'ora.crsd' on 'ol6twcn1'
+CRS-2677: Stop of 'ora.crsd' on 'ol6twcn1' succeeded
+CRS-2673: Attempting to stop 'ora.storage' on 'ol6twcn1'
+CRS-2673: Attempting to stop 'ora.mdnsd' on 'ol6twcn1'
+CRS-2673: Attempting to stop 'ora.gpnpd' on 'ol6twcn1'
+CRS-2673: Attempting to stop 'ora.drivers.acfs' on 'ol6twcn1'
+CRS-2677: Stop of 'ora.storage' on 'ol6twcn1' succeeded
+CRS-2677: Stop of 'ora.drivers.acfs' on 'ol6twcn1' succeeded
+CRS-2673: Attempting to stop 'ora.ctssd' on 'ol6twcn1'
+CRS-2673: Attempting to stop 'ora.evmd' on 'ol6twcn1'
+CRS-2673: Attempting to stop 'ora.asm' on 'ol6twcn1'
+CRS-2677: Stop of 'ora.mdnsd' on 'ol6twcn1' succeeded
+CRS-2677: Stop of 'ora.gpnpd' on 'ol6twcn1' succeeded
+CRS-2677: Stop of 'ora.evmd' on 'ol6twcn1' succeeded
+CRS-2677: Stop of 'ora.ctssd' on 'ol6twcn1' succeeded
+CRS-2677: Stop of 'ora.asm' on 'ol6twcn1' succeeded
+CRS-2673: Attempting to stop 'ora.cluster_interconnect.haip' on 'ol6twcn1'
+CRS-2677: Stop of 'ora.cluster_interconnect.haip' on 'ol6twcn1' succeeded
+CRS-2673: Attempting to stop 'ora.cssd' on 'ol6twcn1'
+CRS-2677: Stop of 'ora.cssd' on 'ol6twcn1' succeeded
+CRS-2673: Attempting to stop 'ora.gipcd' on 'ol6twcn1'
+CRS-2677: Stop of 'ora.gipcd' on 'ol6twcn1' succeeded
+CRS-2793: Shutdown of Oracle High Availability Services-managed resources on 'ol6twcn1' has completed
+CRS-4133: Oracle High Availability Services has been stopped.
+CRS-4123: Starting Oracle High Availability Services-managed resources
+CRS-2672: Attempting to start 'ora.mdnsd' on 'ol6twcn1'
+CRS-2672: Attempting to start 'ora.evmd' on 'ol6twcn1'
+CRS-2676: Start of 'ora.mdnsd' on 'ol6twcn1' succeeded
+CRS-2676: Start of 'ora.evmd' on 'ol6twcn1' succeeded
+CRS-2672: Attempting to start 'ora.gpnpd' on 'ol6twcn1'
+CRS-2676: Start of 'ora.gpnpd' on 'ol6twcn1' succeeded
+CRS-2672: Attempting to start 'ora.gipcd' on 'ol6twcn1'
+CRS-2676: Start of 'ora.gipcd' on 'ol6twcn1' succeeded
+CRS-2672: Attempting to start 'ora.cssdmonitor' on 'ol6twcn1'
+CRS-2676: Start of 'ora.cssdmonitor' on 'ol6twcn1' succeeded
+CRS-2672: Attempting to start 'ora.cssd' on 'ol6twcn1'
+CRS-2672: Attempting to start 'ora.diskmon' on 'ol6twcn1'
+CRS-2676: Start of 'ora.diskmon' on 'ol6twcn1' succeeded
+CRS-2789: Cannot stop resource 'ora.diskmon' as it is not running on server 'ol6twcn1'
+CRS-2676: Start of 'ora.cssd' on 'ol6twcn1' succeeded
+CRS-2672: Attempting to start 'ora.cluster_interconnect.haip' on 'ol6twcn1'
+CRS-2672: Attempting to start 'ora.ctssd' on 'ol6twcn1'
+CRS-2676: Start of 'ora.ctssd' on 'ol6twcn1' succeeded
+CRS-2676: Start of 'ora.cluster_interconnect.haip' on 'ol6twcn1' succeeded
+CRS-2672: Attempting to start 'ora.asm' on 'ol6twcn1'
+CRS-2676: Start of 'ora.asm' on 'ol6twcn1' succeeded
+CRS-2672: Attempting to start 'ora.storage' on 'ol6twcn1'
+CRS-2676: Start of 'ora.storage' on 'ol6twcn1' succeeded
+CRS-2672: Attempting to start 'ora.crsd' on 'ol6twcn1'
+CRS-2676: Start of 'ora.crsd' on 'ol6twcn1' succeeded
+CRS-6023: Starting Oracle Cluster Ready Services-managed resources
+CRS-6017: Processing resource auto-start for servers: ol6twcn1
+CRS-6016: Resource auto-start has completed for server ol6twcn1
+CRS-6024: Completed start of Oracle Cluster Ready Services-managed resources
+CRS-4123: Oracle High Availability Services has been started.
+2014/06/25 21:27:32 CLSRSC-343: Successfully started Oracle clusterware stack
+
+CRS-2672: Attempting to start 'ora.asm' on 'ol6twcn1'
+CRS-2676: Start of 'ora.asm' on 'ol6twcn1' succeeded
+CRS-2672: Attempting to start 'ora.DATA.dg' on 'ol6twcn1'
+CRS-2676: Start of 'ora.DATA.dg' on 'ol6twcn1' succeeded
+2014/06/25 21:28:51 CLSRSC-325: Configure Oracle Grid Infrastructure for a Cluster ... succeeded
+</pre>
+<p>You can now check that status of the current cluster node with root account:</p>
+<pre>
+# crsctl stat res -t
+--------------------------------------------------------------------------------
+Name           Target  State        Server                   State details
+--------------------------------------------------------------------------------
+Local Resources
+--------------------------------------------------------------------------------
+ora.DATA.dg
+               ONLINE  ONLINE       ol6twcn1                 STABLE
+ora.LISTENER.lsnr
+               ONLINE  ONLINE       ol6twcn1                 STABLE
+ora.asm
+               ONLINE  ONLINE       ol6twcn1                 Started,STABLE
+ora.net1.network
+               ONLINE  ONLINE       ol6twcn1                 STABLE
+ora.ons
+               ONLINE  ONLINE       ol6twcn1                 STABLE
+--------------------------------------------------------------------------------
+Cluster Resources
+--------------------------------------------------------------------------------
+ora.LISTENER_SCAN1.lsnr
+      1        ONLINE  ONLINE       ol6twcn1                 STABLE
+ora.LISTENER_SCAN2.lsnr
+      1        ONLINE  ONLINE       ol6twcn1                 STABLE
+ora.LISTENER_SCAN3.lsnr
+      1        ONLINE  ONLINE       ol6twcn1                 STABLE
+ora.cvu
+      1        ONLINE  ONLINE       ol6twcn1                 STABLE
+ora.oc4j
+      1        OFFLINE OFFLINE                               STABLE
+ora.ol6twcn1.vip
+      1        ONLINE  ONLINE       ol6twcn1                 STABLE
+ora.scan1.vip
+      1        ONLINE  ONLINE       ol6twcn1                 STABLE
+ora.scan2.vip
+      1        ONLINE  ONLINE       ol6twcn1                 STABLE
+ora.scan3.vip
+      1        ONLINE  ONLINE       ol6twcn1                 STABLE
+--------------------------------------------------------------------------------
+#
+</pre>
+<p>Note that we have OCR and voting disk (we would not have this if we had installed this machine as an Oracle Restart node):</p>
+<pre>
+# ocrcheck
+Status of Oracle Cluster Registry is as follows :
+         Version                  :          4
+         Total space (kbytes)     :     409568
+         Used space (kbytes)      :       1172
+         Available space (kbytes) :     408396
+         ID                       :  414528223
+         Device/File Name         :      +DATA
+                                    Device/File integrity check succeeded
+
+                                    Device/File not configured
+
+                                    Device/File not configured
+
+                                    Device/File not configured
+
+                                    Device/File not configured
+
+         Cluster registry integrity check succeeded
+
+         Logical corruption check succeeded
+
+# crsctl query css votedisk
+##  STATE    File Universal Id                File Name Disk group
+--  -----    -----------------                --------- ---------
+ 1. ONLINE   94aeb56a55614f99bfb8c3b94f2d0b5e (/dev/asm-disk1) [DATA]
+Located 1 voting disk(s).
+</pre>
+<p>We need to run the GI configuration step. For this we first need to create text file <b>/home/oracle/scripts/p.r</b> with following content using passwords given to runInstaller command line:</p>
+<pre>
+$ cat p.r
+oracle.assistants.asm|S_ASMPASSWORD=oracle12c
+oracle.assistants.asm|S_ASMMONITORPASSWORD=oracle12c
+</pre>
+<p>Then run:</p>
+<pre>
+$ /u01/app/12.1.0.1/grid/cfgtoollogs/configToolAllCommands RESPONSE_FILE=/home/oracle/scripts/p.r
+Setting the invPtrLoc to /u01/app/12.1.0.1/grid/oraInst.loc
+
+perform - mode is starting for action: configure
+
+Jun 25, 2014 9:44:26 PM oracle.install.driver.oui.UpdateNodelistJob call
+INFO: UpdateNodelist data:
+Jun 25, 2014 9:44:26 PM oracle.install.driver.oui.UpdateNodelistJob call
+INFO: oracle.installer.oui_loc:/u01/app/12.1.0.1/grid/oui
+Jun 25, 2014 9:44:26 PM oracle.install.driver.oui.UpdateNodelistJob call
+INFO: oracle.installer.jre_loc:/u01/app/12.1.0.1/grid/jdk/jre
+Jun 25, 2014 9:44:26 PM oracle.install.driver.oui.UpdateNodelistJob call
+INFO: oracle.installer.doNotUpdateNodeList:true
+Jun 25, 2014 9:44:26 PM oracle.install.driver.oui.UpdateNodelistJob call
+INFO: OracleHomeToUpdate:/u01/app/12.1.0.1/grid;isCRS:true;isCFS:false;isLocal:false
+Jun 25, 2014 9:44:26 PM oracle.install.driver.oui.UpdateNodelistJob call
+INFO: From map: Hosts:[ol6twcn1] =&gt; Nodelist:[ol6twcn1]
+Jun 25, 2014 9:44:26 PM oracle.install.driver.oui.UpdateNodelistJob call
+INFO: Before calling api: Hosts:[ol6twcn1] =&gt; Nodelist:[ol6twcn1], update localnode? true
+Jun 25, 2014 9:44:50 PM oracle.install.config.common.NetCAInternalPlugIn invoke
+INFO: NetCAInternalPlugIn: ... adding 
+Jun 25, 2014 9:44:50 PM oracle.install.driver.oui.config.GenericInternalPlugIn invoke
+INFO: Executing NETCA
+Jun 25, 2014 9:44:50 PM oracle.install.driver.oui.config.GenericInternalPlugIn invoke
+INFO: Command /u01/app/12.1.0.1/grid/bin/netca /orahome /u01/app/12.1.0.1/grid /orahnam OraGI12Home1 /instype typical /inscomp client,oraclenet,javavm,server,ano /insprtcl tcp /cfg local /authadp NO_VALUE /responseFile /u01/app/12.1.0.1/grid/network/install/netca_typ.rsp /silent  /silent   /ouiinternal
+Jun 25, 2014 9:44:50 PM oracle.install.driver.oui.config.GenericInternalPlugIn handleProcess
+INFO: ... GenericInternalPlugIn.handleProcess() entered.
+Jun 25, 2014 9:44:50 PM oracle.install.driver.oui.config.GenericInternalPlugIn handleProcess
+INFO: ... GenericInternalPlugIn: getting configAssistantParmas.
+Jun 25, 2014 9:44:50 PM oracle.install.driver.oui.config.GenericInternalPlugIn handleProcess
+INFO: ... GenericInternalPlugIn: checking secretArguments.
+Jun 25, 2014 9:44:50 PM oracle.install.driver.oui.config.GenericInternalPlugIn handleProcess
+INFO: No arguments to pass to stdin
+Jun 25, 2014 9:44:50 PM oracle.install.driver.oui.config.GenericInternalPlugIn handleProcess
+INFO: ... GenericInternalPlugIn: starting read loop.
+Jun 25, 2014 9:44:52 PM oracle.install.driver.oui.config.GenericInternalPlugIn handleProcess
+INFO: Read:
+Jun 25, 2014 9:44:52 PM oracle.install.driver.oui.config.GenericInternalPlugIn handleProcess
+WARNING: Skipping line:
+Jun 25, 2014 9:44:52 PM oracle.install.driver.oui.config.GenericInternalPlugIn handleProcess
+INFO: End of argument passing to stdin
+Jun 25, 2014 9:44:52 PM oracle.install.driver.oui.config.GenericInternalPlugIn handleProcess
+INFO: Read: Parsing command line arguments:
+Jun 25, 2014 9:44:52 PM oracle.install.driver.oui.config.GenericInternalPlugIn handleProcess
+WARNING: Skipping line: Parsing command line arguments:
+Jun 25, 2014 9:44:52 PM oracle.install.driver.oui.config.GenericInternalPlugIn handleProcess
+INFO: Exceeded the number of arguments passed to stdin. CurrentCount:1 Total args:0
+Jun 25, 2014 9:44:52 PM oracle.install.driver.oui.config.GenericInternalPlugIn handleProcess
+INFO: Read:     Parameter "orahome" = /u01/app/12.1.0.1/grid
+Jun 25, 2014 9:44:52 PM oracle.install.driver.oui.config.GenericInternalPlugIn handleProcess
+WARNING: Skipping line:     Parameter "orahome" = /u01/app/12.1.0.1/grid
+Jun 25, 2014 9:44:52 PM oracle.install.driver.oui.config.GenericInternalPlugIn handleProcess
+INFO: Exceeded the number of arguments passed to stdin. CurrentCount:1 Total args:0
+Jun 25, 2014 9:44:52 PM oracle.install.driver.oui.config.GenericInternalPlugIn handleProcess
+INFO: Read:     Parameter "orahnam" = OraGI12Home1
+Jun 25, 2014 9:44:52 PM oracle.install.driver.oui.config.GenericInternalPlugIn handleProcess
+WARNING: Skipping line:     Parameter "orahnam" = OraGI12Home1
+Jun 25, 2014 9:44:52 PM oracle.install.driver.oui.config.GenericInternalPlugIn handleProcess
+INFO: Exceeded the number of arguments passed to stdin. CurrentCount:1 Total args:0
+Jun 25, 2014 9:44:52 PM oracle.install.driver.oui.config.GenericInternalPlugIn handleProcess
+INFO: Read:     Parameter "instype" = typical
+Jun 25, 2014 9:44:52 PM oracle.install.driver.oui.config.GenericInternalPlugIn handleProcess
+WARNING: Skipping line:     Parameter "instype" = typical
+Jun 25, 2014 9:44:52 PM oracle.install.driver.oui.config.GenericInternalPlugIn handleProcess
+INFO: Exceeded the number of arguments passed to stdin. CurrentCount:1 Total args:0
+Jun 25, 2014 9:44:52 PM oracle.install.driver.oui.config.GenericInternalPlugIn handleProcess
+INFO: Read:     Parameter "inscomp" = client,oraclenet,javavm,server,ano
+Jun 25, 2014 9:44:52 PM oracle.install.driver.oui.config.GenericInternalPlugIn handleProcess
+WARNING: Skipping line:     Parameter "inscomp" = client,oraclenet,javavm,server,ano
+Jun 25, 2014 9:44:52 PM oracle.install.driver.oui.config.GenericInternalPlugIn handleProcess
+INFO: Exceeded the number of arguments passed to stdin. CurrentCount:1 Total args:0
+Jun 25, 2014 9:44:52 PM oracle.install.driver.oui.config.GenericInternalPlugIn handleProcess
+INFO: Read:     Parameter "insprtcl" = tcp
+Jun 25, 2014 9:44:52 PM oracle.install.driver.oui.config.GenericInternalPlugIn handleProcess
+WARNING: Skipping line:     Parameter "insprtcl" = tcp
+Jun 25, 2014 9:44:52 PM oracle.install.driver.oui.config.GenericInternalPlugIn handleProcess
+INFO: Exceeded the number of arguments passed to stdin. CurrentCount:1 Total args:0
+Jun 25, 2014 9:44:52 PM oracle.install.driver.oui.config.GenericInternalPlugIn handleProcess
+INFO: Read:     Parameter "cfg" = local
+Jun 25, 2014 9:44:52 PM oracle.install.driver.oui.config.GenericInternalPlugIn handleProcess
+WARNING: Skipping line:     Parameter "cfg" = local
+Jun 25, 2014 9:44:52 PM oracle.install.driver.oui.config.GenericInternalPlugIn handleProcess
+INFO: Exceeded the number of arguments passed to stdin. CurrentCount:1 Total args:0
+Jun 25, 2014 9:44:52 PM oracle.install.driver.oui.config.GenericInternalPlugIn handleProcess
+INFO: Read:     Parameter "authadp" = NO_VALUE
+Jun 25, 2014 9:44:52 PM oracle.install.driver.oui.config.GenericInternalPlugIn handleProcess
+WARNING: Skipping line:     Parameter "authadp" = NO_VALUE
+Jun 25, 2014 9:44:52 PM oracle.install.driver.oui.config.GenericInternalPlugIn handleProcess
+INFO: Exceeded the number of arguments passed to stdin. CurrentCount:1 Total args:0
+Jun 25, 2014 9:44:52 PM oracle.install.driver.oui.config.GenericInternalPlugIn handleProcess
+INFO: Read:     Parameter "responsefile" = /u01/app/12.1.0.1/grid/network/install/netca_typ.rsp
+Jun 25, 2014 9:44:52 PM oracle.install.driver.oui.config.GenericInternalPlugIn handleProcess
+WARNING: Skipping line:     Parameter "responsefile" = /u01/app/12.1.0.1/grid/network/install/netca_typ.rsp
+Jun 25, 2014 9:44:52 PM oracle.install.driver.oui.config.GenericInternalPlugIn handleProcess
+INFO: Exceeded the number of arguments passed to stdin. CurrentCount:1 Total args:0
+Jun 25, 2014 9:44:52 PM oracle.install.driver.oui.config.GenericInternalPlugIn handleProcess
+INFO: Read:     Parameter "silent" = true
+Jun 25, 2014 9:44:52 PM oracle.install.driver.oui.config.GenericInternalPlugIn handleProcess
+WARNING: Skipping line:     Parameter "silent" = true
+Jun 25, 2014 9:44:52 PM oracle.install.driver.oui.config.GenericInternalPlugIn handleProcess
+INFO: Exceeded the number of arguments passed to stdin. CurrentCount:1 Total args:0
+Jun 25, 2014 9:44:52 PM oracle.install.driver.oui.config.GenericInternalPlugIn handleProcess
+INFO: Read:     Parameter "silent" = true
+Jun 25, 2014 9:44:52 PM oracle.install.driver.oui.config.GenericInternalPlugIn handleProcess
+WARNING: Skipping line:     Parameter "silent" = true
+Jun 25, 2014 9:44:52 PM oracle.install.driver.oui.config.GenericInternalPlugIn handleProcess
+INFO: Exceeded the number of arguments passed to stdin. CurrentCount:1 Total args:0
+Jun 25, 2014 9:44:52 PM oracle.install.driver.oui.config.GenericInternalPlugIn handleProcess
+INFO: Read:     Parameter "ouiinternal" = true
+Jun 25, 2014 9:44:52 PM oracle.install.driver.oui.config.GenericInternalPlugIn handleProcess
+WARNING: Skipping line:     Parameter "ouiinternal" = true
+Jun 25, 2014 9:44:52 PM oracle.install.driver.oui.config.GenericInternalPlugIn handleProcess
+INFO: Exceeded the number of arguments passed to stdin. CurrentCount:1 Total args:0
+Jun 25, 2014 9:44:52 PM oracle.install.driver.oui.config.GenericInternalPlugIn handleProcess
+INFO: Read: Done parsing command line arguments.
+Jun 25, 2014 9:44:52 PM oracle.install.driver.oui.config.GenericInternalPlugIn handleProcess
+WARNING: Skipping line: Done parsing command line arguments.
+Jun 25, 2014 9:44:52 PM oracle.install.driver.oui.config.GenericInternalPlugIn handleProcess
+INFO: Exceeded the number of arguments passed to stdin. CurrentCount:1 Total args:0
+Jun 25, 2014 9:44:53 PM oracle.install.driver.oui.config.GenericInternalPlugIn handleProcess
+INFO: Read: Oracle Net Services Configuration:
+Jun 25, 2014 9:44:53 PM oracle.install.driver.oui.config.GenericInternalPlugIn handleProcess
+WARNING: Skipping line: Oracle Net Services Configuration:
+Jun 25, 2014 9:44:53 PM oracle.install.driver.oui.config.GenericInternalPlugIn handleProcess
+INFO: Exceeded the number of arguments passed to stdin. CurrentCount:1 Total args:0
+Jun 25, 2014 9:44:53 PM oracle.install.driver.oui.config.GenericInternalPlugIn handleProcess
+INFO: Read: Profile configuration complete.
+Jun 25, 2014 9:44:53 PM oracle.install.driver.oui.config.GenericInternalPlugIn handleProcess
+WARNING: Skipping line: Profile configuration complete.
+Jun 25, 2014 9:44:53 PM oracle.install.driver.oui.config.GenericInternalPlugIn handleProcess
+INFO: Exceeded the number of arguments passed to stdin. CurrentCount:1 Total args:0
+Jun 25, 2014 9:44:53 PM oracle.install.driver.oui.config.GenericInternalPlugIn handleProcess
+INFO: Read: Listener "LISTENER" already exists.
+Jun 25, 2014 9:44:53 PM oracle.install.driver.oui.config.GenericInternalPlugIn handleProcess
+WARNING: Skipping line: Listener "LISTENER" already exists.
+Jun 25, 2014 9:44:53 PM oracle.install.driver.oui.config.GenericInternalPlugIn handleProcess
+INFO: Exceeded the number of arguments passed to stdin. CurrentCount:1 Total args:0
+Jun 25, 2014 9:44:53 PM oracle.install.driver.oui.config.GenericInternalPlugIn handleProcess
+INFO: Read: Oracle Net Services configuration successful. The exit code is 0
+Jun 25, 2014 9:44:53 PM oracle.install.driver.oui.config.GenericInternalPlugIn handleProcess
+WARNING: Skipping line: Oracle Net Services configuration successful. The exit code is 0
+Jun 25, 2014 9:44:53 PM oracle.install.driver.oui.config.GenericInternalPlugIn handleProcess
+INFO: Exceeded the number of arguments passed to stdin. CurrentCount:1 Total args:0
+Jun 25, 2014 9:44:53 PM oracle.install.driver.oui.config.GenericInternalPlugIn invoke
+INFO: Executing ASMCA
+Jun 25, 2014 9:44:54 PM oracle.install.driver.oui.config.GenericInternalPlugIn invoke
+INFO: Command /u01/app/12.1.0.1/grid/bin/asmca -silent -postConfigureASM -oui_internal
+Jun 25, 2014 9:44:54 PM oracle.install.driver.oui.config.GenericInternalPlugIn handleProcess
+INFO: ... GenericInternalPlugIn.handleProcess() entered.
+Jun 25, 2014 9:44:54 PM oracle.install.driver.oui.config.GenericInternalPlugIn handleProcess
+INFO: ... GenericInternalPlugIn: getting configAssistantParmas.
+Jun 25, 2014 9:44:54 PM oracle.install.driver.oui.config.GenericInternalPlugIn handleProcess
+INFO: ... GenericInternalPlugIn: checking secretArguments.
+Jun 25, 2014 9:44:54 PM oracle.install.driver.oui.config.GenericInternalPlugIn handleProcess
+INFO: ... GenericInternalPlugIn: starting read loop.
+Jun 25, 2014 9:44:57 PM oracle.install.driver.oui.config.GenericInternalPlugIn handleProcess
+INFO: Read: SYS_PASSWORD_PROMPT
+Jun 25, 2014 9:44:57 PM oracle.install.driver.oui.config.GenericInternalPlugIn handleProcess
+INFO: Processing: SYS_PASSWORD_PROMPT for argument tag -sysAsmPassword
+Jun 25, 2014 9:44:57 PM oracle.install.driver.oui.config.GenericInternalPlugIn handleProcess
+INFO: Read: ASMSNMP_PASSWORD_PROMPT
+Jun 25, 2014 9:44:57 PM oracle.install.driver.oui.config.GenericInternalPlugIn handleProcess
+INFO: Processing: ASMSNMP_PASSWORD_PROMPT for argument tag -asmMonitorPassword
+Jun 25, 2014 9:44:57 PM oracle.install.driver.oui.config.GenericInternalPlugIn handleProcess
+INFO: End of argument passing to stdin
+Jun 25, 2014 9:44:59 PM oracle.install.driver.oui.config.GenericInternalPlugIn handleProcess
+INFO: Read:
+Jun 25, 2014 9:44:59 PM oracle.install.driver.oui.config.GenericInternalPlugIn handleProcess
+WARNING: Skipping line:
+Jun 25, 2014 9:44:59 PM oracle.install.driver.oui.config.GenericInternalPlugIn handleProcess
+INFO: Exceeded the number of arguments passed to stdin. CurrentCount:3 Total args:2
+Jun 25, 2014 9:44:59 PM oracle.install.driver.oui.config.GenericInternalPlugIn handleProcess
+INFO: Read: PostConfiguration completed successfully
+Jun 25, 2014 9:44:59 PM oracle.install.driver.oui.config.GenericInternalPlugIn handleProcess
+WARNING: Skipping line: PostConfiguration completed successfully
+Jun 25, 2014 9:44:59 PM oracle.install.driver.oui.config.GenericInternalPlugIn handleProcess
+INFO: Exceeded the number of arguments passed to stdin. CurrentCount:3 Total args:2
+Jun 25, 2014 9:44:59 PM oracle.install.driver.oui.config.GenericInternalPlugIn handleProcess
+INFO: Read:
+Jun 25, 2014 9:44:59 PM oracle.install.driver.oui.config.GenericInternalPlugIn handleProcess
+WARNING: Skipping line:
+Jun 25, 2014 9:44:59 PM oracle.install.driver.oui.config.GenericInternalPlugIn handleProcess
+INFO: Exceeded the number of arguments passed to stdin. CurrentCount:3 Total args:2
+
+perform - mode finished for action: configure
+
+You can see the log file: /u01/app/12.1.0.1/grid/cfgtoollogs/oui/configActions2014-06-25_09-44-26-PM.log
+</pre>
+<p>You can ignore all warnings. Check in the last log file that all plug-ins </p>
+<li>Update CRS flag in Inventory
+</li>
+<li>Oracle Net Configuration Assistant
+</li>
+<li> Automatic Storage Management Configuration Assistant
+</li>
+<li> Oracle Cluster Verification Utility
+</li>
+<p>have been sucessfully performed:</p>
+<pre>
+$ cat /u01/app/12.1.0.1/grid/cfgtoollogs/oui/configActions2014-06-25_09-44-26-PM.log
+###################################################
+The action configuration is performing
+------------------------------------------------------
+The plug-in Update CRS flag in Inventory is running
+
+
+The plug-in Update CRS flag in Inventory has successfully been performed
+------------------------------------------------------
+------------------------------------------------------
+The plug-in Oracle Net Configuration Assistant is running
+
+
+The plug-in Oracle Net Configuration Assistant has successfully been performed
+------------------------------------------------------
+------------------------------------------------------
+The plug-in Automatic Storage Management Configuration Assistant is running
+
+
+The plug-in Automatic Storage Management Configuration Assistant has successfully been performed
+------------------------------------------------------
+------------------------------------------------------
+The plug-in Oracle Cluster Verification Utility is running
+
+
+Performing post-checks for cluster services setup
+
+Checking node reachability...
+Node reachability check passed from node "ol6twcn1"
+
+
+Checking user equivalence...
+User equivalence check passed for user "oracle"
+
+Checking node connectivity...
+
+Checking hosts config file...
+
+Verification of the hosts config file successful
+
+Check: Node connectivity using interfaces on subnet "192.168.43.0"
+Node connectivity passed for subnet "192.168.43.0" with node(s) ol6twcn1
+TCP connectivity check passed for subnet "192.168.43.0"
+
+
+Check: Node connectivity using interfaces on subnet "192.168.56.0"
+Node connectivity passed for subnet "192.168.56.0" with node(s) ol6twcn1
+TCP connectivity check passed for subnet "192.168.56.0"
+
+
+Node connectivity check passed
+
+Checking multicast communication...
+
+Checking subnet "192.168.43.0" for multicast communication with multicast group "224.0.0.251"...
+Check of subnet "192.168.43.0" for multicast communication with multicast group "224.0.0.251" passed.
+
+Check of multicast communication passed.
+Time zone consistency check passed
+
+Checking Cluster manager integrity...
+
+
+Checking CSS daemon...
+Oracle Cluster Synchronization Services appear to be online.
+
+Cluster manager integrity check passed
+
+
+UDev attributes check for OCR locations started...
+UDev attributes check passed for OCR locations
+
+
+UDev attributes check for Voting Disk locations started...
+UDev attributes check passed for Voting Disk locations
+
+Default user file creation mask check passed
+
+Checking cluster integrity...
+
+
+Cluster integrity check passed
+
+
+Checking OCR integrity...
+
+Checking the absence of a non-clustered configuration...
+All nodes free of non-clustered, local-only configurations
+
+
+Checking OCR config file "/etc/oracle/ocr.loc"...
+
+OCR config file "/etc/oracle/ocr.loc" check successful
+
+
+Disk group for ocr location "+DATA" is available on all the nodes
+
+
+NOTE:
+This check does not verify the integrity of the OCR contents. Execute 'ocrcheck' as a privileged user to verify the contents of OCR.
+
+OCR integrity check passed
+
+Checking CRS integrity...
+
+Clusterware version consistency passed.
+
+CRS integrity check passed
+
+Checking node application existence...
+
+Checking existence of VIP node application (required)
+VIP node application check passed
+
+Checking existence of NETWORK node application (required)
+NETWORK node application check passed
+
+Checking existence of ONS node application (optional)
+ONS node application check passed
+
+
+Checking Single Client Access Name (SCAN)...
+
+Checking TCP connectivity to SCAN Listeners...
+TCP connectivity to SCAN Listeners exists on all cluster nodes
+
+Checking name resolution setup for "ol6twc-scan.localdomain"...
+
+Checking integrity of name service switch configuration file "/etc/nsswitch.conf" ...
+Check for integrity of name service switch configuration file "/etc/nsswitch.conf" passed
+
+
+Checking SCAN IP addresses...
+Check of SCAN IP addresses passed
+
+Verification of SCAN VIP and Listener setup passed
+
+Checking OLR integrity...
+Check of existence of OLR configuration file "/etc/oracle/olr.loc" passed
+Check of attributes of OLR configuration file "/etc/oracle/olr.loc" passed
+
+WARNING:
+This check does not verify the integrity of the OLR contents. Execute 'ocrcheck -local' as a privileged user to verify the contents of OLR.
+
+OLR integrity check passed
+
+Checking Oracle Cluster Voting Disk configuration...
+
+Oracle Cluster Voting Disk configuration check passed
+
+User "oracle" is not part of "root" group. Check passed
+
+Checking if Clusterware is installed on all nodes...
+Check of Clusterware install passed
+
+Checking if CTSS Resource is running on all nodes...
+CTSS resource check passed
+
+
+Querying CTSS for time offset on all nodes...
+Query of CTSS for time offset passed
+
+Check CTSS state started...
+CTSS is in Active state. Proceeding with check of clock time offsets on all nodes...
+Check of clock time offsets passed
+
+
+Oracle Cluster Time Synchronization Services check passed
+Checking VIP configuration.
+Checking VIP Subnet configuration.
+Check for VIP Subnet configuration passed.
+Checking VIP reachability
+Check for VIP reachability passed.
+
+Post-check for cluster services setup was successful.
+
+The plug-in Oracle Cluster Verification Utility has successfully been performed
+------------------------------------------------------
+The action configuration has successfully completed
+###################################################
+</pre>
+<h3> Install Oracle Database </h3>
+<p>Upload and unzip Oracle Database media:</p>
+<pre>
+$ cd /stage
+$ unzip linuxamd64_12c_database_1of2.zip
+$ unzip linuxamd64_12c_database_2of2.zip 
+</pre>
+<p>Run following script to install Oracle Database in <b>/u01/app/oracle/product/12.1.0.1/db_1</b> (note that CLUSTER_NODES is set to current node only):</p>
+<pre>
+cd /stage/database
+export DISTRIB=`pwd`
+./runInstaller -silent \
+   -responseFile $DISTRIB/response/db_install.rsp      \
+   oracle.install.option=INSTALL_DB_SWONLY             \
+   CLUSTER_NODES=ol6twcn1                     \
+   UNIX_GROUP_NAME=oinstall                            \
+   INVENTORY_LOCATION=/u01/app/oracle/oraInventory     \
+   SELECTED_LANGUAGES=en                               \
+   ORACLE_HOME=/u01/app/oracle/product/12.1.0.1/db_1   \
+   ORACLE_BASE=/u01/app/oracle                         \
+   oracle.install.db.InstallEdition=EE                 \
+   oracle.install.db.isCustomInstall=false             \
+   oracle.install.db.DBA_GROUP=dba                     \
+   oracle.install.db.OPER_GROUP=dba                    \
+   oracle.install.db.BACKUPDBA_GROUP=dba               \
+   oracle.install.db.DGDBA_GROUP=dba                   \
+   oracle.install.db.KMDBA_GROUP=dba                   \
+   SECURITY_UPDATES_VIA_MYORACLESUPPORT=false          \
+   DECLINE_SECURITY_UPDATES=true
+</pre>
+<p>Script output is the following: you need to wait until the message "The installation of Oracle Database 12c was successfull" is displayed:</p>
+<pre>
+Starting Oracle Universal Installer...
+
+Checking Temp space: must be greater than 500 MB.   Actual 16674 MB    Passed
+Checking swap space: must be greater than 150 MB.   Actual 3963 MB    Passed
+Preparing to launch Oracle Universal Installer from /tmp/OraInstall2014-06-25_10-18-42PM. Please wait ...
+[oracle@ol6twcn1 stage]$ You can find the log of this install session at:
+ /u01/app/oracle/oraInventory/logs/installActions2014-06-25_10-18-42PM.log
+ The installation of Oracle Database 12c was successful.
+Please check '/u01/app/oracle/oraInventory/logs/silentInstall2014-06-25_10-18-42PM.log' for more details.
+
+As a root user, execute the following script(s):
+        1. /u01/app/oracle/product/12.1.0.1/db_1/root.sh
+
+Execute /u01/app/oracle/product/12.1.0.1/db_1/root.sh on the following nodes:
+</pre>
+<p>Switch to user root to run root.sh:</p>
+<pre>
+# /u01/app/oracle/product/12.1.0.1/db_1/root.sh
+Check /u01/app/oracle/product/12.1.0.1/db_1/install/root_ol6twcn1.localdomain_2014-06-25_22-24-48.log for the output of root script
+[root@ol6twcn1 ~]# cat /u01/app/oracle/product/12.1.0.1/db_1/install/root_ol6twcn1.localdomain_2014-06-25_22-24-48.log
+Performing root user operation for Oracle 12c
+
+The following environment variables are set as:
+    ORACLE_OWNER= oracle
+    ORACLE_HOME=  /u01/app/oracle/product/12.1.0.1/db_1
+   Copying dbhome to /usr/local/bin ...
+   Copying oraenv to /usr/local/bin ...
+   Copying coraenv to /usr/local/bin ...
+
+Entries will be added to the /etc/oratab file as needed by
+Database Configuration Assistant when a database is created
+Finished running generic part of root script.
+Now product-specific root actions will be performed.
+</pre>
+<h3> Configure Fast Recovery Area (FRA) disk group </h3>
+<p>Create the disk group named FRA:</p>
+<pre>
+$ . oraenv
+ORACLE_SID = [cdbrac1] ? +ASM1
+The Oracle base has been changed from /u01/app/oracle to /u01/app/base
+$ sqlplus / as sysasm
+
+SQL*Plus: Release 12.1.0.1.0 Production on Wed Jun 25 22:29:33 2014
+
+Copyright (c) 1982, 2013, Oracle.  All rights reserved.
+
+
+Connected to:
+Oracle Database 12c Enterprise Edition Release 12.1.0.1.0 - 64bit Production
+With the Real Application Clusters and Automatic Storage Management options
+
+SQL&gt; create diskgroup FRA external redundancy disk '/dev/asm-disk2';
+
+Diskgroup created.
+
+SQL&gt; exit
+</pre>
+<h3> Create the RAC database </h3>
+<p>Use following script to create a RAC database on the current single node cluster with 2 pluggable databases (note the parameter nodelist is only referencing current node):</p>
+<pre>
+/u01/app/oracle/product/12.1.0.1/db_1/bin/dbca \
+ -silent \
+ -nodelist ol6twcn1 \
+ -createDatabase \
+ -templateName General_Purpose.dbc   \
+ -gdbName cdbrac \
+ -createAsContainerDatabase true \
+ -numberOfPdbs 2 \
+ -pdbName pdb \
+ -pdbadminUsername pdba \
+ -pdbadminPassword oracle12c \
+ -SysPassword oracle12c \
+ -SystemPassword oracle12c \
+ -emConfiguration NONE \
+ -storageType ASM \
+ -asmSysPassword oracle12c \
+ -diskGroupName DATA \
+ -characterSet AL32UTF8 \
+ -totalMemory 1024 \
+ -recoveryGroupName FRA
+</pre>
+<p>DBCA output is the following:</p>
+<pre>
+Copying database files
+1% complete
+2% complete
+6% complete
+11% complete
+16% complete
+20% complete
+23% complete
+Creating and starting Oracle instance
+24% complete
+27% complete
+28% complete
+29% complete
+32% complete
+35% complete
+36% complete
+38% complete
+Creating cluster database views
+40% complete
+54% complete
+Completing Database Creation
+56% complete
+58% complete
+65% complete
+72% complete
+77% complete
+Creating Pluggable Databases
+81% complete
+86% complete
+100% complete
+Look at the log file "/u01/app/base/cfgtoollogs/dbca/cdbrac/cdbrac.log" for further details
+</pre>
+<p>Check that RAC database has been added to OCR:</p>
+<pre>
+$ srvctl config database -d cdbrac
+Database unique name: cdbrac
+Database name: cdbrac
+Oracle home: /u01/app/oracle/product/12.1.0.1/db_1
+Oracle user: oracle
+Spfile: +DATA/cdbrac/spfilecdbrac.ora
+Password file: +DATA/cdbrac/orapwcdbrac
+Domain:
+Start options: open
+Stop options: immediate
+Database role: PRIMARY
+Management policy: AUTOMATIC
+Server pools: cdbrac
+Database instances: cdbrac1
+Disk Groups: FRA,DATA
+Mount point paths:
+Services:
+Type: RAC
+Start concurrency:
+Stop concurrency:
+Database is administrator managed
+</pre>
+<p>Fix instance name in <b>/etc/oratab</b>:</p>
+<pre>
+$ tail -2 /etc/oratab
++ASM1:/u01/app/12.1.0.1/grid:N:         # line added by Agent
+cdbrac1:/u01/app/oracle/product/12.1.0.1/db_1:N:                # line added by Agent
+</pre>
+<p>Check that database resource is listed by crsctl:</p>
+<pre>
+$ . oraenv
+ORACLE_SID = [cdbrac1] ? +ASM1
+The Oracle base has been changed from /u01/app/oracle to /u01/app/base
+$ crsctl stat res -t
+--------------------------------------------------------------------------------
+Name           Target  State        Server                   State details
+--------------------------------------------------------------------------------
+Local Resources
+--------------------------------------------------------------------------------
+ora.DATA.dg
+               ONLINE  ONLINE       ol6twcn1                 STABLE
+ora.FRA.dg
+               ONLINE  ONLINE       ol6twcn1                 STABLE
+ora.LISTENER.lsnr
+               ONLINE  ONLINE       ol6twcn1                 STABLE
+ora.asm
+               ONLINE  ONLINE       ol6twcn1                 Started,STABLE
+ora.net1.network
+               ONLINE  ONLINE       ol6twcn1                 STABLE
+ora.ons
+               ONLINE  ONLINE       ol6twcn1                 STABLE
+--------------------------------------------------------------------------------
+Cluster Resources
+--------------------------------------------------------------------------------
+ora.LISTENER_SCAN1.lsnr
+      1        ONLINE  ONLINE       ol6twcn1                 STABLE
+ora.LISTENER_SCAN2.lsnr
+      1        ONLINE  ONLINE       ol6twcn1                 STABLE
+ora.LISTENER_SCAN3.lsnr
+      1        ONLINE  ONLINE       ol6twcn1                 STABLE
+ora.cdbrac.db
+      1        ONLINE  ONLINE       ol6twcn1                 Open,STABLE
+ora.cvu
+      1        ONLINE  ONLINE       ol6twcn1                 STABLE
+ora.oc4j
+      1        OFFLINE OFFLINE                               STABLE
+ora.ol6twcn1.vip
+      1        ONLINE  ONLINE       ol6twcn1                 STABLE
+ora.scan1.vip
+      1        ONLINE  ONLINE       ol6twcn1                 STABLE
+ora.scan2.vip
+      1        ONLINE  ONLINE       ol6twcn1                 STABLE
+ora.scan3.vip
+      1        ONLINE  ONLINE       ol6twcn1                 STABLE
+--------------------------------------------------------------------------------
+$
+</pre>
+<p>The single node cluster is now ready.</p>
