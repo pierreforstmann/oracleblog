@@ -1,0 +1,188 @@
+<p>Credit: I have used and adapted Java program published on <a href="http://structureddata.org/2007/04/30/upscaling-your-database-application-performance-the-array-interface/"> Greg Rahn blog </a>.</p>
+<h3>what are OCI and row prefetch count ?</h3>
+<p>A database client that connects to an Oracle database instance will use Oracle Call Interface (OCI) unless it is using some JDBC thin driver. OCI allows to:</p>
+<ul>
+<li>connect to database instance</li>
+<li>submit SQL statement that will be compiled in an execution plan (parse step)</li>
+<li>execute the SQL statement (execute step)</li>
+<li>retrieve SQL statement result set data (execute and fetch step)</li>
+</ul>
+<p>OCI communicates with database instance with client/server round trips: the number of rows retrieved by each round trip when retrieving result set data is named the row prefetch count and can be specified in some OCI API call. For example in Java you can use <a href="http://docs.oracle.com/cd/E16655_01/appdev.121/e17663/oracle/jdbc/OracleConnection.html#setDefaultRowPrefetch_int_">setDefaultRowPrefetch</a> method for this purpose. If your database client is SQL*Plus you can use the SQL*Plus parameter <a href="http://docs.oracle.com/cd/E11882_01/server.112/e16604/ch_eight.htm#sthref931">ARRAYSIZE</a> to change this parameter. The row prefetch count is also sometimes named the array interface.</p>
+<p>Greg Rhan blog post shows how changing the row prefetch count can have a positive impact on application performance. Until 12.1 release it was not possible to change dynamically this parameter: i.e. it was needed to change application code using the right API call (unless your database client was SQL*Plus). Starting with 12.1 it is now possible to change this parameter using a new Oracle Client parameter file named <a href="http://docs.oracle.com/cd/E16655_01/appdev.121/e17625/oci10new.htm#LNOCI73054">oraaccess.xml</a>.</p>
+<p>This blog article shows how to use <b>oraaccess.xml</b> to change row prefetch count in Java.</p>
+<h3>setup needed</h3>
+<p>On Oracle Linux 6.3:</p>
+<ol>
+<li>an Oracle 12.1 Entreprise Edition Oracle Home</li>
+<li>a non-container 12.1 database</li>
+<li>table emp in SCOTT schema has been modified to store dba_objects data:</li>
+</ol>
+<pre>SQL&gt; drop table emp;
+
+Table dropped.
+
+SQL&gt; create table emp as select object_name as ename from dba_objects;
+
+Table created.
+
+SQL&gt; select count(*) from emp;
+
+  COUNT(*)
+----------
+     90734</pre>
+<p>4. <b>ojdbc6.jar</b> JDBC 6 for Oracle 12.1 downloaded from <a href="http://www.oracle.com/technetwork/database/features/jdbc/jdbc-drivers-12c-download-1958347.html">OTN Oracle Database 12c Release 1 JDBC Driver Downloads</a></p>
+<p>5. JDBC driver has been installed in /home/oracle/java</p>
+<p>6. following <b>rowPrefetch.java</b> source file has been created in /home/oracle/java to:</p>
+<ul>
+<li>connect to database instance to SCOTT schema using JDBC thick driver</li>
+<li>print JDBC driver version</li>
+<li>print used row prefetch count according to JDBC API</li>
+<li>run SQL statement "select ename from emp"</li>
+<li>print time needed to retrieve all result rows</li>
+</ul>
+<pre>/*
+   NAME
+     rowPrefetch.java
+   DESCRIPTION
+     this program takes no argument
+   NOTES
+
+   MODIFIED   (MM/DD/YYYY)
+     grahn     04/28/2007 -  Creation
+     http://structureddata.org
+     pforstmann 08/24/2013 - Adapted to Oracle 12.1
+*/
+
+import java.sql.*;
+import java.util.*;
+import oracle.jdbc.*;
+import oracle.jdbc.pool.OracleDataSource;
+
+public class rowPrefetch {
+
+    public static void main(String[] args) {
+        try {
+            OracleDataSource ods = new OracleDataSource();
+
+            ods.setURL("jdbc:oracle:oci8:@//oel6twsf:1521/db12c");
+            ods.setUser("scott");
+            ods.setPassword("tiger");
+
+            OracleConnection conn = (OracleConnection) ods.getConnection();
+
+            conn.setAutoCommit(false);
+            DatabaseMetaData meta = conn.getMetaData();
+
+            System.out.println(
+                    "JDBC driver version:\t" + meta.getDriverVersion());
+
+            Statement stmt = conn.createStatement();
+
+            Integer batchSize = ((oracle.jdbc.OracleStatement)stmt).getRowPrefetch();
+            System.out.println("getRowPrefetch:\t\t" + batchSize);
+
+            long start1 = System.currentTimeMillis();
+            ResultSet rset = stmt.executeQuery("SELECT ename FROM emp");
+
+            while (rset.next()) {
+                rset.getString(1);
+            }
+
+            rset.close();
+            stmt.close();
+
+            long elapsedTimeMillis1 = System.currentTimeMillis() - start1;
+            // Get elapsed time in seconds
+            float elapsedTimeSec1 = elapsedTimeMillis1 / 1000F;
+
+            System.out.println("elapsed seconds:\t" + elapsedTimeSec1);
+
+            conn.close();
+
+        } catch (Exception e) {
+            System.err.println("Got an exception! ");
+            System.err.println(e.getMessage());
+            e.printStackTrace();
+        }
+    }
+}</pre>
+<p>7. <b>rowPrefetch.java</b> is compiled using Oracle Home JDK:</p>
+<pre>export ORACLE_HOME=/u01/app/oracle/product/12.1.0/db_1
+export CLASSPATH=/home/oracle/java/ojdbc6.jar
+$ORACLE_HOME/jdk/bin/javac rowPrefetch.java</pre>
+<p>8. <b>oraaccess.xml.template</b> file has been created in $ORACLE_HOME/network/admin with a placeholder named <b>BS</b> for row prefetch count:</p>
+<pre>$ cat /u01/app/oracle/product/12.1.0/db_1/network/admin/oraaccess.xml.template
+&lt;?xml version="1.0" encoding="ASCII" ?&gt;
+&lt;!--
+          Here is a sample oraaccess.xml.
+          This shows defaulting of global and connection parameters
+          across all connections.
+--&gt;
+ &lt;oraaccess xmlns="http://xmlns.oracle.com/oci/oraaccess"
+  xmlns:oci="http://xmlns.oracle.com/oci/oraaccess"
+  schemaLocation="http://xmlns.oracle.com/oci/oraaccess
+  http://xmlns.oracle.com/oci/oraaccess.xsd"&gt;
+  &lt;default_parameters&gt;
+   &lt;prefetch&gt;
+    &lt;rows&gt;BS&lt;/rows&gt;
+   &lt;/prefetch&gt;
+   &lt;statement_cache&gt;
+    &lt;size&gt;100&lt;/size&gt;
+   &lt;/statement_cache&gt;
+   &lt;tresult_cache&gt;
+    &lt;max_rset_rows&gt;100&lt;/max_rset_rows&gt;
+    &lt;max_rset_size&gt;10K&lt;/max_rset_size&gt;
+    &lt;max_size&gt;64M&lt;/max_size&gt;
+   &lt;/result_cache&gt;
+ &lt;/default_parameters&gt;
+ &lt;/oraaccess&gt;</pre>
+<p>9. script <b>rj.ksh</b> allows to generate<strong> oraaccess.xml</strong> and run <b>rowPrefetch.java</b> in one go:</p>
+<ul>
+<li> takes as argument the row prefetch size to set in <b>oraaccess.xml</b></li>
+<li> generates <b>oraaccess.xml</b> with the specified row prefetch size from <b>oraaccess.xml.template</b></li>
+<li>prints the row prefetch size from <b>oraccess.xml</b></li>
+<li>runs <b>rowPrefetch.java</b></li>
+</ul>
+<pre>#!/bin/bash
+#
+# rj.ksh
+#
+if [ "$1" = "" ]
+then
+ parm=10;
+else
+ parm=$1
+fi
+#
+TEMPLATE=$ORACLE_HOME/network/admin/oraaccess.xml.template
+ORAACCESS=$ORACLE_HOME/network/admin/oraaccess.xml
+sed s,'&lt;rows&gt;BS&lt;/rows&gt;','&lt;rows&gt;'$parm'&lt;/rows&gt;',g $TEMPLATE&gt; $ORAACCESS
+TMP1=/tmp/xml1.$
+TMP2=/tmp/xml2.$
+grep '&lt;rows&gt;'  $ORAACCESS&gt; $TMP1
+sed -e s,'&lt;rows&gt;',,g -e s,'&lt;/rows&gt;',,g  $TMP1 &gt; $TMP2
+BS=`cat $TMP2`
+echo "XML batch size: $BS"
+rm -f $TMP1 $TMP2
+#
+export ORACLE_HOME=/u01/app/oracle/product/12.1.0/db_1
+export CLASSPATH=/home/oracle/java:/home/oracle/java/ojdbc6.jar
+$ORACLE_HOME/jdk/bin/java rowPrefetch</pre>
+<h3>Test results</h3>
+<p>As expected we can see that changing row prefetch count has a positive impact on SQL execution time measured from client side:</p>
+<pre>$ ./rj.ksh 10
+XML batch size:     10
+JDBC driver version:    12.1.0.1.0
+getRowPrefetch:         10
+elapsed seconds:        0.582
+$ ./rj.ksh 100
+XML batch size:     100
+JDBC driver version:    12.1.0.1.0
+getRowPrefetch:         10
+elapsed seconds:        0.367
+$ ./rj.ksh 500
+XML batch size:     500
+JDBC driver version:    12.1.0.1.0
+getRowPrefetch:         10
+elapsed seconds:        0.343</pre>
+<p>But JDBC API always says that rowPrefetch is set to 10 ? I cannot explain the behaviour (I have very little JDBC skills): if you can explain this, please post a comment.</p>
