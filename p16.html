@@ -1,0 +1,858 @@
+<p>This article shows how to add a cluster node to the single node cluster installed in <a href="http://pierreforstmanndotcom.wordpress.com/2014/06/30/install-a-12-1-single-node-rac-cluster-in-silent-mode/">my previous article</a>.<br />
+</p>
+<h3>Prerequisites</h3>
+<p>The prequisites are the same to install the single node cluster. I have used the same operating system Oracle Linux 6.4 64-bit. The new node is named ol6twcn2 and in this article I will refer to it using "node 2". You can check my previous article for details.<br />
+<br />
+I have used <a href="http://docs.oracle.com/cd/E16655_01/rac.121/e17886/adddelclusterware.htm#CWADD1167">Oracle Clusterware Administration and Deployment Guide 12c Release 1 (12.1) chapter Adding and Deleting Cluster Nodes </a> for this article.<br />
+<br />
+You need to have for the new node 2:</p>
+<li>
+the requested Linux packages from <b> oracle-rdbms-server-11gR2-preinstall.x86_64</b> installed
+</li>
+<li>
+SELinux disabled
+</li>
+<li>
+network interfaces configured with at least one interface for public IP adress and one interface for the cluster interconnect
+</li>
+<li>
+<b>/etc/hosts</b> configured for public, interconnect and virtual IP adresses
+</li>
+<li>
+DNS configured for SCAN listener
+</li>
+<li>
+NTP not configured
+</li>
+<li>
+Firewall disabled
+</li>
+<li>
+The 2 disks to be used for ASM disks must be shared between node 1 and node 2 and UDEV must be setup so that each disk will always be mapped to same devices: <b>/dev/sdb</b> and <b>/dev/sdc</b>.
+</li>
+<h3> Check that node 2 is ready for node addition </h3>
+<p>Connect to node 1 with oracle account and run:</p>
+<pre>
+$ . oraenv
+ORACLE_SID = [cdbrac1] ? +ASM1
+The Oracle base has been changed from /u01/app/oracle to /u01/app/base
+$ cluvfy stage -pre nodeadd -n ol6twcn2
+</pre>
+<p>Output should be:</p>
+<pre>
+Performing pre-checks for node addition
+
+Checking node reachability...
+Node reachability check passed from node "ol6twcn1"
+
+
+Checking user equivalence...
+User equivalence check passed for user "oracle"
+Package existence check passed for "cvuqdisk"
+
+Checking CRS integrity...
+
+CRS integrity check passed
+
+Clusterware version consistency passed.
+
+Checking shared resources...
+
+Checking CRS home location...
+Location check passed for: "/u01/app/12.1.0.1/grid"
+Shared resources check for node addition passed
+
+
+Checking node connectivity...
+
+Checking hosts config file...
+
+Verification of the hosts config file successful
+
+Check: Node connectivity using interfaces on subnet "192.168.56.0"
+Node connectivity passed for subnet "192.168.56.0" with node(s) ol6twcn1,ol6twcn2
+TCP connectivity check passed for subnet "192.168.56.0"
+
+
+Check: Node connectivity using interfaces on subnet "192.168.43.0"
+Node connectivity passed for subnet "192.168.43.0" with node(s) ol6twcn1,ol6twcn2
+TCP connectivity check passed for subnet "192.168.43.0"
+
+Checking subnet mask consistency...
+Subnet mask consistency check passed for subnet "192.168.56.0".
+Subnet mask consistency check passed for subnet "192.168.43.0".
+Subnet mask consistency check passed.
+
+Node connectivity check passed
+
+Checking multicast communication...
+
+Checking subnet "192.168.43.0" for multicast communication with multicast group "224.0.0.251"...
+Check of subnet "192.168.43.0" for multicast communication with multicast group "224.0.0.251" passed.
+
+Check of multicast communication passed.
+Total memory check failed
+Check failed on nodes:
+        ol6twcn2,ol6twcn1
+Available memory check passed
+Swap space check passed
+Free disk space check passed for "ol6twcn2:/usr,ol6twcn2:/var,ol6twcn2:/etc,ol6twcn2:/u01/app/12.1.0.1/grid,ol6twcn2:/sbin,ol6twcn2:/tmp"
+Free disk space check passed for "ol6twcn1:/usr,ol6twcn1:/var,ol6twcn1:/etc,ol6twcn1:/u01/app/12.1.0.1/grid,ol6twcn1:/sbin,ol6twcn1:/tmp"
+Check for multiple users with UID value 54321 passed
+User existence check passed for "oracle"
+Run level check passed
+Hard limits check passed for "maximum open file descriptors"
+Soft limits check passed for "maximum open file descriptors"
+Hard limits check passed for "maximum user processes"
+Soft limits check passed for "maximum user processes"
+System architecture check passed
+Kernel version check passed
+Kernel parameter check passed for "semmsl"
+Kernel parameter check passed for "semmns"
+Kernel parameter check passed for "semopm"
+Kernel parameter check passed for "semmni"
+Kernel parameter check passed for "shmmax"
+Kernel parameter check passed for "shmmni"
+Kernel parameter check passed for "shmall"
+Kernel parameter check passed for "file-max"
+Kernel parameter check passed for "ip_local_port_range"
+Kernel parameter check passed for "rmem_default"
+Kernel parameter check passed for "rmem_max"
+Kernel parameter check passed for "wmem_default"
+Kernel parameter check passed for "wmem_max"
+Kernel parameter check passed for "aio-max-nr"
+Package existence check passed for "binutils"
+Package existence check passed for "compat-libcap1"
+Package existence check passed for "compat-libstdc++-33(x86_64)"
+Package existence check passed for "libgcc(x86_64)"
+Package existence check passed for "libstdc++(x86_64)"
+Package existence check passed for "libstdc++-devel(x86_64)"
+Package existence check passed for "sysstat"
+Package existence check passed for "gcc"
+Package existence check passed for "gcc-c++"
+Package existence check passed for "ksh"
+Package existence check passed for "make"
+Package existence check passed for "glibc(x86_64)"
+Package existence check passed for "glibc-devel(x86_64)"
+Package existence check passed for "libaio(x86_64)"
+Package existence check passed for "libaio-devel(x86_64)"
+Package existence check passed for "nfs-utils"
+Check for multiple users with UID value 0 passed
+Current group ID check passed
+
+Starting check for consistency of primary group of root user
+
+Check for consistency of root user's primary group passed
+Group existence check passed for "dba"
+
+Checking ASMLib configuration.
+Check for ASMLib configuration passed.
+
+Checking OCR integrity...
+
+OCR integrity check passed
+
+Checking Oracle Cluster Voting Disk configuration...
+
+Oracle Cluster Voting Disk configuration check passed
+Time zone consistency check passed
+
+Starting Clock synchronization checks using Network Time Protocol(NTP)...
+
+NTP Configuration file check started...
+No NTP Daemons or Services were found to be running
+
+Clock synchronization check using Network Time Protocol(NTP) passed
+
+
+User "oracle" is not part of "root" group. Check passed
+Checking integrity of file "/etc/resolv.conf" across nodes
+
+"domain" and "search" entries do not coexist in any  "/etc/resolv.conf" file
+All nodes have same "search" order defined in file "/etc/resolv.conf"
+The DNS response time for an unreachable node is within acceptable limit on all nodes
+
+Check for integrity of file "/etc/resolv.conf" passed
+
+
+Checking integrity of name service switch configuration file "/etc/nsswitch.conf" ...
+Check for integrity of name service switch configuration file "/etc/nsswitch.conf" passed
+
+
+Pre-check for node addition was unsuccessful on all the nodes.
+</pre>
+<p>This cluvfy check has failed only due to "Total memory check". I have ignored this error.</p>
+<h3> Extend single node cluster to node 2 for GI home </h3>
+<p>On node 2, create the /u01/app directory with root account and give right permissions:</p>
+<pre>
+# mkdir /u01/app
+# chown oracle:dba /u01/app
+</pre>
+<p>On node 1:</p>
+<pre>
+$ cd $ORACLE_HOME/addnode
+$ ./addnode.sh -silent "CLUSTER_NEW_NODES={ol6twcn2}" "CLUSTER_NEW_VIRTUAL_HOSTNAMES={ol6twcn2-vip}"
+</pre>
+<p>Output should be similar to:</p>
+<pre>
+Starting Oracle Universal Installer...
+
+Checking Temp space: must be greater than 120 MB.   Actual 11619 MB    Passed
+Checking swap space: must be greater than 150 MB.   Actual 3967 MB    Passed
+[WARNING] [INS-13014] Target environment does not meet some optional requirements.
+   CAUSE: Some of the optional prerequisites are not met. See logs for details. /u01/app/oracle/oraInventory/logs/addNodeActions2014-06-27_08-21-50PM.log
+   ACTION: Identify the list of failed prerequisite checks from the log: /u01/app/oracle/oraInventory/logs/addNodeActions2014-06-27_08-21-50PM.log. Then either from the log file or from installation manual find the appropriate configuration to meet the prerequisites and fix it manually.
+
+Prepare Configuration in progress.
+
+Prepare Configuration successful.
+..................................................   9% Done.
+You can find the log of this install session at::q
+ /u01/app/oracle/oraInventory/logs/addNodeActions2014-06-27_08-21-50PM.log
+
+Instantiate files in progress.
+
+Instantiate files successful.
+..................................................   15% Done.
+
+Copying files to node in progress.
+Copying files to node successful.
+..................................................   79% Done.
+
+Saving cluster inventory in progress.
+..................................................   87% Done.
+
+Saving cluster inventory successful.
+The Cluster Node Addition of /u01/app/12.1.0.1/grid was successful.
+Please check '/tmp/silentInstall.log' for more details.
+
+As a root user, execute the following script(s):
+        1. /u01/app/oracle/oraInventory/orainstRoot.sh
+        2. /u01/app/12.1.0.1/grid/root.sh
+
+Execute /u01/app/oracle/oraInventory/orainstRoot.sh on the following nodes:
+[ol6twcn2]
+Execute /u01/app/12.1.0.1/grid/root.sh on the following nodes:
+[ol6twcn2]
+
+The scripts can be executed in parallel on all the nodes. If there are any policy managed databases managed by cluster, proceed with the addnode procedure without executing the root.sh script. Ensure that root.sh script is executed after all the policy managed databases managed by clusterware are extended to the new nodes.
+..........
+Update Inventory in progress.
+..................................................   100% Done.
+
+Update Inventory successful.
+Successfully Setup Software.
+</pre>
+<p>Note that INS-13014 warnings are also due to memory checks and they can be ignored.<br />
+<br />
+Switch to user root to run the 2 scripts:</p>
+<pre>
+# /u01/app/oracle/oraInventory/orainstRoot.sh
+Changing permissions of /u01/app/oracle/oraInventory.
+Adding read,write permissions for group.
+Removing read,write,execute permissions for world.
+
+Changing groupname of /u01/app/oracle/oraInventory to oinstall.
+The execution of the script is complete.
+# /u01/app/12.1.0.1/grid/root.sh
+Check /u01/app/12.1.0.1/grid/install/root_ol6twcn2.localdomain_2014-06-27_20-36-38.log for the output of root script
+</pre>
+<p>Check that root.sh log file ends with "CLSRSC-325: Configure Oracle Grid Infrastructure for a Cluster ... succeeded":</p>
+<pre>
+$ cat /u01/app/12.1.0.1/grid/install/root_ol6twcn2.localdomain_2014-06-27_20-36-38.log
+   Copying dbhome to /usr/local/bin ...
+   Copying oraenv to /usr/local/bin ...
+   Copying coraenv to /usr/local/bin ...
+
+Entries will be added to the /etc/oratab file as needed by
+Database Configuration Assistant when a database is created
+Finished running generic part of root script.
+Now product-specific root actions will be performed.
+Relinking oracle with rac_on option
+Using configuration parameter file: /u01/app/12.1.0.1/grid/crs/install/crsconfig_params
+2014/06/27 20:37:00 CLSRSC-363: User ignored prerequisites during installation
+
+OLR initialization - successful
+2014/06/27 20:37:24 CLSRSC-330: Adding Clusterware entries to file 'oracle-ohasd.conf'
+
+CRS-4133: Oracle High Availability Services has been stopped.
+CRS-4123: Oracle High Availability Services has been started.
+CRS-4133: Oracle High Availability Services has been stopped.
+CRS-4123: Oracle High Availability Services has been started.
+CRS-2791: Starting shutdown of Oracle High Availability Services-managed resources on 'ol6twcn2'
+CRS-2673: Attempting to stop 'ora.drivers.acfs' on 'ol6twcn2'
+CRS-2677: Stop of 'ora.drivers.acfs' on 'ol6twcn2' succeeded
+CRS-2793: Shutdown of Oracle High Availability Services-managed resources on 'ol6twcn2' has completed
+CRS-4133: Oracle High Availability Services has been stopped.
+CRS-4123: Starting Oracle High Availability Services-managed resources
+CRS-2672: Attempting to start 'ora.mdnsd' on 'ol6twcn2'
+CRS-2672: Attempting to start 'ora.evmd' on 'ol6twcn2'
+CRS-2676: Start of 'ora.evmd' on 'ol6twcn2' succeeded
+CRS-2676: Start of 'ora.mdnsd' on 'ol6twcn2' succeeded
+CRS-2672: Attempting to start 'ora.gpnpd' on 'ol6twcn2'
+CRS-2676: Start of 'ora.gpnpd' on 'ol6twcn2' succeeded
+CRS-2672: Attempting to start 'ora.gipcd' on 'ol6twcn2'
+CRS-2676: Start of 'ora.gipcd' on 'ol6twcn2' succeeded
+CRS-2672: Attempting to start 'ora.cssdmonitor' on 'ol6twcn2'
+CRS-2676: Start of 'ora.cssdmonitor' on 'ol6twcn2' succeeded
+CRS-2672: Attempting to start 'ora.cssd' on 'ol6twcn2'
+CRS-2672: Attempting to start 'ora.diskmon' on 'ol6twcn2'
+CRS-2676: Start of 'ora.diskmon' on 'ol6twcn2' succeeded
+CRS-2789: Cannot stop resource 'ora.diskmon' as it is not running on server 'ol6twcn2'
+CRS-2676: Start of 'ora.cssd' on 'ol6twcn2' succeeded
+CRS-2672: Attempting to start 'ora.cluster_interconnect.haip' on 'ol6twcn2'
+CRS-2672: Attempting to start 'ora.ctssd' on 'ol6twcn2'
+CRS-2676: Start of 'ora.ctssd' on 'ol6twcn2' succeeded
+CRS-2676: Start of 'ora.cluster_interconnect.haip' on 'ol6twcn2' succeeded
+CRS-2672: Attempting to start 'ora.asm' on 'ol6twcn2'
+CRS-2676: Start of 'ora.asm' on 'ol6twcn2' succeeded
+CRS-2672: Attempting to start 'ora.storage' on 'ol6twcn2'
+CRS-2676: Start of 'ora.storage' on 'ol6twcn2' succeeded
+CRS-2672: Attempting to start 'ora.crsd' on 'ol6twcn2'
+CRS-2676: Start of 'ora.crsd' on 'ol6twcn2' succeeded
+CRS-6017: Processing resource auto-start for servers: ol6twcn2
+CRS-2673: Attempting to stop 'ora.LISTENER_SCAN1.lsnr' on 'ol6twcn1'
+CRS-2672: Attempting to start 'ora.ons' on 'ol6twcn2'
+CRS-2677: Stop of 'ora.LISTENER_SCAN1.lsnr' on 'ol6twcn1' succeeded
+CRS-2673: Attempting to stop 'ora.scan1.vip' on 'ol6twcn1'
+CRS-2677: Stop of 'ora.scan1.vip' on 'ol6twcn1' succeeded
+CRS-2672: Attempting to start 'ora.scan1.vip' on 'ol6twcn2'
+CRS-2676: Start of 'ora.scan1.vip' on 'ol6twcn2' succeeded
+CRS-2672: Attempting to start 'ora.LISTENER_SCAN1.lsnr' on 'ol6twcn2'
+CRS-2676: Start of 'ora.ons' on 'ol6twcn2' succeeded
+CRS-2676: Start of 'ora.LISTENER_SCAN1.lsnr' on 'ol6twcn2' succeeded
+CRS-6016: Resource auto-start has completed for server ol6twcn2
+CRS-6024: Completed start of Oracle Cluster Ready Services-managed resources
+CRS-4123: Oracle High Availability Services has been started.
+2014/06/27 20:41:41 CLSRSC-343: Successfully started Oracle clusterware stack
+
+clscfg: EXISTING configuration version 5 detected.
+clscfg: version 5 is 12c Release 1.
+Successfully accumulated necessary OCR keys.
+Creating OCR keys for user 'root', privgrp 'root'..
+Operation successful.
+2014/06/27 20:41:59 CLSRSC-325: Configure Oracle Grid Infrastructure for a Cluster ... succeeded
+</pre>
+<h3>Extend single node cluster to node 2 for Oracle Database home </h3>
+<p>Go back to node 1 and set environment to Oracle Database home:</p>
+<pre>
+$ . oraenv
+ORACLE_SID = [+ASM1] ? cdbrac1
+The Oracle base has been changed from /u01/app/base to /u01/app/oracle
+$ cd $ORACLE_HOME/addnode
+$ ./addnode.sh -silent "CLUSTER_NEW_NODES={ol6twcn2}"
+Starting Oracle Universal Installer...
+
+Checking Temp space: must be greater than 120 MB.   Actual 11345 MB    Passed
+Checking swap space: must be greater than 150 MB.   Actual 3964 MB    Passed
+
+Prepare Configuration in progress.
+
+Prepare Configuration successful.
+..................................................   9% Done.
+You can find the log of this install session at:
+ /u01/app/oracle/oraInventory/logs/addNodeActions2014-06-27_08-45-58PM.log
+
+Instantiate files in progress.
+
+Instantiate files successful.
+..................................................   15% Done.
+
+Copying files to node in progress.
+
+Copying files to node successful.
+..................................................   79% Done.
+
+Saving cluster inventory in progress.
+..................................................   87% Done.
+
+Saving cluster inventory successful.
+The Cluster Node Addition of /u01/app/oracle/product/12.1.0.1/db_1 was successful.
+Please check '/tmp/silentInstall.log' for more details.
+
+As a root user, execute the following script(s):
+        1. /u01/app/oracle/product/12.1.0.1/db_1/root.sh
+
+Execute /u01/app/oracle/product/12.1.0.1/db_1/root.sh on the following nodes:
+[ol6twcn2]
+
+..........
+Update Inventory in progress.
+..................................................   100% Done.
+
+Update Inventory successful.
+Successfully Setup Software.
+$
+</pre>
+<p>Go to node 2 as user root to run:</p>
+<pre>
+# /u01/app/oracle/product/12.1.0.1/db_1/root.sh
+Check /u01/app/oracle/product/12.1.0.1/db_1/install/root_ol6twcn2.localdomain_2014-06-27_20-55-20.log for the output of root script
+# cat /u01/app/oracle/product/12.1.0.1/db_1/install/root_ol6twcn2.localdomain_2014-06-27_20-55-20.log
+Performing root user operation for Oracle 12c
+
+The following environment variables are set as:
+    ORACLE_OWNER= oracle
+    ORACLE_HOME=  /u01/app/oracle/product/12.1.0.1/db_1
+   Copying dbhome to /usr/local/bin ...
+   Copying oraenv to /usr/local/bin ...
+   Copying coraenv to /usr/local/bin ...
+
+Entries will be added to the /etc/oratab file as needed by
+Database Configuration Assistant when a database is created
+Finished running generic part of root script.
+Now product-specific root actions will be performed.
+#
+</pre>
+<p>Check the current status of the cluster with crsctl. Note that you should have now local resources also for node 2 and some SCAN listener SCAN VIP and one VIP on node 2:</p>
+<pre>
+# crsctl stat res -t
+--------------------------------------------------------------------------------
+Name           Target  State        Server                   State details
+--------------------------------------------------------------------------------
+Local Resources
+--------------------------------------------------------------------------------
+ora.DATA.dg
+               ONLINE  ONLINE       ol6twcn1                 STABLE
+               ONLINE  ONLINE       ol6twcn2                 STABLE
+ora.FRA.dg
+               ONLINE  ONLINE       ol6twcn1                 STABLE
+               OFFLINE OFFLINE      ol6twcn2                 STABLE
+ora.LISTENER.lsnr
+               ONLINE  ONLINE       ol6twcn1                 STABLE
+               ONLINE  ONLINE       ol6twcn2                 STABLE
+ora.asm
+               ONLINE  ONLINE       ol6twcn1                 Started,STABLE
+               ONLINE  ONLINE       ol6twcn2                 Started,STABLE
+ora.net1.network
+               ONLINE  ONLINE       ol6twcn1                 STABLE
+               ONLINE  ONLINE       ol6twcn2                 STABLE
+ora.ons
+               ONLINE  ONLINE       ol6twcn1                 STABLE
+               ONLINE  ONLINE       ol6twcn2                 STABLE
+--------------------------------------------------------------------------------
+Cluster Resources
+--------------------------------------------------------------------------------
+ora.LISTENER_SCAN1.lsnr
+      1        ONLINE  ONLINE       ol6twcn2                 STABLE
+ora.LISTENER_SCAN2.lsnr
+      1        ONLINE  ONLINE       ol6twcn1                 STABLE
+ora.LISTENER_SCAN3.lsnr
+      1        ONLINE  ONLINE       ol6twcn1                 STABLE
+ora.cdbrac.db
+      1        ONLINE  ONLINE       ol6twcn1                 Open,STABLE
+ora.cvu
+      1        ONLINE  ONLINE       ol6twcn1                 STABLE
+ora.oc4j
+      1        OFFLINE OFFLINE                               STABLE
+ora.ol6twcn1.vip
+      1        ONLINE  ONLINE       ol6twcn1                 STABLE
+ora.ol6twcn2.vip
+      1        ONLINE  ONLINE       ol6twcn2                 STABLE
+ora.scan1.vip
+      1        ONLINE  ONLINE       ol6twcn2                 STABLE
+ora.scan2.vip
+      1        ONLINE  ONLINE       ol6twcn1                 STABLE
+ora.scan3.vip
+      1        ONLINE  ONLINE       ol6twcn1                 STABLE
+--------------------------------------------------------------------------------
+</pre>
+<h3>Check cluster node 2 addition</h3>
+<p>With oracle user on node 2, run:</p>
+<pre>
+$ cluvfy stage -post nodeadd -n ol6twcn2
+
+Performing post-checks for node addition
+
+Checking node reachability...
+Node reachability check passed from node "ol6twcn2"
+
+
+Checking user equivalence...
+User equivalence check passed for user "oracle"
+
+Checking node connectivity...
+
+Checking hosts config file...
+
+Verification of the hosts config file successful
+
+Check: Node connectivity using interfaces on subnet "192.168.56.0"
+Node connectivity passed for subnet "192.168.56.0" with node(s) ol6twcn2,ol6twcn1
+TCP connectivity check passed for subnet "192.168.56.0"
+
+Checking subnet mask consistency...
+Subnet mask consistency check passed for subnet "192.168.56.0".
+Subnet mask consistency check passed.
+
+Node connectivity check passed
+
+Checking multicast communication...
+
+Checking subnet "192.168.56.0" for multicast communication with multicast group "224.0.0.251"...
+Check of subnet "192.168.56.0" for multicast communication with multicast group "224.0.0.251" passed.
+
+Check of multicast communication passed.
+
+Checking cluster integrity...
+
+
+Cluster integrity check passed
+
+
+Checking CRS integrity...
+
+CRS integrity check passed
+
+Clusterware version consistency passed.
+
+Checking shared resources...
+
+Checking CRS home location...
+"/u01/app/12.1.0.1/grid" is not shared
+Shared resources check for node addition passed
+
+
+Checking node connectivity...
+
+Checking hosts config file...
+
+Verification of the hosts config file successful
+
+Check: Node connectivity using interfaces on subnet "192.168.43.0"
+Node connectivity passed for subnet "192.168.43.0" with node(s) ol6twcn1,ol6twcn2
+TCP connectivity check passed for subnet "192.168.43.0"
+
+
+Check: Node connectivity using interfaces on subnet "192.168.56.0"
+Node connectivity passed for subnet "192.168.56.0" with node(s) ol6twcn2,ol6twcn1
+TCP connectivity check passed for subnet "192.168.56.0"
+
+Checking subnet mask consistency...
+Subnet mask consistency check passed for subnet "192.168.56.0".
+Subnet mask consistency check passed for subnet "192.168.43.0".
+Subnet mask consistency check passed.
+
+Node connectivity check passed
+
+Checking multicast communication...
+
+Checking subnet "192.168.43.0" for multicast communication with multicast group "224.0.0.251"...
+Check of subnet "192.168.43.0" for multicast communication with multicast group "224.0.0.251" passed.
+
+Check of multicast communication passed.
+
+Checking node application existence...
+
+Checking existence of VIP node application (required)
+VIP node application check passed
+
+Checking existence of NETWORK node application (required)
+NETWORK node application check passed
+
+Checking existence of ONS node application (optional)
+ONS node application check passed
+
+
+Checking Single Client Access Name (SCAN)...
+
+Checking TCP connectivity to SCAN Listeners...
+TCP connectivity to SCAN Listeners exists on all cluster nodes
+
+Checking name resolution setup for "ol6twc-scan.localdomain"...
+
+Checking integrity of name service switch configuration file "/etc/nsswitch.conf" ...
+Check for integrity of name service switch configuration file "/etc/nsswitch.conf" passed
+
+
+Checking SCAN IP addresses...
+Check of SCAN IP addresses passed
+
+Verification of SCAN VIP and Listener setup passed
+
+User "oracle" is not part of "root" group. Check passed
+
+Checking if Clusterware is installed on all nodes...
+Check of Clusterware install passed
+
+Checking if CTSS Resource is running on all nodes...
+CTSS resource check passed
+
+
+Querying CTSS for time offset on all nodes...
+Query of CTSS for time offset passed
+
+Check CTSS state started...
+CTSS is in Active state. Proceeding with check of clock time offsets on all nodes...
+Check of clock time offsets passed
+
+
+Oracle Cluster Time Synchronization Services check passed
+
+Post-check for node addition was successful.
+</pre>
+<h3> Add database instance on node 2</h3>
+<p>You can do this with DBCA in silent mode. However I have not found in the 12c online documentation the related documentation (but it is documented in <a href="http://docs.oracle.com/cd/E11882_01/rac.112/e41960/adddelunix.htm#RACAD7357"> 11.2 documentation</a>. The -addinstance DBCA option is not displayed by the general DBCA online help but you can display it if you already know the option name:</p>
+<pre>
+$ dbca -help
+
+dbca  [-silent | -progressOnly] {  }  | { [ [options] ] -responseFile   } [-continueOnNonFatalErrors ]
+
+  : -createDatabase | -configureDatabase | -createTemplateFromDB | -createCloneTemplate | -generateScripts | -deleteDatabase | -createPluggableDatabase | -unplugDatabase | -deletePluggableDatabase | -configurePluggableDatabase
+
+
+Enter "dbca - -help" for more option
+
+$ dbca -addinstance -help
+Add an instance to a cluster database by specifying the following parameters:
+        -addInstance
+                -gdbName 
+                -nodelist 
+                [-instanceName ]
+                [-sysDBAUserName     ]
+                 -sysDBAPassword     
+                [-updateDirService 
+                        -dirServiceUserName    
+                        -dirServicePassword    ]
+
+
+</pre>
+<p>
+Set environment to Oracle Database on node 1 with oracle account and run:</p>
+<pre>
+$ dbca -silent -addInstance -nodeList ol6twcn2 -gdbName CDBRAC -instanceName cdbrac2 -sysDBAUsername sys -sysDBAPassword oracle12c
+Adding instance
+1% complete
+2% complete
+6% complete
+13% complete
+20% complete
+26% complete
+33% complete
+40% complete
+46% complete
+53% complete
+66% complete
+Completing instance management.
+76% complete
+100% complete
+Look at the log file "/u01/app/oracle/cfgtoollogs/dbca/cdbrac/cdbrac.log" for further details.
+</pre>
+<p>Check log file:</p>
+<pre>
+$ cat "/u01/app/oracle/cfgtoollogs/dbca/cdbrac/cdbrac.log"
+Adding instance
+DBCA_PROGRESS : 1%
+DBCA_PROGRESS : 2%
+DBCA_PROGRESS : 6%
+DBCA_PROGRESS : 13%
+DBCA_PROGRESS : 20%
+DBCA_PROGRESS : 26%
+DBCA_PROGRESS : 33%
+DBCA_PROGRESS : 40%
+DBCA_PROGRESS : 46%
+DBCA_PROGRESS : 53%
+DBCA_PROGRESS : 66%
+Completing instance management.
+DBCA_PROGRESS : 76%
+DBCA_PROGRESS : 100%
+Instance "cdbrac2" added successfully on node "ol6twcn2".
+</pre>
+<p>Check that crsctl is displaying the database instance for node 2:</p>
+<pre>
+# crsctl stat res -t
+--------------------------------------------------------------------------------
+Name           Target  State        Server                   State details
+--------------------------------------------------------------------------------
+Local Resources
+--------------------------------------------------------------------------------
+ora.DATA.dg
+               ONLINE  ONLINE       ol6twcn1                 STABLE
+               ONLINE  ONLINE       ol6twcn2                 STABLE
+ora.FRA.dg
+               ONLINE  ONLINE       ol6twcn1                 STABLE
+               ONLINE  ONLINE       ol6twcn2                 STABLE
+ora.LISTENER.lsnr
+               ONLINE  ONLINE       ol6twcn1                 STABLE
+               ONLINE  ONLINE       ol6twcn2                 STABLE
+ora.asm
+               ONLINE  ONLINE       ol6twcn1                 Started,STABLE
+               ONLINE  ONLINE       ol6twcn2                 Started,STABLE
+ora.net1.network
+               ONLINE  ONLINE       ol6twcn1                 STABLE
+               ONLINE  ONLINE       ol6twcn2                 STABLE
+ora.ons
+               ONLINE  ONLINE       ol6twcn1                 STABLE
+               ONLINE  ONLINE       ol6twcn2                 STABLE
+--------------------------------------------------------------------------------
+Cluster Resources
+--------------------------------------------------------------------------------
+ora.LISTENER_SCAN1.lsnr
+      1        ONLINE  ONLINE       ol6twcn2                 STABLE
+ora.LISTENER_SCAN2.lsnr
+      1        ONLINE  ONLINE       ol6twcn1                 STABLE
+ora.LISTENER_SCAN3.lsnr
+      1        ONLINE  ONLINE       ol6twcn1                 STABLE
+ora.cdbrac.db
+      1        ONLINE  ONLINE       ol6twcn1                 Open,STABLE
+      2        ONLINE  ONLINE       ol6twcn2                 Open,STABLE
+ora.cvu
+      1        ONLINE  ONLINE       ol6twcn1                 STABLE
+ora.oc4j
+      1        OFFLINE OFFLINE                               STABLE
+ora.ol6twcn1.vip
+      1        ONLINE  ONLINE       ol6twcn1                 STABLE
+ora.ol6twcn2.vip
+      1        ONLINE  ONLINE       ol6twcn2                 STABLE
+ora.scan1.vip
+      1        ONLINE  ONLINE       ol6twcn2                 STABLE
+ora.scan2.vip
+      1        ONLINE  ONLINE       ol6twcn1                 STABLE
+ora.scan3.vip
+      1        ONLINE  ONLINE       ol6twcn1                 STABLE
+--------------------------------------------------------------------------------
+#
+</pre>
+<p>Check database configuration in OCR is referencing node 2:</p>
+<pre>
+$ srvctl config database -d CDBRAC
+Database unique name: cdbrac
+Database name: cdbrac
+Oracle home: /u01/app/oracle/product/12.1.0.1/db_1
+Oracle user: oracle
+Spfile: +DATA/cdbrac/spfilecdbrac.ora
+Password file: +DATA/cdbrac/orapwcdbrac
+Domain:
+Start options: open
+Stop options: immediate
+Database role: PRIMARY
+Management policy: AUTOMATIC
+Server pools: cdbrac
+Database instances: cdbrac1,cdbrac2
+Disk Groups: FRA,DATA
+Mount point paths:
+Services:
+Type: RAC
+Start concurrency:
+Stop concurrency:
+Database is administrator managed
+$
+</pre>
+<p>Check that database has the 3 redo log groups for thread 2:</p>
+<pre>
+SQL&gt; select thread#, group# from v$log order by 1,2;
+
+   THREAD#     GROUP#
+---------- ----------
+         1          1
+         1          2
+         1          3
+         2          4
+         2          5
+         2          6
+
+6 rows selected.
+
+SQL&gt;
+</pre>
+<p>Check that database has 2 undo tablespace for each instance:</p>
+<pre>
+SQL&gt; select tablespace_name from dba_tablespaces where contents='UNDO';
+
+TABLESPACE_NAME
+------------------------------
+UNDOTBS1
+UNDOTBS2
+
+SQL&gt;
+</pre>
+<p>Check that instance 2 has a password file (connect on node 2 and set instance to cdbrac2):</p>
+<pre>
+$ sqlplus / as sysdba
+
+SQL*Plus: Release 12.1.0.1.0 Production on Fri Jun 27 21:27:34 2014
+
+Copyright (c) 1982, 2013, Oracle.  All rights reserved.
+
+
+Connected to:
+Oracle Database 12c Enterprise Edition Release 12.1.0.1.0 - 64bit Production
+With the Partitioning, Real Application Clusters, Automatic Storage Management, OLAP,
+Advanced Analytics and Real Application Testing options
+
+SQL&gt; show parameter instance_name
+
+NAME                                 TYPE        VALUE
+------------------------------------ ----------- ------------------------------
+instance_name                        string      cdbrac2
+SQL&gt; select * from v$pwfile_users;
+
+USERNAME                       SYSDB SYSOP SYSAS SYSBA SYSDG SYSKM     CON_ID
+------------------------------ ----- ----- ----- ----- ----- ----- ----------
+SYS                            TRUE  TRUE  FALSE FALSE FALSE FALSE          0
+SYSDG                          FALSE FALSE FALSE FALSE TRUE  FALSE          1
+SYSBACKUP                      FALSE FALSE FALSE TRUE  FALSE FALSE          1
+SYSKM                          FALSE FALSE FALSE FALSE FALSE TRUE           1
+</pre>
+<p>Note that password file is by default created in ASM:</p>
+<pre>
+$ srvctl config database -d CDBRAC | grep Password
+Password file: +DATA/cdbrac/orapwcdbrac
+</pre>
+<p>Check that PFILE on node 2 is referencing SPFILE in ASM:</p>
+<pre>
+$ cat /u01/app/oracle/product/12.1.0.1/db_1/dbs/initcdbrac2.ora
+SPFILE='+DATA/cdbrac/spfilecdbrac.ora'
+</pre>
+<p>Check that LOCAL_LISTENER parameter is set to node 2 VIP:</p>
+<pre>
+$ grep 122 /etc/hosts
+192.168.56.122 ol6twcn2-vip ol6twcn2-vip.localdomain
+</pre>
+<p>and</p>
+<pre>
+SQL&gt; show parameter local_listener
+
+NAME                                 TYPE        VALUE
+------------------------------------ ----------- ------------------------------
+local_listener                       string       (ADDRESS=(PROTOCOL=TCP)(HOST=
+                                                 192.168.56.122)(PORT=1521))
+</pre>
+<p>Check that local listener has registered local database instance and related PDB services:</p>
+<pre>
+$ lsnrctl status listener
+
+LSNRCTL for Linux: Version 12.1.0.1.0 - Production on 27-JUN-2014 21:34:03
+
+Copyright (c) 1991, 2013, Oracle.  All rights reserved.
+
+Connecting to (ADDRESS=(PROTOCOL=tcp)(HOST=)(PORT=1521))
+STATUS of the LISTENER
+------------------------
+Alias                     LISTENER
+Version                   TNSLSNR for Linux: Version 12.1.0.1.0 - Production
+Start Date                27-JUN-2014 20:41:54
+Uptime                    0 days 0 hr. 52 min. 9 sec
+Trace Level               off
+Security                  ON: Local OS Authentication
+SNMP                      OFF
+Listener Parameter File   /u01/app/12.1.0.1/grid/network/admin/listener.ora
+Listener Log File         /u01/app/base/diag/tnslsnr/ol6twcn2/listener/alert/log.xml
+Listening Endpoints Summary...
+  (DESCRIPTION=(ADDRESS=(PROTOCOL=ipc)(KEY=LISTENER)))
+  (DESCRIPTION=(ADDRESS=(PROTOCOL=tcp)(HOST=192.168.56.112)(PORT=1521)))
+  (DESCRIPTION=(ADDRESS=(PROTOCOL=tcp)(HOST=192.168.56.122)(PORT=1521)))
+Services Summary...
+Service "+ASM" has 1 instance(s).
+  Instance "+ASM2", status READY, has 1 handler(s) for this service...
+Service "cdbrac" has 1 instance(s).
+  Instance "cdbrac2", status READY, has 1 handler(s) for this service...
+Service "cdbracXDB" has 1 instance(s).
+  Instance "cdbrac2", status READY, has 1 handler(s) for this service...
+Service "pdb1" has 1 instance(s).
+  Instance "cdbrac2", status READY, has 1 handler(s) for this service...
+Service "pdb2" has 1 instance(s).
+  Instance "cdbrac2", status READY, has 1 handler(s) for this service...
+The command completed successfully
+</pre>
+<p>Now that database is running in full cluster mode you need to define or redefine database services so that they can use all database instances.</p>
