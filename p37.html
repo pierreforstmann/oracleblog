@@ -1,0 +1,643 @@
+<p>The purpose of this blog post is to detail physical standby database creation in the following configuration:</p>
+<ul>
+<li>Oracle Linux 7.1 64-bit with VirtualBox 4.3.26</li>
+<li>Oracle RAC 12.1.0.2 with Grid Infrastructure (GI) 12.1.0.2 (database storage is using ASM so Oracle Managed Files (OMF) are automatically used) and Oracle Database Entreprise Edition 12.1.0.2 for primary database and standby database</li>
+<li>Primary database is a non container.</li>
+</ul>
+<p>Both clusters have been installed and configured using my previous blog posts: <a href="https://pierreforstmanndotcom.wordpress.com/2015/04/08/how-to-install-oracle-rac-12-1-0-2-in-silent-mode-on-oracle-linux-7-1-with-virtualbox-part-1/">part1</a> and <a href="https://pierreforstmanndotcom.wordpress.com/2015/04/20/how-to-install-oracle-rac-12-1-0-2-in-silent-mode-on-oracle-linux-7-1-with-virtualbox-part-2/">part2</a>.</p>
+<p>For performance reason I have disabled on both clusters the Cluster Verification Utility because it seems that cvu JVM may use about 3GB of RAM at cluster startup:</p>
+<pre>$ srvctl disable cvu
+$ srvctl stop cvu
+</pre>
+<p>Hostnames and database identifiers are detailed in the following table:</p>
+<p>primary node 1primary node 2standby node 1standby node 2INSTANCE_NAMEDOT1DOT2DTF1DTF2</p>
+<table border="2">
+<tbody>
+<tr>
+<td>hostname</td>
+<td>ol7tocn1</td>
+<td>ol7tocn2</td>
+<td>ol7tocn3</td>
+<td>ol7tocn4</td>
+</tr>
+<tr>
+<td>DB_NAME</td>
+<td>DOT</td>
+<td>DOT</td>
+<td>DOT</td>
+<td>DOT</td>
+</tr>
+<tr>
+<td>DB_UNIQUE_NAME</td>
+<td>DOT</td>
+<td>DOT</td>
+<td>DTF</td>
+<td>DTF</td>
+</tr>
+<tr>
+<td>SCAN listener name</td>
+<td>ol7toc-scan</td>
+<td>ol7toc-scan</td>
+<td>ol7toc2-scan</td>
+<td>ol7toc2-scan</td>
+</tr>
+<tr>
+<td>datafile disk group name</td>
+<td>+DATA</td>
+<td>+DATA</td>
+<td>+DATA</td>
+<td>+DATA</td>
+</tr>
+<tr>
+<td>fast recovery area disk group name</td>
+<td>+FRA</td>
+<td>+FRA</td>
+<td>+FRA</td>
+<td>+FRA</td>
+</tr>
+</tbody>
+</table>
+<p>In this lab setup the same DNS server is used for primary and standby cluster.</p>
+<p>Note that we need to have DB_UNIQUE_NAME different from DB_NAME because this is required by Data Guard to identify each database that must have the same DB_NAME.</p>
+<p>Note also that I have decided to change instance names for standby database: instead of using database name DB_NAME they are using DB_UNIQUE_NAME.</p>
+<h3>Environment setup</h3>
+<p>On each cluster node SQLPATH environment variable is set for oracle user account with following <b>login.sql</b> so that SQL*Plus displays as prompt current database instance and current Oracle user:</p>
+<pre>$ echo $SQLPATH
+/home/oracle/scripts
+$ cat /home/oracle/scripts/login.sql
+set sqlprompt "&amp;&amp;_USER@&amp;&amp;_CONNECT_IDENTIFIER&gt;"
+$
+</pre>
+<p>I have also created OPS$ORACLE with DBA role on primary database:</p>
+<pre>SYS@DOT1&gt;create user ops$oracle identified externally;
+
+User created.
+
+SYS@DOT1&gt;grant dba to ops$oracle;
+
+Grant succeeded.
+
+</pre>
+<h2>Overview</h2>
+<p>Creating a RAC standby database is similar to single instance standby database creation:</p>
+<p>- first a single instance standby database is created by RMAN active duplication even if RMAN creates a SPFILE with some RAC parameters set like CLUSTER_DATABASE (this is because RMAN active duplication copies the primary database SPFILE for the new database)</p>
+<p>- remaining RAC standby database instance parameters must be configured manually by changing specific RAC parameters in the common SPFILE (INSTANCE_NUMBER, INSTANCE_NAME)</p>
+<p>- RAC standby database and its database instances must be added manually to Oracle Cluster Registry (OCR) as new resources with srvctl command.</p>
+<h3>Configure primary database in ARCHIVELOG mode</h3>
+<pre>[oracle@ol7tocn1 ~]$ srvctl stop database -d DOT
+[oracle@ol7tocn1 ~]$ srvctl start instance -d DOT -i DOT1 -o mount
+[oracle@ol7tocn1 ~]$ sqlplus / as sysdba
+
+SQL*Plus: Release 12.1.0.2.0 Production on Thu Jun 25 21:07:45 2015
+
+Copyright (c) 1982, 2014, Oracle.  All rights reserved.
+
+
+Connected to:
+Oracle Database 12c Enterprise Edition Release 12.1.0.2.0 - 64bit Production
+With the Partitioning, Real Application Clusters, Automatic Storage Management, OLAP,
+Advanced Analytics and Real Application Testing options
+
+SYS@DOT1&gt;alter database archivelog;
+
+Database altered.
+
+SYS@DOT1&gt;exit
+Disconnected from Oracle Database 12c Enterprise Edition Release 12.1.0.2.0 - 64bit Production
+With the Partitioning, Real Application Clusters, Automatic Storage Management, OLAP,
+Advanced Analytics and Real Application Testing options
+[oracle@ol7tocn1 ~]$ srvctl stop instance -d DOT -i DOT1
+[oracle@ol7tocn1 ~]$ srvctl status database -d DOT
+Instance DOT1 is not running on node ol7tocn1
+Instance DOT2 is not running on node ol7tocn2
+[oracle@ol7tocn1 ~]$ srvctl start database -d DOT
+[oracle@ol7tocn1 ~]$
+</pre>
+<h3>Configure primary database in FORCE LOGGING mode</h3>
+<pre>OPS$ORACLE@DOT1&gt;select force_logging from v$database;
+
+FORCE_LOGGING
+---------------------------------------
+NO
+
+OPS$ORACLE@DOT1&gt;alter database force logging;
+
+Database altered.
+
+OPS$ORACLE@DOT1&gt;select force_logging from v$database;
+
+FORCE_LOGGING
+---------------------------------------
+YES
+
+OPS$ORACLE@DOT1&gt;
+
+</pre>
+<h3>Create standby redo logs</h3>
+<p>On primary database, each redo log thread must have N+1 standby redo logs for each thread where N is the number of online redo logs groups for each thread:</p>
+<pre>
+
+OPS$ORACLE@DOT1&gt;select group#, thread#, bytes/1024/1024 as mb from v$log;
+
+    GROUP#    THREAD#         MB
+---------- ---------- ----------
+         1          1         50
+         2          1         50
+         3          2         50
+         4          2         50
+
+OPS$ORACLE@DOT1&gt;alter database add standby logfile thread 1 '+FRA' size 50M;
+
+Database altered.
+
+OPS$ORACLE@DOT1&gt;/
+
+Database altered.
+
+OPS$ORACLE@DOT1&gt;/
+
+Database altered.
+
+OPS$ORACLE@DOT1&gt;alter database add standby logfile thread 2 '+FRA' size 50M;
+
+Database altered.
+
+OPS$ORACLE@DOT1&gt;/
+
+Database altered.
+
+OPS$ORACLE@DOT1&gt;/
+
+Database altered.
+
+OPS$ORACLE@DOT1&gt;select group#, thread#, bytes/1024/1024 as mb from v$standby_log;
+
+    GROUP#    THREAD#         MB
+---------- ---------- ----------
+         5          1         50
+         6          1         50
+         7          1         50
+         8          2         50
+         9          2         50
+        10          2         50
+
+6 rows selected.
+
+OPS$ORACLE@DOT1&gt;
+</pre>
+<h3>Copy password file from primary node to standby nodes</h3>
+<p>DBCA has created by default password file in ASM: it must be copied to both standby nodes:</p>
+<pre>[oracle@ol7tocn1 ~]$ srvctl config database -d DOT | grep Pass
+Password file: +DATA/DOT/PASSWORD/pwddot.278.883498245
+[oracle@ol7tocn1 ~]$ . oraenv
+ORACLE_SID = [DOT1] ? +ASM1
+The Oracle base remains unchanged with value /u01/app/base
+[oracle@ol7tocn1 ~]$ asmcmd cp +DATA/DOT/PASSWORD/pwddot.278.883498245 /tmp/orapwDTF
+copying +DATA/DOT/PASSWORD/pwddot.278.883498245 -&gt; /tmp/orapwDTF
+[oracle@ol7tocn1 ~]$ scp /tmp/orapwDTF ol7tocn3:/u01/app/12.1.0.2/db/dbs/orapwDTF1
+oracle@ol7tocn3's password:
+orapwDTF                                                                      100% 7680     7.5KB/s   00:00
+[oracle@ol7tocn1 ~]$ scp /tmp/orapwDTF ol7tocn4:/u01/app/12.1.0.2/db/dbs/orapwDTF2
+oracle@ol7tocn4's password:
+orapwDTF                                                                      100% 7680     7.5KB/s   00:00
+[oracle@ol7tocn1 ~]$
+</pre>
+<h3>Oracle Net configuration</h3>
+<p>On each primary cluster node and on each standby cluster node, I have added in database ORACLE_HOME <b>tnsnames.ora</b> a single Oracle Net alias using the SCAN listener (you may already have DOT alias definition on primary cluster nodes if DOT database has been created by DBCA):</p>
+<pre>DOT =
+  (DESCRIPTION =
+    (ADDRESS = (PROTOCOL = TCP)(HOST = ol7toc-scan.localdomain)(PORT = 1521))
+    (CONNECT_DATA =
+      (SERVER = DEDICATED)
+      (SERVICE_NAME = DOT)
+    )
+  )
+
+DTF =
+  (DESCRIPTION =
+    (ADDRESS = (PROTOCOL = TCP)(HOST = ol7toc2-scan.localdomain)(PORT = 1521))
+    (CONNECT_DATA =
+      (SERVER = DEDICATED)
+      (SERVICE_NAME = DTF)
+    )
+  )
+</pre>
+<h3>Configure FAL_CLIENT and FAL_SERVER on primary database</h3>
+<pre>OPS$ORACLE@DOT1&gt;show parameter log_archive_config
+
+NAME                                 TYPE        VALUE
+------------------------------------ ----------- ------------------------------
+log_archive_config                   string
+OPS$ORACLE@DOT1&gt;alter system set log_archive_config='dg_config=(DOT,DTF)';
+
+System altered.
+
+OPS$ORACLE@DOT1&gt;alter system set fal_server=DTF;
+
+System altered.
+
+OPS$ORACLE@DOT1&gt;alter system set fal_client=DOT;
+
+System altered.
+
+OPS$ORACLE@DOT1&gt;alter system set log_archive_dest_2='service=DTF lgwr sync valid_for=(online_logfiles,primary_role) db_unique_name=DTF';
+
+System altered.
+
+OPS$ORACLE@DOT1&gt;alter system set standby_file_management=auto;
+
+System altered.
+
+OPS$ORACLE@DOT1&gt;
+</pre>
+<h3>Add standby instance names to standby nodes <b>/etc/oratab</b></h3>
+<pre>[oracle@ol7tocn3 ~]$ grep DTF /etc/oratab
+DTF1:/u01/app/12.1.0.2/db:N
+[oracle@ol7tocn3 ~]$
+</pre>
+<p>and:</p>
+<pre>[oracle@ol7tocn4 ~]$ grep DTF /etc/oratab
+DTF2:/u01/app/12.1.0.2/db:N             # line added by Agent
+[oracle@ol7tocn4 ~]$
+</pre>
+<h3>Configure standby listener</h3>
+<p>A listener static entry must be defined for first cluster node standby database instance on first cluster node because this is required by RMAN active duplication when running on first cluster node.</p>
+<p>I have added in first standby cluster node GI <b>listener.ora</b>:</p>
+<pre>SID_LIST_LISTENER =
+ (SID_LIST =
+   (SID_DESC =
+     (GLOBAL_DBNAME = aux)
+     (ORACLE_HOME=/u01/app/12.1.0.2/db)
+     (SID_NAME = DTF1)
+   )
+ )
+</pre>
+<p>I have reloaded the corresponding GI listener:</p>
+<pre>[oracle@ol7tocn3 admin]$ lsnrctl reload
+
+LSNRCTL for Linux: Version 12.1.0.2.0 - Production on 25-JUN-2015 21:40:25
+
+Copyright (c) 1991, 2014, Oracle.  All rights reserved.
+
+Connecting to (DESCRIPTION=(ADDRESS=(PROTOCOL=IPC)(KEY=LISTENER)))
+The command completed successfully
+
+</pre>
+<p>I have checked that "aux" service name is defined:</p>
+<pre>[oracle@ol7tocn3 admin]$ lsnrctl status
+
+LSNRCTL for Linux: Version 12.1.0.2.0 - Production on 25-JUN-2015 21:41:00
+
+Copyright (c) 1991, 2014, Oracle.  All rights reserved.
+
+Connecting to (DESCRIPTION=(ADDRESS=(PROTOCOL=IPC)(KEY=LISTENER)))
+STATUS of the LISTENER
+------------------------
+Alias                     LISTENER
+Version                   TNSLSNR for Linux: Version 12.1.0.2.0 - Production
+Start Date                25-JUN-2015 18:34:36
+Uptime                    0 days 3 hr. 6 min. 27 sec
+Trace Level               off
+Security                  ON: Local OS Authentication
+SNMP                      OFF
+Listener Parameter File   /u01/app/12.1.0.2/grid/network/admin/listener.ora
+Listener Log File         /u01/app/base/diag/tnslsnr/ol7tocn3/listener/alert/log.xml
+Listening Endpoints Summary...
+  (DESCRIPTION=(ADDRESS=(PROTOCOL=ipc)(KEY=LISTENER)))
+  (DESCRIPTION=(ADDRESS=(PROTOCOL=tcp)(HOST=192.168.56.193)(PORT=1521)))
+  (DESCRIPTION=(ADDRESS=(PROTOCOL=tcp)(HOST=192.168.56.223)(PORT=1521)))
+Services Summary...
+Service "aux" has 1 instance(s).
+  Instance "DTF1", status UNKNOWN, has 1 handler(s) for this service...
+The command completed successfully
+[oracle@ol7tocn3 admin]$
+</pre>
+<h3>Create PFILE for standby instance</h3>
+<p>On first standby cluster node:</p>
+<pre>[oracle@ol7tocn3 dbs]$ pwd
+/u01/app/12.1.0.2/db/dbs
+[oracle@ol7tocn3 dbs]$ cat initDTF1.ora
+db_name=aux
+[oracle@ol7tocn3 dbs]$
+</pre>
+<h3>Start standby instance</h3>
+<p>On first standby cluster node:</p>
+<pre>[oracle@ol7tocn3 ~]$ . oraenv
+ORACLE_SID = [DTF1] ?
+The Oracle base remains unchanged with value /u01/app/base
+[oracle@ol7tocn3 ~]$ sqlplus / as sysdba
+
+SQL*Plus: Release 12.1.0.2.0 Production on Thu Jun 25 21:43:05 2015
+
+Copyright (c) 1982, 2014, Oracle.  All rights reserved.
+
+Connected to an idle instance.
+
+SYS@DTF1&gt;startup nomount;
+ORACLE instance started.
+
+Total System Global Area  243269632 bytes
+Fixed Size                  2923000 bytes
+Variable Size             184550920 bytes
+Database Buffers           50331648 bytes
+Redo Buffers                5464064 bytes
+SYS@DTF1&gt;Disconnected from Oracle Database 12c Enterprise Edition Release 12.1.0.2.0 - 64bit Production
+With the Partitioning, Real Application Clusters, OLAP, Advanced Analytics
+and Real Application Testing options
+[oracle@ol7tocn3 ~]$
+</pre>
+<h3>Create RMAN DUPLICATE script on first standby cluster node</h3>
+<pre>set echo on
+connect target sys/oracle12c@DOT
+connect auxiliary sys/oracle12c@ol7tocn3:1521/aux
+run {
+ duplicate target database for standby from active database
+ spfile
+ set db_unique_name='DTF'
+ set instance_name='DTF1'
+ set instance_number='1'
+ set compatible='12.1.0.2';
+}
+</pre>
+<h3>Start RMAN DUPLICATE</h3>
+<p>I have created specific directory for AUDIT_DEST_DUMP directory first set by primary SPFILE <u>on each standby cluster node</u>:</p>
+<pre>$ mkdir -p $ORACLE_BASE/admin/DOT/adump
+</pre>
+<p>I have started RMAN script on first standby cluster node and waited for "Recovery Manager complete." message.</p>
+<pre>[oracle@ol7tocn3 scripts]$ rman cmdfile=dup.rman
+</pre>
+<p>Full RMAN output can be found <a href="https://pierreforstmanndotcom.wordpress.com/468">here</a>.</p>
+<p>Note that in case of failure you have to remove SPFILE created by RMAN DUPLICATE in $ORACLE_HOME/dbs directory before restarting RMAN DUPLICATE script (otherwise next RMAN run will fail).</p>
+<h3>Configure standby database</h3>
+<pre>[oracle@ol7tocn3 scripts]$ sqlplus / as sysdba
+
+SQL*Plus: Release 12.1.0.2.0 Production on Thu Jun 25 22:04:05 2015
+
+Copyright (c) 1982, 2014, Oracle.  All rights reserved.
+
+
+Connected to:
+Oracle Database 12c Enterprise Edition Release 12.1.0.2.0 - 64bit Production
+With the Partitioning, Real Application Clusters, Automatic Storage Management, OLAP,
+Advanced Analytics and Real Application Testing options
+
+SYS@DTF1&gt;select name, db_unique_name, database_role, open_mode from v$database;
+
+NAME      DB_UNIQUE_NAME                 DATABASE_ROLE    OPEN_MODE
+--------- ------------------------------ ---------------- --------------------
+DOT       DTF                            PHYSICAL STANDBY MOUNTED
+
+SYS@DTF1&gt;
+
+SYS@DTF1&gt;alter system set log_archive_dest_2='service=DOT lgwr sync valid_for=(online_logfiles,primary_role) db_unique_name=DOT';
+
+System altered.
+
+SYS@DTF1&gt;alter system set fal_server='DOT';
+
+System altered.
+
+SYS@DTF1&gt;alter system set fal_client='DTF';
+
+System altered.
+
+SYS@DTF1&gt;Disconnected from Oracle Database 12c Enterprise Edition Release 12.1.0.2.0 - 64bit Production
+With the Partitioning, Real Application Clusters, Automatic Storage Management, OLAP,
+Advanced Analytics and Real Application Testing options
+[oracle@ol7tocn3 scripts]$
+</pre>
+<h3>Add database resources in OCR</h3>
+<pre>[oracle@ol7tocn3 scripts]$ srvctl add database -d DTF -o $ORACLE_HOME -role physical_standby -startoption mount -diskgroup DATA,FRA
+[oracle@ol7tocn3 scripts]$ srvctl add instance -d DTF -i DTF1 -n ol7tocn3
+[oracle@ol7tocn3 scripts]$ srvctl add instance -d DTF -i DTF2 -n ol7tocn4
+</pre>
+<h3>Create SPFILE in ASM</h3>
+<pre>SYS@DTF1&gt;create pfile from spfile;
+
+File created.
+
+SYS@DTF1&gt;create spfile='+DATA/DTF/spfileDTF.ora' from pfile;
+
+File created.
+</pre>
+<h3>Modify PFILE to use new SPFILE in ASM</h3>
+<pre>[oracle@ol7tocn3 scripts]$ cat $ORACLE_HOME/dbs/initDTF1.ora
+SPFILE='+DATA/DTF/spfileDTF.ora'
+[oracle@ol7tocn3 scripts]$ rm $ORACLE_HOME/dbs/spfileDTF1.ora
+[oracle@ol7tocn3 scripts]$
+</pre>
+<h3>Stop first cluster node standby instance and restart it with updated SPFILE in ASM</h3>
+<pre>SYS@DTF1&gt;shutdown abort;
+ORACLE instance shut down.
+[oracle@ol7tocn3 dbs]$ srvctl start instance -d DTF -i DTF1
+[oracle@ol7tocn3 dbs]$ srvctl status database -d DTF
+Instance DTF1 is running on node ol7tocn3
+Instance DTF2 is not running on node ol7tocn4
+[oracle@ol7tocn3 dbs]$
+</pre>
+<h3>Modify instance names and instance number for instance 2 in SPFILE</h3>
+<pre>SYS@DTF1&gt;alter system set instance_number=2 sid='DTF2' scope=spfile;
+
+System altered.
+
+SYS@DTF1&gt;alter system set instance_name='DTF1' sid='DTF1' scope=spfile;
+
+System altered.
+
+SYS@DTF1&gt;alter system set instance_name='DTF2' sid='DTF2'  scope=spfile;
+
+System altered.
+
+</pre>
+<h3>Start standby instance 2</h3>
+<pre>[oracle@ol7tocn3 dbs]$ scp $ORACLE_HOME/dbs/initDTF1.ora ol7tocn4:$ORACLE_HOME/dbs/initDTF2.ora
+initDTF1.ora                                                                100%   34     0.0KB/s   00:00
+[oracle@ol7tocn3 dbs]$ srvctl start instance -d DTF -i DTF2
+[oracle@ol7tocn3 dbs]$ srvctl status database -d DTF
+Instance DTF1 is running on node ol7tocn3
+Instance DTF2 is running on node ol7tocn4
+[oracle@ol7tocn3 ~]$
+</pre>
+<h3>Check that ASM SPFILE is recorded in OCR for standby database</h3>
+<pre>[oracle@ol7tocn3 dbs]$ srvctl config database -d DTF
+Database unique name: DTF
+Database name:
+Oracle home: /u01/app/12.1.0.2/db
+Oracle user: oracle
+Spfile: +DATA/DTF/spfileDTF.ora
+Password file:
+Domain:
+Start options: mount
+Stop options: immediate
+Database role: PHYSICAL_STANDBY
+Management policy: AUTOMATIC
+Server pools:
+Disk Groups: DATA,FRA
+Mount point paths:
+Services:
+Type: RAC
+Start concurrency:
+Stop concurrency:
+OSDBA group: dba
+OSOPER group: dba
+Database instances: DTF1,DTF2
+Configured nodes: ol7tocn3,ol7tocn4
+Database is administrator managed
+</pre>
+<h3>Now redo apply can be started:</h3>
+<pre>SYS@DTF1&gt;alter database recover managed standby database using current logfile disconnect;
+
+Database altered.
+
+SYS@DTF1&gt;
+
+</pre>
+<p>In first standby database instance alert log we have:</p>
+<pre>Thu Jun 25 22:51:36 2015
+Warning: ALTER DATABASE RECOVER MANAGED STANDBY DATABASE USING CURRENT LOGFILE has been deprecated.
+Warning: ALTER DATABASE RECOVER MANAGED STANDBY DATABASE USING CURRENT LOGFILE has been deprecated.
+alter database recover managed standby database using current logfile disconnect
+Thu Jun 25 22:51:38 2015
+Attempt to start background Managed Standby Recovery process (DTF1)
+Starting background process MRP0
+Thu Jun 25 22:51:38 2015
+MRP0 started with pid=49, OS id=32502
+Thu Jun 25 22:51:38 2015
+MRP0: Background Managed Standby Recovery process started (DTF1)
+Thu Jun 25 22:51:43 2015
+Serial Media Recovery started
+Thu Jun 25 22:51:43 2015
+Managed Standby Recovery starting Real Time Apply
+Thu Jun 25 22:51:45 2015
+Waiting for all non-current ORLs to be archived...
+Thu Jun 25 22:51:45 2015
+All non-current ORLs have been archived.
+Completed: alter database recover managed standby database using current logfile disconnect
+Thu Jun 25 22:51:46 2015
+Media Recovery Log +FRA/DTF/ARCHIVELOG/2015_06_25/thread_1_seq_11.275.883349221
+Thu Jun 25 22:51:47 2015
+Media Recovery Log +FRA/DTF/ARCHIVELOG/2015_06_25/thread_2_seq_3.273.883349247
+Media Recovery Waiting for thread 2 sequence 4
+Fetching gap sequence in thread 2, gap sequence 4-4
+Fetching gap sequence in thread 2, gap sequence 4-4
+Thu Jun 25 22:52:09 2015
+Media Recovery Log +FRA/DTF/ARCHIVELOG/2015_06_25/thread_2_seq_4.272.883349513
+Media Recovery Waiting for thread 1 sequence 12
+Thu Jun 25 22:52:25 2015
+Recovery of Online Redo Log: Thread 1 Group 6 Seq 12 Reading mem 0
+  Mem# 0: +DATA/DTF/ONLINELOG/group_6.282.883346365
+  Mem# 1: +FRA/DTF/ONLINELOG/group_6.262.883346371
+
+</pre>
+<p>On primary create tablespace:</p>
+<pre>OPS$ORACLE@DOT1&gt;create tablespace test;
+
+Tablespace created.
+
+OPS$ORACLE@DOT1
+</pre>
+<p>In first standby database instance alert log we have the corresponding datafile creation message:</p>
+<pre>Thu Jun 25 22:52:57 2015
+Media Recovery Log +FRA/DTF/ARCHIVELOG/2015_06_25/thread_2_seq_5.274.883349239
+Thu Jun 25 22:53:06 2015
+Deleted Oracle managed file +FRA/DTF/ARCHIVELOG/2015_06_25/thread_0_seq_0.270.883349585
+Thu Jun 25 22:53:13 2015
+Resize operation completed for file# 5, old size 25600K, new size 51200K
+Resize operation completed for file# 1, old size 808960K, new size 819200K
+Thu Jun 25 22:53:22 2015
+Media Recovery Log +FRA/DTF/ARCHIVELOG/2015_06_25/thread_2_seq_6.271.883349537
+Thu Jun 25 22:53:38 2015
+Resize operation completed for file# 3, old size 727040K, new size 737280K
+Thu Jun 25 22:53:48 2015
+Media Recovery Log +FRA/DTF/ARCHIVELOG/2015_06_25/thread_1_seq_13.270.883349599
+Media Recovery Waiting for thread 2 sequence 7 (in transit)
+Thu Jun 25 22:53:55 2015
+Recovery of Online Redo Log: Thread 2 Group 8 Seq 7 Reading mem 0
+  Mem# 0: +DATA/DTF/ONLINELOG/group_8.270.883346391
+  Mem# 1: +FRA/DTF/ONLINELOG/group_8.260.883346395
+Resize operation completed for file# 3, old size 737280K, new size 747520K
+Media Recovery Waiting for thread 1 sequence 14 (in transit)
+Thu Jun 25 22:54:05 2015
+Recovery of Online Redo Log: Thread 1 Group 5 Seq 14 Reading mem 0
+  Mem# 0: +DATA/DTF/ONLINELOG/group_5.258.883346353
+  Mem# 1: +FRA/DTF/ONLINELOG/group_5.263.883346359
+Thu Jun 25 22:54:22 2015
+Successfully added datafile 2 to media recovery
+Datafile #2: '+DATA/DTF/DATAFILE/test.266.883349651'
+</pre>
+<h3>Cluster status</h3>
+<p>Cluster status is now displaying the new database with its 2 instances in intermediate (clusterware) state and in detailed (database) mounted state:</p>
+<pre>[oracle@ol7tocn4 trace]$ crsctl stat res -t
+--------------------------------------------------------------------------------
+Name           Target  State        Server                   State details
+--------------------------------------------------------------------------------
+Local Resources
+--------------------------------------------------------------------------------
+ora.DATA.dg
+               ONLINE  ONLINE       ol7tocn3                 STABLE
+               ONLINE  ONLINE       ol7tocn4                 STABLE
+ora.FRA.dg
+               ONLINE  ONLINE       ol7tocn3                 STABLE
+               ONLINE  ONLINE       ol7tocn4                 STABLE
+ora.LISTENER.lsnr
+               ONLINE  ONLINE       ol7tocn3                 STABLE
+               ONLINE  ONLINE       ol7tocn4                 STABLE
+ora.OCRVD.dg
+               ONLINE  ONLINE       ol7tocn3                 STABLE
+               ONLINE  ONLINE       ol7tocn4                 STABLE
+ora.asm
+               ONLINE  ONLINE       ol7tocn3                 Started,STABLE
+               ONLINE  ONLINE       ol7tocn4                 Started,STABLE
+ora.net1.network
+               ONLINE  ONLINE       ol7tocn3                 STABLE
+               ONLINE  ONLINE       ol7tocn4                 STABLE
+ora.ons
+               ONLINE  ONLINE       ol7tocn3                 STABLE
+               ONLINE  ONLINE       ol7tocn4                 STABLE
+--------------------------------------------------------------------------------
+Cluster Resources
+--------------------------------------------------------------------------------
+ora.LISTENER_SCAN1.lsnr
+      1        ONLINE  ONLINE       ol7tocn3                 STABLE
+ora.LISTENER_SCAN2.lsnr
+      1        ONLINE  ONLINE       ol7tocn4                 STABLE
+ora.LISTENER_SCAN3.lsnr
+      1        ONLINE  ONLINE       ol7tocn3                 STABLE
+ora.MGMTLSNR
+      1        ONLINE  ONLINE       ol7tocn4                 169.254.144.231 192.
+                                                             168.43.214,STABLE
+ora.cvu
+      1        OFFLINE OFFLINE                               STABLE
+ora.dtf.db
+      1        ONLINE  INTERMEDIATE ol7tocn3                 Mounted (Closed),STA
+                                                             BLE
+      2        ONLINE  INTERMEDIATE ol7tocn4                 Mounted (Closed),STA
+                                                             BLE
+ora.mgmtdb
+      1        ONLINE  ONLINE       ol7tocn4                 Open,STABLE
+ora.oc4j
+      1        ONLINE  ONLINE       ol7tocn3                 STABLE
+ora.ol7tocn3.vip
+      1        ONLINE  ONLINE       ol7tocn3                 STABLE
+ora.ol7tocn4.vip
+      1        ONLINE  ONLINE       ol7tocn4                 STABLE
+ora.scan1.vip
+      1        ONLINE  ONLINE       ol7tocn3                 STABLE
+ora.scan2.vip
+      1        ONLINE  ONLINE       ol7tocn4                 STABLE
+ora.scan3.vip
+      1        ONLINE  ONLINE       ol7tocn3                 STABLE
+--------------------------------------------------------------------------------
+[oracle@ol7tocn4 trace]$
+</pre>
+<p>Next steps should be:</p>
+<ul>
+<li>deciding whether you want to manage Data Guard only with SQL statements or use Data Guard Broker</li>
+<li>testing switchover</li>
+<li>deciding what database protection you need and to change it if needed</li>
+<li>deciding whether you want to use Flashback database option (useful to rebuild primary database in case of failover)</li>
+<li>deciding whether standby database should be backed up or not</li>
+<li>deciding how to purge archived redo logs on standby.</li>
+</ul>
+<p>UPDATED 13-AUG-2015: some typos fixed and moved section "Stop first cluster node standby instance and restart it with updated SPFILE in ASM" before "Modify instance names and instance number for instance 2 in SPFILE" to avoid error due to non existing SPFILE.</p>
+<p>&nbsp;</p>
