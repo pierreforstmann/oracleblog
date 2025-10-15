@@ -1,0 +1,127 @@
+<p>This is an attempt to write a short article about the LONG data type history in Oracle Database.</p>
+<h2>1988</h2>
+<p>In <a href="http://www.apress.com/9781590595305">Expert Oracle Database Architecture 9i and 10g Programming Techniques and Solutions</a>, Tom Kyte writes page 513 that "<i>the LONG types date back to version 6 of Oracle, when they were limited to 64 KB of data."</i>.</p>
+<h2>1992</h2>
+<p>In Oracle 7 (<a href="http://docs.oracle.com/pdf/A32538_1.pdf">see Oracle 7 Server Reference page 71 - chapter 2 page 23</a>) the LONG data type is able to store up to 2GB of data.</p>
+<h2>1998</h2>
+<p>In <a href="http://docs.oracle.com/cd/A58617_01/server.804/a58225/ch2.htm#27982">Oracle 8.0.4</a>, Oracle Corp. implemented 3 new data types to store large objects (LOB):</p>
+<li>
+CLOB and NCLOB to store character data
+</li>
+<li>
+BLOB to store binary data
+</li>
+<p>The <a href="http://docs.oracle.com/cd/A58617_01/server.804/a58225/ch2.htm#3612">Oracle 8.0 SQL Reference lists the LONG data types limitations</a> (quite long actually) but does not explicitely recommend to use LOBs instead of LONG: only in the <a href="http://docs.oracle.com/cd/A58617_01/server.804/a58227/ch6.htm#3057">Oracle 8.0 Concepts Guide</a> it is written that <i>"in new applications, you should use CLOB and NCLOB datatypes for large amounts of character data."</i>.</p>
+<h2>1999</h2>
+<p>The <a href="http://docs.oracle.com/cd/F49540_01/DOC/server.815/a67779/ch2.htm#3592">Oracle 8.1.5 SQL Reference</a> "<i>strongly recommends that you convert LONG columns to LOB columns."</i>.</p>
+<h2>2001</h2>
+<p>The <a href="http://docs.oracle.com/cd/B10501_01/server.920/a96540/sql_elements2a.htm#45887">Oracle 9.2 SQL Reference</a><br />
+states <i>"Oracle Corporation strongly recommends that you convert LONG columns to LOB columns as soon as possible. Creation of new LONG columns is scheduled for desupport."</i>.</p>
+<h2>2003</h2>
+<p>The <a href="http://docs.oracle.com/cd/B14117_01/server.101/b10759/sql_elements001.htm#sthref114">Oracle 10.1 SQL Reference</a> instructs <i>"Do not create tables with LONG columns. Use LOB columns (CLOB, NCLOB, BLOB) instead."</i> and <i>"Oracle also recommends that you convert existing LONG columns to LOB columns."</i>. The <a href="http://docs.oracle.com/cd/B14117_01/appdev.101/b10796/adlob_in.htm#1006118">Oracle 10.1 Application Developer's Guide - Large Objects</a> answers the question "Why Not Use LONGs ?" with <i>"The database supports LONG as well as LOB datatypes. When possible, change your existing applications to use LOBs instead of LONGs because of the added benefits that LOBs provide."</i>.</p>
+<h2>2005-2009</h2>
+<p>Oracle Corp. did not change the 10.2, 11.1 and 11.2 documentation about LONG data type recommended usage and possible desupport.</p>
+<h2>2013</h2>
+<p>The same wording is still used in the <a href="http://docs.oracle.com/cd/E16655_01/server.121/e17209/sql_elements001.htm#SQLRF00201">Oracle 12.1 SQL Reference </a> and in the <a href="http://docs.oracle.com/cd/E16655_01/appdev.121/e17605/adlob_intro.htm#ADLOB45118">Oracle 12.1 Database SecureFiles and Large Objects Developer's Guide</a>.<br />
+<br />
+Note that it is only starting in <a href="http://docs.oracle.com/cd/E16655_01/server.121/e17209/sql_elements001.htm#SQLRF50977">Oracle 12.1</a> released in 2013 that VARCHAR2 data type can store more than 4000 characters.</p>
+<p>In a 12.1 database the database dictionary is still using a lot of LONG columns likely for <i>"backward compatibility"</i>:</p>
+<pre>
+SYS@CDB12C&gt;select * from v$version;
+
+BANNER                                                                               CON_ID
+-------------------------------------------------------------------------------- ----------
+Oracle Database 12c Enterprise Edition Release 12.1.0.1.0 - 64bit Production              0
+PL/SQL Release 12.1.0.1.0 - Production                                                    0
+CORE    12.1.0.1.0      Production                                                                0
+TNS for Linux: Version 12.1.0.1.0 - Production                                            0
+NLSRTL Version 12.1.0.1.0 - Production                                                    0
+
+SYS@CDB12C&gt;select owner, count(*)
+  2  from dba_tab_columns
+  3  where data_type='LONG'
+  4  group by owner;
+
+OWNER                  COUNT(*)
+-------------------- ----------
+APEX_040200                   1
+OUTLN                         1
+SYS                         242
+SYSTEM                       11
+WMSYS                         2
+
+</pre>
+<p>Here are the tables with LONG colums differences between 12.1 and 11.2:</p>
+<pre>
+C##ADMIN@cdbrac1&gt;select * from v$version;
+
+BANNER                                                                               CON_ID
+-------------------------------------------------------------------------------- ----------
+Oracle Database 12c Enterprise Edition Release 12.1.0.1.0 - 64bit Production              0
+PL/SQL Release 12.1.0.1.0 - Production                                                    0
+CORE    12.1.0.1.0      Production                                                                0
+TNS for Linux: Version 12.1.0.1.0 - Production                                            0
+NLSRTL Version 12.1.0.1.0 - Production                                                    0
+
+C##ADMIN@cdbrac1&gt;--
+C##ADMIN@cdbrac1&gt;create database link ldb11 connect to admin identified by admin using 'db11';
+
+Database link created.
+
+C##ADMIN@cdbrac1&gt;select * from v$version@ldb11;
+
+BANNER
+--------------------------------------------------------------------------------
+Oracle Database 11g Enterprise Edition Release 11.2.0.3.0 - 64bit Production
+PL/SQL Release 11.2.0.3.0 - Production
+CORE    11.2.0.3.0      Production
+TNS for Linux: Version 11.2.0.3.0 - Production
+NLSRTL Version 11.2.0.3.0 - Production
+
+C##ADMIN@cdbrac1&gt;--
+C##ADMIN@cdbrac1&gt;select tc.owner, tc.table_name, tc.column_name
+  2  from dba_tab_cols tc,
+  3       dba_tables t
+  4  where data_type = 'LONG'
+  5  and (t.owner = tc.owner and t.table_name = tc.table_name)
+  6  and (tc.owner, tc.table_name, tc.column_name) not in
+  7      (select owner, table_name, column_name from dba_tab_cols@ldb11);
+
+OWNER                TABLE_NAME                     COLUMN_NAME
+-------------------- ------------------------------ ------------------------------
+SYS                  SQLOBJ$PLAN                    OTHER
+
+C##ADMIN@cdbrac1&gt;--
+C##ADMIN@cdbrac1&gt;select tc.owner, tc.table_name, tc.column_name
+  2  from dba_tab_cols@ldb11 tc,
+  3       dba_tables@ldb11 t
+  4  where data_type = 'LONG'
+  5  and (t.owner = tc.owner and t.table_name = tc.table_name)
+  6  and (tc.owner, tc.table_name, tc.column_name) not in
+  7      (select owner, table_name, column_name from dba_tab_cols);
+
+OWNER                TABLE_NAME                     COLUMN_NAME
+-------------------- ------------------------------ ------------------------------
+EXFSYS               EXF$PLAN_TABLE                 OTHER
+SYSTEM               MVIEW$_ADV_PARTITION           QUERY_TEXT
+
+</pre>
+<p>At the same time some tables with LONG columns (EXFSYS.EXP$PLAN_TABLE.OTHER and SYSTEM.MVIEWS$_ADV_PARTITION.QUERY_TEXT) have been removed but a new table with LONG column (SYS.SQLOBJ$PLAN.OTHER) has been added.<br />
+</p>
+<h2>Conclusion</h2>
+<p>One can really wonder if some future major Oracle version will migrate database dictionary LONG columns to LOB columns and desupport LONG data types.</p>
+<p>Here are some interesting links about LONG data type usage especially if you have to work with database dictionary tables still using this data type:</p>
+<li>
+<a href="http://www.oracle-developer.net/display.php?id=430">working with long columns by Adrian Billington</a>
+</li>
+<li>
+<a href="https://asktom.oracle.com/pls/apex/f?p=100:11:0::::P11_QUESTION_ID:665224430110">a PL/SQL procedure to print a LONG variable by Tom Kyte</a>
+</li>
+<li>
+<a href="https://asktom.oracle.com/pls/apex/f?p=100:11:0::::P11_QUESTION_ID:665224430110#6756455600346839990">a PL/SQL function to convert LONG into CLOB by an AskTom site reader</a>
+</li>
+<li>
+<a href="https://asktom.oracle.com/pls/apex/f?p=100:11:0::::P11_QUESTION_ID:510622111991#46928846010527">Coping with Legacy LONG Types</a> (free excerpt from Oracle Expert Database Architecture 9i and 10g book by Tom Kyte)
+</li>
+<p>
+I hope that this article is not too long.</p>
