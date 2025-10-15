@@ -1,0 +1,249 @@
+<p>This posts documents how to install Oracle Client 12.1.0.2 in silent mode on Oracle Linux 7.1. Oracle Client can be installed with Runtime installation type and with Administrator installation type: this posts shows how to do both kind of installations and compare the results.<br />
+<br />
+<a href="http://docs.oracle.com/database/121/LACLI/install_overview.htm#LACLI1247">Oracle doc </a>details installation types with:<br />
+<br />
+<i>Administrator: Enables applications to connect to an Oracle Database instance on the local system or on a remote system. It also provides tools that enable you to administer Oracle Database.<br />
+<br />
+Runtime: Enables applications to connect to an Oracle Database instance on the local system or on a remote system.<br />
+</i></p>
+<h3>Common setup</h3>
+<p>Oracle Client on Linux 7 requires <a href="http://docs.oracle.com/database/121/LACLI/pre_install.htm#CIHBCEGB">many RPM packages</a>: I have installed the preinstallation RPM for this (this RPM is now in the <b>ol7_latest</b> yum repository) with root account:</p>
+<pre>
+# yum  -y install oracle-rdbms-server-12cR1-preinstall
+</pre>
+<p>Note that this package creates also the Linux oracle user account and the dba and oinstall Linux groups.<br />
+<br />
+I have downloaded the Oracle Client installation media and unzipped it with oracle account:</p>
+<pre>
+$ unzip linuxamd64_12c_client.zip
+</pre>
+<p>I have created some target installation directories with root account:</p>
+<pre>
+# mkdir  -p /u01/app/12.1.0.2
+# chown oracle:dba /u01/app
+# chown oracle:dba /u01/app/12.1.0.2
+# mkdir /u01/app/base
+# chown oracle:dba /u01/app/base
+</pre>
+<h3>Installing Runtime Oracle Client</h3>
+<p>I have created the target installation directories for Oracle Client Runtime installation with oracle account:</p>
+<pre>
+mkdir /u01/app/12.1.0.2/rtclient64
+</pre>
+<p>To install in silent mode I have run following script without modifying the default response file:</p>
+<pre>
+set -x
+cd client
+DISTRIB=`pwd`
+./runInstaller -silent \
+ -responseFile $DISTRIB//response/client_install.rsp    \
+   oracle.install.client.installType=Runtime           \
+   UNIX_GROUP_NAME=dba                                 \
+   INVENTORY_LOCATION=/u01/app/oraInventory            \
+   SELECTED_LANGUAGES=en                               \
+   ORACLE_HOME=/u01/app/12.1.0.2/rtclient64            \
+   ORACLE_BASE=/u01/app/base                           \
+   waitForCompletion=true
+</pre>
+<p>Running this scripts has produced following output (I have ignored all warnings):</p>
+<pre>
++ cd client
++ pwd
++ DISTRIB=/home/oracle/stage/client
++ ./runInstaller -silent -responseFile /home/oracle/stage/client//response/client_install.rsp 'oracle.install.client.installType=Runtime' UNIX_GROUP_NAME=dba INVENTORY_LOCATION=/u01/app/oraInventory SELECTED_LANGUAGES=en ORACLE_HOME=/u01/app/12.1.0.2/rtclient64 ORACLE_BASE=/u01/app/base waitForCompletion=true
+Starting Oracle Universal Installer...
+
+Checking Temp space: must be greater than 415 MB.   Actual 3948 MB    Passed
+Checking swap space: must be greater than 150 MB.   Actual 819 MB    Passed
+Preparing to launch Oracle Universal Installer from /tmp/OraInstall2015-06-29_08-38-09PM. Please wait ...
+$ [WARNING] [INS-32018] The selected Oracle home is outside of Oracle base.
+   ACTION: Oracle recommends installing Oracle software within the Oracle base directory. Adjust the Oracle home or Oracle base accordingly.
+[WARNING] [INS-13014] Target environment does not meet some optional requirements.
+   CAUSE: Some of the optional prerequisites are not met. See logs for details. /tmp/OraInstall2015-06-29_08-38-09PM/installActions2015-06-29_08-38-09PM.log
+   ACTION: Identify the list of failed prerequisite checks from the log: /tmp/OraInstall2015-06-29_08-38-09PM/installActions2015-06-29_08-38-09PM.log. Then either from the log file or from installation manual find the appropriate configuration to meet the prerequisites and fix it manually.
+You can find the log of this install session at:
+ /u01/app/oraInventory/logs/installActions2015-06-29_08-38-09PM.log
+The installation of Oracle Client 12c was successful.
+Please check '/u01/app/oraInventory/logs/silentInstall2015-06-29_08-38-09PM.log' for more details.
+
+As a root user, execute the following script(s):
+        1. /u01/app/oraInventory/orainstRoot.sh
+
+
+
+Successfully Setup Software.
+
+</pre>
+<p>I have run with root account:</p>
+<pre>
+# /u01/app/oraInventory/orainstRoot.sh
+Changing permissions of /u01/app/oraInventory.
+Adding read,write permissions for group.
+Removing read,write,execute permissions for world.
+
+Changing groupname of /u01/app/oraInventory to dba.
+The execution of the script is complete.
+</pre>
+<p>To use this Oracle Client installation I have run:</p>
+<pre>
+$ export ORACLE_HOME=/u01/app/12.1.0.2/rtclient64
+$ export LD_LIBRARY_PATH=$ORACLE_HOME/lib:$LD_LIBRARY_PATH
+$ PATH=$ORACLE_HOME/bin:$PATH
+$ which sqlplus
+/u01/app/12.1.0.2/rtclient64/bin/sqlplus
+$ sqlplus -v
+
+SQL*Plus: Release 12.1.0.2.0 Production
+
+</pre>
+<h3>Installing Administrator Oracle Client</h3>
+<p>To install Oracle Client with administrator installation type, I have created its target directory with oracle account:</p>
+<pre>
+$ mkdir /u01/app/12.1.0.2/admclient64
+</pre>
+<p>To install in silent mode I have run following script without modifying the default response file:</p>
+<pre>
+set -x
+cd client
+DISTRIB=`pwd`
+./runInstaller -silent \
+ -responseFile $DISTRIB//response/client_install.rsp   \
+   oracle.install.client.installType=Administrator     \
+   UNIX_GROUP_NAME=dba                                 \
+   INVENTORY_LOCATION=/u01/app/oraInventory            \
+   SELECTED_LANGUAGES=en                               \
+   ORACLE_HOME=/u01/app/12.1.0.2/admclient64           \
+   ORACLE_BASE=/u01/app/base                           \
+   waitForCompletion=true
+</pre>
+<p>Running this scripts has produced following output (I have ignored all warnings):</p>
+<pre>
++ cd client
++ pwd
++ DISTRIB=/home/oracle/stage/client
++ ./runInstaller -silent -responseFile /home/oracle/stage/client//response/client_install.rsp 'oracle.install.client.installType=Administrator' UNIX_GROUP_NAME=dba INVENTORY_LOCATION=/u01/app/oraInventory SELECTED_LANGUAGES=en ORACLE_HOME=/u01/app/12.1.0.2/admclient64 ORACLE_BASE=/u01/app/base waitForCompletion=true
+Starting Oracle Universal Installer...
+
+Checking Temp space: must be greater than 415 MB.   Actual 2586 MB    Passed
+Checking swap space: must be greater than 150 MB.   Actual 819 MB    Passed
+Preparing to launch Oracle Universal Installer from /tmp/OraInstall2015-06-29_08-41-27PM. Please wait ...
+$ [WARNING] [INS-32018] The selected Oracle home is outside of Oracle base.
+   ACTION: Oracle recommends installing Oracle software within the Oracle base directory. Adjust the Oracle home or Oracle base accordingly.
+[WARNING] [INS-13014] Target environment does not meet some optional requirements.
+   CAUSE: Some of the optional prerequisites are not met. See logs for details. /u01/app/oraInventory/logs/installActions2015-06-29_08-41-27PM.log
+   ACTION: Identify the list of failed prerequisite checks from the log: /u01/app/oraInventory/logs/installActions2015-06-29_08-41-27PM.log. Then either from the log file or from installation manual find the appropriate configuration to meet the prerequisites and fix it manually.
+You can find the log of this install session at:
+ /u01/app/oraInventory/logs/installActions2015-06-29_08-41-27PM.log
+The installation of Oracle Client 12c was successful.
+Please check '/u01/app/oraInventory/logs/silentInstall2015-06-29_08-41-27PM.log' for more details.
+Successfully Setup Software.
+
+
+</pre>
+<p>To use this Oracle Client installation I have run:</p>
+<pre>
+$ export ORACLE_HOME=/u01/app/12.1.0.2/admclient64
+$ export LD_LIBRARY_PATH=$ORACLE_HOME/lib:$LD_LIBRARY_PATH
+$ PATH=$ORACLE_HOME/bin:$PATH
+$ which sqlplus
+/u01/app/12.1.0.2/admclient64/bin/sqlplus
+$ sqlplus -v
+
+SQL*Plus: Release 12.1.0.2.0 Production
+
+</pre>
+<h3>Comparing Oracle Client installation types </h3>
+<p>Runtime installation type is using 1.4 GB and Administrator installation type is using 1.8 GB:</p>
+<pre>
+$ du -sh /u01/app/12.1.0.2/rtclient64
+1.4G    /u01/app/12.1.0.2/rtclient64
+$ du -sh /u01/app/12.1.0.2/admclient64
+1.8G    /u01/app/12.1.0.2/admclient64
+$
+</pre>
+<p>Administrator installation type has many executables that Runtime installation type does not have:</p>
+<pre>
+$ diff -r /u01/app/12.1.0.2/admclient64/bin /u01/app/12.1.0.2/rtclient64/bin | grep Only
+Only in /u01/app/12.1.0.2/admclient64/bin: adrciO
+Only in /u01/app/12.1.0.2/admclient64/bin: aqxmlctl
+Only in /u01/app/12.1.0.2/admclient64/bin: aqxmlctl.pl
+Only in /u01/app/12.1.0.2/admclient64/bin: awm
+Only in /u01/app/12.1.0.2/admclient64/bin: awm.bat
+Only in /u01/app/12.1.0.2/admclient64/bin: dbfs_client
+Only in /u01/app/12.1.0.2/admclient64/bin: dbgeu_run_action.pl
+Only in /u01/app/12.1.0.2/admclient64/bin: dbshut
+Only in /u01/app/12.1.0.2/admclient64/bin: dbstart
+Only in /u01/app/12.1.0.2/admclient64/bin: deploync
+Only in /u01/app/12.1.0.2/admclient64/bin: dg4pwd
+Only in /u01/app/12.1.0.2/admclient64/bin: dg4pwdO
+Only in /u01/app/12.1.0.2/admclient64/bin: dgmgrl
+Only in /u01/app/12.1.0.2/admclient64/bin: diagsetup
+Only in /u01/app/12.1.0.2/admclient64/bin: dropjava
+Only in /u01/app/12.1.0.2/admclient64/bin: dsml2ldif
+Only in /u01/app/12.1.0.2/admclient64/bin: exp
+Only in /u01/app/12.1.0.2/admclient64/bin: expdp
+Only in /u01/app/12.1.0.2/admclient64/bin: expdpO
+Only in /u01/app/12.1.0.2/admclient64/bin: expO
+Only in /u01/app/12.1.0.2/admclient64/bin: extproc
+Only in /u01/app/12.1.0.2/admclient64/bin: extprocO
+Only in /u01/app/12.1.0.2/admclient64/bin: geneziO
+Only in /u01/app/12.1.0.2/admclient64/bin: imp
+Only in /u01/app/12.1.0.2/admclient64/bin: impdp
+Only in /u01/app/12.1.0.2/admclient64/bin: impdpO
+Only in /u01/app/12.1.0.2/admclient64/bin: impO
+Only in /u01/app/12.1.0.2/admclient64/bin: jpub
+Only in /u01/app/12.1.0.2/admclient64/bin: kgmgrO
+Only in /u01/app/12.1.0.2/admclient64/bin: ldapadd
+Only in /u01/app/12.1.0.2/admclient64/bin: ldapaddmt
+Only in /u01/app/12.1.0.2/admclient64/bin: ldapbind
+Only in /u01/app/12.1.0.2/admclient64/bin: ldapcompare
+Only in /u01/app/12.1.0.2/admclient64/bin: ldapdelete
+Only in /u01/app/12.1.0.2/admclient64/bin: ldapmoddn
+Only in /u01/app/12.1.0.2/admclient64/bin: ldapmodify
+Only in /u01/app/12.1.0.2/admclient64/bin: ldapmodifymt
+Only in /u01/app/12.1.0.2/admclient64/bin: ldapsearch
+Only in /u01/app/12.1.0.2/admclient64/bin: ldifmigrator
+Only in /u01/app/12.1.0.2/admclient64/bin: loadjava
+Only in /u01/app/12.1.0.2/admclient64/bin: loadpspO
+Only in /u01/app/12.1.0.2/admclient64/bin: ncomp
+Only in /u01/app/12.1.0.2/admclient64/bin: odisrvreg
+Only in /u01/app/12.1.0.2/admclient64/bin: oidca
+Only in /u01/app/12.1.0.2/admclient64/bin: oidprovtool
+Only in /u01/app/12.1.0.2/admclient64/bin: ojvmjava
+Only in /u01/app/12.1.0.2/admclient64/bin: ojvmtc
+Only in /u01/app/12.1.0.2/admclient64/bin: okdstry
+Only in /u01/app/12.1.0.2/admclient64/bin: okdstry0
+Only in /u01/app/12.1.0.2/admclient64/bin: okinit
+Only in /u01/app/12.1.0.2/admclient64/bin: okinit0
+Only in /u01/app/12.1.0.2/admclient64/bin: oklist
+Only in /u01/app/12.1.0.2/admclient64/bin: oklist0
+Only in /u01/app/12.1.0.2/admclient64/bin: oracg
+Only in /u01/app/12.1.0.2/admclient64/bin: orapipe
+Only in /u01/app/12.1.0.2/admclient64/bin: orionO
+Only in /u01/app/12.1.0.2/admclient64/bin: osh
+Only in /u01/app/12.1.0.2/admclient64/bin: plshprof
+Only in /u01/app/12.1.0.2/admclient64/bin: plshprofO
+Only in /u01/app/12.1.0.2/admclient64/bin: procob
+Only in /u01/app/12.1.0.2/admclient64/bin: rman
+Only in /u01/app/12.1.0.2/admclient64/bin: rmanO
+Only in /u01/app/12.1.0.2/admclient64/bin: rtsora
+Only in /u01/app/12.1.0.2/admclient64/bin: schemasync
+Only in /u01/app/12.1.0.2/admclient64/bin: sqlj
+Only in /u01/app/12.1.0.2/admclient64/bin: sqlldr
+Only in /u01/app/12.1.0.2/admclient64/bin: sqlldrO
+Only in /u01/app/12.1.0.2/admclient64/bin: statusnc
+Only in /u01/app/12.1.0.2/admclient64/bin: sysresv
+Only in /u01/app/12.1.0.2/admclient64/bin: tkprof
+Only in /u01/app/12.1.0.2/admclient64/bin: tkprofO
+Only in /u01/app/12.1.0.2/admclient64/bin: tnnfg
+Only in /u01/app/12.1.0.2/admclient64/bin: transx
+Only in /u01/app/12.1.0.2/admclient64/bin: uidrvciO
+Only in /u01/app/12.1.0.2/admclient64/bin: wrap
+Only in /u01/app/12.1.0.2/admclient64/bin: xmlcg
+Only in /u01/app/12.1.0.2/admclient64/bin: xmldiff
+Only in /u01/app/12.1.0.2/admclient64/bin: xmlpatch
+Only in /u01/app/12.1.0.2/admclient64/bin: xsl
+Only in /u01/app/12.1.0.2/admclient64/bin: xsql
+Only in /u01/app/12.1.0.2/admclient64/bin: xvm
+</pre>
+<p>Administrator installation type has Data Guard, conventional export/import, Data Pump export/import, LDAP, RMAN executables that Runtime installation does not have. Some executables are also not installed in Runtime installation although one would expect to find them: SQL Loader (sqlldr) and SQL trace profile (tkprof).</p>
