@@ -1,0 +1,416 @@
+<p>This article shows how to create distributed transactions and to simulate failure of these distributed transactions without using an application server like Weblogic or Websphere.</p>
+<h3>Overview</h3>
+<p><A href="http://docs.oracle.com/cd/E11882_01/server.112/e25494/ds_txns.htm#ADMIN031">Distributed transactions require a transaction coordinator and a minimum of 2 different data sources</A>.<br />
+<br />In this example I will use 3 Oracle databases:</p>
+<li>
+database TXC as transaction coordinator
+</li>
+<li>
+database DS1 as first data source
+</li>
+<li>
+database DS2 as second data source
+</li>
+<p>
+Up to Oracle Database 11G release 2 you need to use 3 different database for this purpose (without using an application server or another executable). As of Oracle Database 12C release 1 we can use a single container database with 3 different pluggable databases.</p>
+<h3>Setup</h3>
+<p>For this article I have used Oracle 12.1.0.1 under Windows and the container database is named CDB12C. You first need to download Oracle 12.1.0.1 from OTN, to install it and to create a container database (for Windows see <A href="http://pierreforstmanndotcom.wordpress.com/2013/12/27/how-to-install-oracle-database-12-1-and-create-a-database-in-silent-mode-on-windows/" />how to do it in silent mode</A>).<br />
+<br />
+Then you need to create the 3 specific pluggable databases:</p>
+<pre>
+
+SQL&gt; set linesize 100
+SQL&gt; select * from v$version;
+
+BANNER                                                                               CON_ID
+-------------------------------------------------------------------------------- ----------
+Oracle Database 12c Enterprise Edition Release 12.1.0.1.0 - 64bit Production              0
+PL/SQL Release 12.1.0.1.0 - Production                                                    0
+CORE    12.1.0.1.0      Production                                                                0
+TNS for 64-bit Windows: Version 12.1.0.1.0 - Production                                   0
+NLSRTL Version 12.1.0.1.0 - Production                                                    0
+
+SQL&gt; --
+SQL&gt; alter pluggable database txc close;
+
+Pluggable database altered.
+
+SQL&gt; alter pluggable database ds1 close;
+
+Pluggable database altered.
+
+SQL&gt; alter pluggable database ds2 close;
+
+Pluggable database altered.
+
+SQL&gt; -- to avoid ORA-01265/ORA-27056/OSD-04024 Windows limitation
+SQL&gt; shutdown immediate;
+Database closed.
+Database dismounted.
+ORACLE instance shut down.
+SQL&gt; startup;
+ORACLE instance started.
+
+Total System Global Area 1920757760 bytes
+Fixed Size                  2404072 bytes
+Variable Size             603980056 bytes
+Database Buffers         1308622848 bytes
+Redo Buffers                5750784 bytes
+Database mounted.
+Database opened.
+SQL&gt; drop pluggable database txc including datafiles;
+
+Pluggable database dropped.
+
+SQL&gt; drop pluggable database ds1 including datafiles;
+
+Pluggable database dropped.
+
+SQL&gt; drop pluggable database ds2 including datafiles;
+
+Pluggable database dropped.
+
+SQL&gt; --
+SQL&gt; whenever sqlerror exit failure;
+SQL&gt; --
+SQL&gt; create pluggable database txc
+  2  admin user txca identified by txca
+  3  roles=(dba)
+  4  default tablespace users datafile 'c:\oradata\cdb12c\txc\users01.dbf' size 100M
+  5  file_name_convert = ('c:\oradata\cdb12c\pdbseed', 'c:\oradata\cdb12c\txc');
+
+Pluggable database created.
+
+SQL&gt; alter pluggable database txc open;
+
+Pluggable database altered.
+
+SQL&gt; --
+SQL&gt; create pluggable database ds1
+  2  admin user ds1a identified by ds1a
+  3  roles=(dba)
+  4  default tablespace users datafile 'c:\oradata\cdb12c\ds1\users01.dbf' size 100M
+  5  file_name_convert = ('c:\oradata\cdb12c\pdbseed', 'c:\oradata\cdb12c\ds1');
+
+Pluggable database created.
+
+SQL&gt; alter session set container=ds1;
+
+Session altered.
+
+SQL&gt; alter pluggable database ds1 open;
+
+Pluggable database altered.
+
+SQL&gt; alter user ds1a quota unlimited on users;
+
+User altered.
+
+SQL&gt; alter session set container=cdb$root;
+
+Session altered.
+
+SQL&gt; --
+SQL&gt; create pluggable database ds2
+  2  admin user ds2a identified by ds2a
+  3  roles=(dba)
+  4  default tablespace users datafile 'c:\oradata\cdb12c\ds2\users01.dbf' size 100M
+  5  file_name_convert = ('c:\oradata\cdb12c\pdbseed', 'c:\oradata\cdb12c\ds2');
+
+Pluggable database created.
+
+SQL&gt; alter pluggable database ds2 open;
+
+Pluggable database altered.
+
+SQL&gt; alter session set container=ds2;
+
+Session altered.
+
+SQL&gt; alter user ds2a quota unlimited on users;
+
+User altered.
+
+SQL&gt; alter session set container=cdb$root;
+
+Session altered.
+
+SQL&gt; --
+SQL&gt; exit
+</pre>
+<p>Add in <b>&lt;ORACLE_HOME&gt;/network/admin/tnsnames.ora</b> following Oracle Net aliases:</p>
+<pre>
+# tnsnames.ora
+
+DS1 =
+ (DESCRIPTION =
+   (ADDRESS_LIST =
+     (ADDRESS = (PROTOCOL = TCP)(HOST = 127.0.0.1)(PORT = 1521))
+   )
+ (CONNECT_DATA =
+   (SERVICE_NAME = DS1)
+ )
+)
+
+
+DS2 =
+ (DESCRIPTION =
+   (ADDRESS_LIST =
+     (ADDRESS = (PROTOCOL = TCP)(HOST = 127.0.0.1)(PORT = 1521))
+   )
+ (CONNECT_DATA =
+   (SERVICE_NAME = DS2)
+ )
+)
+</pre>
+<p>Create database links from TXC database to DS1 and DS2 databases:</p>
+<pre>
+SQL&gt; connect txca/txca@localhost:1521/txc
+Connected.
+SQL&gt; drop database link ds1;
+
+Database link dropped.
+
+SQL&gt; drop database link ds2;
+
+Database link dropped.
+
+SQL&gt; whenever sqlerror exit failure;
+SQL&gt; create database link ds1 connect to ds1a identified by ds1a using 'ds1';
+
+Database link created.
+
+SQL&gt; create database link ds2 connect to ds1a identified by ds1a using 'ds2';
+
+Database link created.
+
+SQL&gt; --
+SQL&gt; exit
+</pre>
+<p>Create database tables in DS1 and DS2 databases:</p>
+<pre>
+SQL&gt; connect ds1a/ds1a@localhost:1521/ds1
+Connected.
+SQL&gt; drop table t1 purge;
+
+Table dropped.
+
+SQL&gt; create table t1(x int);
+
+Table created.
+
+SQL&gt; connect ds2a/ds2a@localhost:1521/ds2
+Connected.
+SQL&gt; drop table t2 purge;
+
+Table dropped.
+
+SQL&gt; create table t2(x int);
+
+Table created.
+</pre>
+<h3>Test a distributed transaction</h3>
+<pre>
+SQL&gt; connect txca/txca@localhost:/txc
+Connected.
+SQL&gt; insert into t1@ds1 values(1);
+
+1 row created.
+
+SQL&gt; insert into t2@ds2 values(2);
+
+1 row created.
+
+SQL&gt; select globalid, con_id, coupling, state from v$global_transaction;
+
+GLOBALID
+--------------------------------------------------------------------------------
+    CON_ID COUPLING        STATE
+---------- --------------- --------------------------------------
+5458432E31663033366330362E372E32382E33323439
+         0 TIGHTLY COUPLED [ORACLE COORDINATED]ACTIVE
+
+SQL&gt; commit;
+
+Commit complete.
+
+SQL&gt; select globalid, con_id, coupling, state from v$global_transaction;
+
+no rows selected
+
+SQL&gt; select * from t1@ds1;
+
+         X
+----------
+         1
+
+SQL&gt; select * from t2@ds2;
+
+         X
+----------
+         2
+
+SQL&gt;
+</pre>
+<h3>Simulate distributed transaction failure using specific COMMIT COMMENT clause</h3>
+<p>We first need to disable RECO background process (otherwise RECO will automatically fix the pending transaction):</p>
+<pre>
+SQL&gt; connect / as sysdba
+Connected.
+SQL&gt; alter system disable distributed recovery;
+
+System altered.
+</pre>
+<p>Then we use <A href="http://docs.oracle.com/cd/E16655_01/server.121/e17636/ds_txnman.htm#ADMIN12285"> COMMIT COMMENT</A> to crash distributed transaction:</p>
+<pre>
+SQL&gt; connect txca/txca@localhost:/txc
+Connected.
+SQL&gt; insert into t1@ds1 values(11);
+
+1 row created.
+
+SQL&gt; insert into t2@ds2 values(22);
+
+1 row created.
+
+SQL&gt; commit comment 'ORA-2PC-CRASH-TEST-1';
+commit comment 'ORA-2PC-CRASH-TEST-1'
+*
+ERROR at line 1:
+ORA-02054: transaction 10.23.4633 in-doubt
+ORA-02059: ORA-2PC-CRASH-TEST-1 in commit comment
+ORA-02063: preceding line from DS1
+
+</pre>
+<p>Database instance alert log says:</p>
+<pre>
+Fri Apr 25 19:54:06 2014
+Error 2059 trapped in 2PC on transaction 17.32.102. Cleaning up.
+Error stack returned to user:
+ORA-02059: ORA-2PC-CRASH-TEST-1 in commit comment
+
+Fri Apr 25 19:54:06 2014
+Error 2059 trapped in 2PC on transaction 10.23.4633. Cleaning up.
+Error stack returned to user:
+Fri Apr 25 19:54:06 2014
+DISTRIB TRAN TXC.1f036c06.10.23.4633
+  is local tran 10.23.4633 (hex=0a.17.1219)
+  insert pending prepared tran, scn=5298429 (hex=0.0050d8fd)
+DISTRIB TRAN TXC.1f036c06.10.23.4633
+  is local tran 6.15.3614 (hex=06.0f.e1e)
+  insert pending prepared tran, scn=5298427 (hex=0.0050d8fb)
+ORA-02054: transaction 10.23.4633 in-doubt
+ORA-02059: ORA-2PC-CRASH-TEST-1 in commit comment
+ORA-02063: preceding line from DS1
+</pre>
+<p>DBA_2PC_PENDING view has one row in TXC database:</p>
+<pre>
+SQL&gt; select local_tran_id, state, fail_time from dba_2pc_pending;
+
+LOCAL_TRAN_ID          STATE            FAIL_TIME
+---------------------- ---------------- ---------
+10.23.4633             prepared         25-APR-14
+
+</pre>
+<p>You can query involved data in DS1 database but you get ORA-01591 when accessing involved data in DS2:</p>
+<pre>
+SQL&gt; select * from t1@ds1;
+
+         X
+----------
+         1
+
+SQL&gt; select * from t2@ds2;
+select * from t2@ds2
+*
+ERROR at line 1:
+ORA-01591: lock held by in-doubt distributed transaction 6.15.3614
+ORA-02063: preceding line from DS2
+
+
+SQL&gt;
+</pre>
+<p>In DS1 database we have no pending transaction for this error:</p>
+<pre>
+SQL&gt; select sys_context('USERENV','CON_NAME') from dual;
+
+SYS_CONTEXT('USERENV','CON_NAME')
+--------------------------------------------------------------------------------
+DS1
+
+SQL&gt; select local_tran_id, state, fail_time from dba_2pc_pending;
+
+no rows selected
+
+SQL&gt;
+</pre>
+<p>In DS2 database we have one pending transaction for this error:</p>
+<pre>
+SQL&gt; select sys_context('USERENV','CON_NAME') from dual;
+
+SYS_CONTEXT('USERENV','CON_NAME')
+--------------------------------------------------------------------------------
+DS2
+
+SQL&gt; select local_tran_id, state, fail_time from dba_2pc_pending;
+
+LOCAL_TRAN_ID          STATE            FAIL_TIME
+---------------------- ---------------- ---------
+6.15.3614              prepared         25-APR-14
+
+SQL&gt;
+</pre>
+<p>To fix automatically this issue we need to enable again RECO background process:</p>
+<pre>
+SQL&gt; connect / as sysdba
+Connected.
+SQL&gt; alter system enable distributed recovery;
+
+System altered.
+
+SQL&gt;
+</pre>
+<p>Database instance alert log says:</p>
+<pre>
+Fri Apr 25 20:03:53 2014
+DISTRIB TRAN TXC.1f036c06.10.23.4633
+  is local tran 10.23.4633 (hex=0a.17.1219)
+  change pending prepared tran, scn=5298429 (hex=0.0050d8fd)
+  to     pending collecting tran, scn=5298429 (hex=0.0050d8fd)
+Fri Apr 25 20:03:53 2014
+DISTRIB TRAN TXC.1f036c06.10.23.4633
+  is local tran 6.15.3614 (hex=06.0f.e1e)
+  change pending prepared tran, scn=5298427 (hex=0.0050d8fb)
+  to     pending collecting tran, scn=5298427 (hex=0.0050d8fb)
+DISTRIB TRAN TXC.1f036c06.10.23.4633
+  is local tran 6.15.3614 (hex=06.0f.e1e))
+  delete pending collecting tran, scn=5298427 (hex=0.0050d8fb)
+Fri Apr 25 20:03:53 2014
+DISTRIB TRAN TXC.1f036c06.10.23.4633
+  is local tran 10.23.4633 (hex=0a.17.1219))
+  delete pending collecting tran, scn=5298429 (hex=0.0050d8fd)
+</pre>
+<p>In TXC database the pending transaction has disappeared because it has been rolled back by RECO:</p>
+<pre>
+SQL&gt; connect txca/txca@localhost:/txc
+Connected.
+SQL&gt; select local_tran_id, state, fail_time from dba_2pc_pending;
+
+no rows selected
+
+SQL&gt; select * from t1@ds1;
+
+         X
+----------
+         1
+
+SQL&gt; select * from t2@ds2;
+
+         X
+----------
+         2
+
+SQL&gt;
+</pre>
+<p>You can read more about distributed transaction using My Oracle Support 100664.1 also published on blogs.oracle.com<br />
+<A href="https://blogs.oracle.com/db/entry/oracle_support_master_note_for_troubleshooting_managed_distributed_transactions_doc_id_1006641"> Oracle Support Master Note for Troubleshooting Managed Distributed Transactions (Doc ID 100664.1)</A> last updated in 2010.</p>
