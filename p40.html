@@ -1,0 +1,1457 @@
+<p>This post documents how to install a 2-node Oracle RAC cluster with Oracle 12.1.0.2 SE2 running on Oracle Linux 6.7 (OL6) with VirtualBox (VBOX) 5.0.4 on Windows 8.1. Using VirtualBox 5.0.4 implies in my lab that Linux virtual machines are no more able to use NAT IP addresses to connect to Internet. Root cause is not clear: it seems network routes are missing on Windows 8.1 host machine - but creating manually the missing routes does not help.</p>
+<p>Part 1 details Linux installation and configuration and part 2 details Oracle software installation (Grid Infrastructure, Oracle Database) and database creation.</p>
+<p>Disclaimer: this is only an example that can be used to setup a lab or test system: it is not designed to be used for production purpose.</p>
+<h2>Overview</h2>
+<p>Each RAC node must:<br />
+</p>
+<li>have access to shared storage to be used by the RAC database because a RAC database is a shared everything database.
+</li>
+<li>have network connectivity with a dedicated private network (also named RAC interconnect) to other cluster nodes.
+</li>
+<p>
+The cluster should have also 3 differents virtual IP adresses (VIP) to be used only by the <a href="http://docs.oracle.com/database/121/CWLIN/concepts.htm#CWLIN399">SCAN listener</a>: a single name should be resolved by 3 differents adresses.</p>
+<p>The following table gives the SCAN network configuration used for this installation:</p>
+<table border="2">
+<tr>
+<th>SCAN</th>
+<th>VIP 1</th>
+<th>VIP 2</th>
+<th>VIP 3</th>
+</tr>
+<tr>
+<td>ol6toc-scan</td>
+<td>192.168.56.45</td>
+<td>192.168.56.46</td>
+<td>192.168.56.47</td>
+</tr>
+</table>
+<p>
+A 2-node Oracle RAC cluster needs actually 3 machines (if you dedicate DNS server to a different virtual machine (VM)):</p>
+<li>
+2 cluster nodes that are hosting the 2 database instances of the single RAC database
+</li>
+<li>
+another machine to host a Domain Name System (DNS) for the SCAN listener VIPs.
+</li>
+<p>
+One of the very first thing to do is to choose hostnames and network IP addresses.<br />
+<br />
+The following table gives the cluster network configuration needed for this Oracle installation: </p>
+<table border="2">
+<tr>
+<th></th>
+<th>ol6dns01: DNS server</th>
+<th>ol6tocn1: RAC node 1</th>
+<th>ol6tocn2: RAC node 2</th>
+<th>network interface</th>
+</tr>
+<tr>
+<td>Public IP</td>
+<td>192.168.56.13</td>
+<td>192.168.56.41</td>
+<td>192.168.56.42</td>
+<td>eth0</td>
+</tr>
+<tr>
+<td>Private IP</td>
+<td>N/A</td>
+<td>192.168.43.41</td>
+<td>192.168.43.42</td>
+<td>eth1</td>
+<tr>
+<td>Virtual IP (VIP)</td>
+<td>N/A</td>
+<td>192.168.56.31</td>
+<td>192.168.56.32</td>
+<td>assigned by OUI</td>
+</tr>
+</table>
+<p>Note that Oracle Universal Installer (OUI) will assign network interface for cluster node virtual ip address during Grid Infrastructure installation.</p>
+<p>
+The main steps of this system/network/storage installation and configuration part are the following:<br />
+<br />
+<b>1</b>. configure DNS server machine<br />
+<br />
+<b>2</b>. configure first cluster node with shared storage<br />
+<br />
+<b>3</b>. clone first cluster node to second cluster node<br />
+<br />
+<b>4</b>. run <a href="http://docs.oracle.com/database/121/CWADD/cvu.htm#CWADD1100">Cluster Verification Utility (CLUVFY)</a> to make sure both cluster nodes are ready for Oracle sofware installation.</p>
+<p>All commands with '#" prompt must be entered with root user account while all command with '$' prompt must be entered with oracle user account.</p>
+<h2> DNS machine configuration</h2>
+<p>I have created first VBOX VM with following configuration:</p>
+<li>
+RAM: 1 GB
+</li>
+<li>
+one 12 GB hardisk attached to SATA controller
+</li>
+<li>
+1 network interface attached to Host-Only Adapter
+</li>
+<p>
+When installing OL6 I have chosen in following order:<br />
+<br />
+1. English as language installation<br />
+<br />
+2. French as appropriate keyboard for the system<br />
+<br />
+3. Basic Storage Devices as installation devices<br />
+<br />
+4. ol6dns01.localdomain as computer name<br />
+<br />
+5. Europe/Paris as time zone<br />
+<br />
+6. root password<br />
+<br />
+7. Use All Space as installation type<br />
+<br />
+8. Basic Server as default installation type<br />
+<br />
+9. bind-9.8.2-0.37.rc1.el6.x86_64 as optional package after clicking on Customize Now, selecting Servers and selecting Network Infrastrcucture Server</p>
+<p>After OL6 installation and VM reboot, I have used system console to configure public network interface with <b>/etc/syconfig/network-scripts/ifcfg-eth0</b> editing:</p>
+<pre>
+# cat /etc/sysconfig/network-scripts/ifcfg-eth0
+DEVICE=eth0
+HWADDR=08:00:27:D7:32:3D
+TYPE=Ethernet
+IPADDR=192.168.56.13
+# ifup eth0
+Determing if ip address 192.168.56.13 is already in use for device eth0...
+#
+</pre>
+<p>Now I can connect to ol6dns01 using SSH (Putty from Windows host) and check network configuration:</p>
+<pre>
+# ip addr
+1: lo:  mtu 65536 qdisc noqueue state UNKNOWN
+    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00
+    inet 127.0.0.1/8 scope host lo
+    inet6 ::1/128 scope host
+       valid_lft forever preferred_lft forever
+2: eth0:  mtu 1500 qdisc pfifo_fast state UP qlen 1000
+    link/ether 08:00:27:d7:32:3d brd ff:ff:ff:ff:ff:ff
+    inet 192.168.56.13/24 brd 192.168.56.255 scope global eth0
+    inet6 fe80::a00:27ff:fed7:323d/64 scope link
+       valid_lft forever preferred_lft forever
+</pre>
+<p>This OL6 installation is using about 2 GB of disk space:</p>
+<pre>
+# df -k
+Filesystem           1K-blocks    Used Available Use% Mounted on
+/dev/mapper/vg_ol6dns01-lv_root
+                      10508540 2088364   7863328  21% /
+tmpfs                   509128       0    509128   0% /dev/shm
+/dev/sda1               487652   73043    384913  16% /boot
+</pre>
+<h3>DNS configuration</h3>
+<p>DNS server is not configured by default:</p>
+<pre>
+# chkconfig --list named
+named           0:off   1:off   2:off   3:off   4:off   5:off   6:off
+#
+</pre>
+<p>Here is my <b>/etc/named.conf</b>:</p>
+<pre>
+# cat /etc/named.conf
+//
+// named.conf
+//
+// Provided by Red Hat bind package to configure the ISC BIND named(8) DNS
+// server as a caching only nameserver (as a localhost DNS resolver only).
+//
+// See /usr/share/doc/bind*/sample/ for example named configuration files.
+//
+
+options {
+        listen-on port 53 { 127.0.0.1;192.168.56.13; };
+        listen-on-v6 port 53 { ::1; };
+        directory       "/var/named";
+        dump-file       "/var/named/data/cache_dump.db";
+        statistics-file "/var/named/data/named_stats.txt";
+        memstatistics-file "/var/named/data/named_mem_stats.txt";
+        allow-query     { localhost; };
+        recursion yes;
+
+        dnssec-enable yes;
+        dnssec-validation yes;
+        dnssec-lookaside auto;
+
+        /* Path to ISC DLV key */
+        bindkeys-file "/etc/named.iscdlv.key";
+
+        managed-keys-directory "/var/named/dynamic";
+};
+
+logging {
+        channel default_debug {
+                file "data/named.run";
+                severity dynamic;
+        };
+};
+
+zone "." IN {
+        type hint;
+        file "named.ca";
+};
+
+include "/etc/named.rfc1912.zones";
+include "/etc/named.root.key";
+
+zone "localdomain." IN {
+        type master;
+        file "localdomain.zone";
+        allow-update { none; };
+        allow-query { any; };
+};
+
+
+zone "56.168.192.in-addr.arpa." IN {
+        type master;
+        file "56.168.192.in-addr.arpa";
+        allow-update { none; };
+};
+#
+
+</pre>
+<p>Note that I have added the following sections to default <b>/etc/named.conf</b> for localdomain.com:</p>
+<pre>
+zone "localdomain." IN {
+        type master;
+        file "localdomain.zone";
+        allow-update { none; };
+        allow-query { any; };
+};
+
+
+zone "56.168.192.in-addr.arpa." IN {
+        type master;
+        file "56.168.192.in-addr.arpa";
+        allow-update { none; };
+};
+</pre>
+<p>and I have added VM IP 192.168.56.13 address to:</p>
+<pre>
+listen-on port 53 { 127.0.0.1;192.168.56.13; };
+</pre>
+<p>I have created the file <b>/var/named/localdomain.zone</b> which contains:</p>
+<li> the 3 IP adresses for the SCAN listener (ol6toc-scan)
+</li>
+<li> each cluster node public IP address (ol6tocn1 and ol6tocn2)
+</li>
+<pre>
+# cat /var/named/localdomain.zone
+$TTL    86400
+@               IN SOA  localhost root.localhost (
+                                        42              ; serial (d. adams)
+                                        3H              ; refresh
+                                        15M             ; retry
+                                        1W              ; expiry
+                                        1D )            ; minimum
+                IN NS           localhost
+localhost       IN A            127.0.0.1
+ol6toc-scan     IN A    192.168.56.45
+ol6toc-scan     IN A    192.168.56.46
+ol6toc-scan     IN A    192.168.56.47
+ol6tocn1        IN A    192.168.56.41
+ol6tocn2        IN A    192.168.56.42
+#
+</pre>
+<p>I have also created <b>/var/named/56.168.192.in-addr.arpa</b>:</p>
+<pre>
+# cat 56.168.192.in-addr.arpa
+$ORIGIN 56.168.192.in-addr.arpa.
+$TTL 1H
+@       IN      SOA     ol6dns01.localdomain.     root.ol6dns01.localdomain. (      2
+                                                3H
+                                                1H
+                                                1W
+                                                1H )
+56.168.192.in-addr.arpa.         IN NS      ol6dns01.localdomain.
+
+45    IN PTR  ol6toc-scan.localdomain.
+46    IN PTR  ol6toc-scan.localdomain.
+47    IN PTR  ol6toc-scan.localdomain.
+41    IN PTR  ol6tocn1.localdomain.
+42    IN PTR  ol6tocn2.localdomain.
+#
+</pre>
+<p>I have started named service with:</p>
+<pre>
+# chkconfig --add named
+# chkconfig --list named
+named           0:off   1:off   2:off   3:off   4:off   5:off   6:off
+# chkconfig named on
+# chkconfig --list named
+named           0:off   1:off   2:on    3:on    4:on    5:on    6:off
+# service named start
+Starting named:                                            [  OK  ]
+# service named status
+version: 9.8.2rc1-RedHat-9.8.2-0.37.rc1.el6
+CPUs found: 1
+worker threads: 1
+number of zones: 21
+debug level: 0
+xfers running: 0
+xfers deferred: 0
+soa queries in progress: 0
+query logging is OFF
+recursive clients: 0/0/1000
+tcp clients: 0/100
+server is up and running
+named (pid  2035) is running...
+[root@ol6dns01 ~]#
+</pre>
+<p> I have tested that DNS is working locally after modifying <b>/etc/resolv.conf</b>:</p>
+<pre>
+# cat /etc/resolv.conf
+search localdomain
+nameserver 192.168.56.13
+# nslookup ol6toc-scan
+Server:         192.168.56.13
+Address:        192.168.56.13#53
+
+Name:   ol6toc-scan.localdomain
+Address: 192.168.56.47
+Name:   ol6toc-scan.localdomain
+Address: 192.168.56.45
+Name:   ol6toc-scan.localdomain
+Address: 192.168.56.46
+
+</pre>
+<p>And I have tested that after VM reboot ...</p>
+<pre>
+# reboot
+</pre>
+<p>... named service has been automatically restarted:</p>
+<pre>
+# nslookup ol6toc-scan
+Server:         192.168.56.13
+Address:        192.168.56.13#53
+
+Name:   ol6toc-scan.localdomain
+Address: 192.168.56.47
+Name:   ol6toc-scan.localdomain
+Address: 192.168.56.45
+Name:   ol6toc-scan.localdomain
+Address: 192.168.56.46
+
+#
+</pre>
+<p>I have also disabled firewall for ol6dns01 so that cluster nodes will be able to query DNS:</p>
+<pre>
+# service iptables stop
+iptables: Setting chains to policy ACCEPT: filter          [  OK  ]
+iptables: Flushing firewall rules:                         [  OK  ]
+iptables: Unloading modules: 
+# chkconfig iptables off
+# chkconfig --list iptables
+iptables        0:off   1:off   2:off   3:off   4:off   5:off   6:off
+#
+</pre>
+<h2>Oracle RAC cluster node configuration</h2>
+<p>I have created first cluster node VM with following configuration:</p>
+<li>
+RAM: 4 GB
+</li>
+<li>
+one 40 GB hard disk attached to SATA controller
+</li>
+<li>
+2 network interfaces attached to Host-Only Adapter
+</li>
+<p>
+When installing OL6 I have chosen in the following order:<br />
+<br />
+1. English as language installation<br />
+<br />
+2. French as appropriate keyboard for the system<br />
+<br />
+3. Basic Storage Devices as installation devices<br />
+<br />
+4. ol6tocn1.localdomain as computer name<br />
+<br />
+5. Paris/France as time zone<br />
+<br />
+6. root password<br />
+<br />
+7. Use All Space as installation type<br />
+<br />
+8. Database Server as default installation type</p>
+<p>After OL6 installation and VM reboot, I have used system console to configure public network interface with <b>/etc/sysconfig/network-scripts/ifcfg-eth0</b> editing (HWADDR setting is OK but I have added IPADDR and removed UUID, ONBOOT, NM_CONTROLLED and BOOTPROTO):</p>
+<pre>
+# cat /etc/sysconfig/network-scripts/ifcfg-eth0
+DEVICE=eth0
+HWADDR=08:00:27:65:D9:22
+TYPE=Ethernet
+IPADDR=192.168.56.41
+# ifup eth0
+Determing if ip address 192.168.56.41 is already in use for device eth0...
+#
+</pre>
+<p>Now I connect with SSH (Putty from Windows host) to ol6tocn1 and check network configuration:</p>
+<pre>
+# ip addr
+1: lo:  mtu 65536 qdisc noqueue state UNKNOWN
+    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00
+    inet 127.0.0.1/8 scope host lo
+    inet6 ::1/128 scope host
+       valid_lft forever preferred_lft forever
+2: eth0:  mtu 1500 qdisc pfifo_fast state UP qlen 1000
+    link/ether 08:00:27:65:d9:22 brd ff:ff:ff:ff:ff:ff
+    inet 192.168.56.41/24 brd 192.168.56.255 scope global eth0
+    inet6 fe80::a00:27ff:fe65:d922/64 scope link
+       valid_lft forever preferred_lft forever
+3: eth1:  mtu 1500 qdisc noop state DOWN qlen 1000
+    link/ether 08:00:27:a0:e0:f9 brd ff:ff:ff:ff:ff:ff
+#
+</pre>
+<p>I have configured second network interface for the RAC interconnect:</p>
+<pre>
+# cat /etc/sysconfig/network-scripts/ifcfg-eth1
+DEVICE=eth1
+HWADDR=08:00:27:A0:E0:F9
+TYPE=Ethernet
+IPADDR=192.168.43.41
+# ifup eth1
+Determining if ip address 192.168.43.41 is already in use for device eth1...
+#
+</pre>
+<p>I have checked all network interfaces status with:</p>
+<pre>
+# ip addr
+1: lo:  mtu 65536 qdisc noqueue state UNKNOWN
+    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00
+    inet 127.0.0.1/8 scope host lo
+    inet6 ::1/128 scope host
+       valid_lft forever preferred_lft forever
+2: eth0:  mtu 1500 qdisc pfifo_fast state UP qlen 1000
+    link/ether 08:00:27:65:d9:22 brd ff:ff:ff:ff:ff:ff
+    inet 192.168.56.41/24 brd 192.168.56.255 scope global eth0
+    inet6 fe80::a00:27ff:fe65:d922/64 scope link
+       valid_lft forever preferred_lft forever
+3: eth1:  mtu 1500 qdisc pfifo_fast state UP qlen 1000
+    link/ether 08:00:27:a0:e0:f9 brd ff:ff:ff:ff:ff:ff
+    inet 192.168.43.41/24 brd 192.168.43.255 scope global eth1
+    inet6 fe80::a00:27ff:fea0:e0f9/64 scope link
+       valid_lft forever preferred_lft forever
+#
+</pre>
+<p>I have added to <b>/etc/resolv.conf</b> the DNS server:</p>
+<pre>
+# cat /etc/resolv.conf
+search localdomain
+nameserver 192.168.56.13
+#
+</pre>
+<p>I have checked name resolution:</p>
+<pre>
+# nslookup ol6toc-scan
+Server:         192.168.56.13
+Address:        192.168.56.13#53
+
+Name:   ol6toc-scan.localdomain
+Address: 192.168.56.45
+Name:   ol6toc-scan.localdomain
+Address: 192.168.56.46
+Name:   ol6toc-scan.localdomain
+Address: 192.168.56.47
+
+# 
+</pre>
+<p>I have updated <b>/etc/hosts</b> with both cluster nodes IP addresses:</p>
+<pre>
+# cat /etc/hosts
+127.0.0.1   localhost localhost.localdomain localhost4 localhost4.localdomain4
+::1         localhost localhost.localdomain localhost6 localhost6.localdomain6
+#
+# Public
+192.168.56.41 ol6tocn1 ol6tocn1.localdomain
+192.168.56.42 ol6tocn2 ol6tocn2.localdomain
+# Private
+192.168.43.41 ol6tocn1-priv ol6tocn1-priv.localdomain
+192.168.43.42 ol6tocn2-priv ol6tocn2-priv.localdomain
+# VIP
+192.168.56.31 ol6tocn1-vip ol6tocn1-vip.localdomain
+192.168.56.32 ol6tocn2-vip ol6tocn2-vip.localdomain
+#
+</pre>
+<p>I have disabled SELinux:</p>
+<pre>
+# cat /etc/selinux/config
+
+# This file controls the state of SELinux on the system.
+# SELINUX= can take one of these three values:
+#     enforcing - SELinux security policy is enforced.
+#     permissive - SELinux prints warnings instead of enforcing.
+#     disabled - No SELinux policy is loaded.
+SELINUX=disabled
+# SELINUXTYPE= can take one of these two values:
+#     targeted - Targeted processes are protected,
+#     mls - Multi Level Security protection.
+SELINUXTYPE=targeted
+
+</pre>
+<p>I have also disabled firewall:</p>
+<pre>
+# chkconfig --list iptables
+iptables        0:off   1:off   2:on    3:on    4:on    5:on    6:off
+# chkconfig --del iptables
+# chkconfig --list iptables
+service iptables supports chkconfig, but is not referenced in any runlevel (run 'chkconfig --add iptables')
+#
+</pre>
+<p>I have installed Oracle 12c preinstallationRPM in 3 steps.<br />
+<br />
+First step is to add Oracle Linux 6.7 ISO file as Virtual Optical Disk File in VM CDROM drive with VBOX GUI and to mount it on Linux:</p>
+<pre>
+# mount -t iso9660 /dev/cdrom /media/
+mount: block device /dev/sr0 is write-protected, mounting read-only
+# ls -al /media
+total 1470
+drwxr-xr-x. 12 root root   6144 Jul 28 08:49 .
+dr-xr-xr-x. 25 root root   4096 Sep 12 16:23 ..
+-rw-r--r--.  1 root root     44 Jul 28 08:49 .discinfo
+drwxr-xr-x.  3 root root   2048 Jul 28 08:48 EFI
+-rw-r--r--.  1 root root   8529 Jul 28 08:16 EULA
+-rw-r--r--.  1 root root   8529 Jul 28 08:16 eula.en_US
+-rw-r--r--.  1 root root   3334 Jul 28 08:16 eula.py
+-rw-r--r--.  1 root root  18390 Jul 28 08:16 GPL
+drwxr-xr-x.  3 root root   2048 Jul 28 08:18 HighAvailability
+drwxr-xr-x.  3 root root   2048 Jul 28 08:49 images
+drwxr-xr-x.  2 root root   2048 Jul 28 08:49 isolinux
+drwxr-xr-x.  3 root root   2048 Jul 28 08:18 LoadBalancer
+-rw-r--r--.  1 root root     98 Jul 28 08:49 media.repo
+drwxr-xr-x.  2 root root 706560 Jul 28 08:09 Packages
+-rw-r--r--.  1 root root   2619 Jul 28 08:16 README-en
+-rw-r--r--.  1 root root   7054 Jul 28 08:16 README-en.html
+-rw-r--r--.  1 root root  64617 Jul 28 08:16 RELEASE-NOTES-en
+-rw-r--r--.  1 root root 170750 Jul 28 08:16 RELEASE-NOTES-en.html
+-rw-r--r--.  1 root root  64617 Jul 28 08:16 RELEASE-NOTES-x86_64-en
+-rw-r--r--.  1 root root 170750 Jul 28 08:16 RELEASE-NOTES-x86_64-en.html
+-rw-r--r--.  1 root root  64617 Jul 28 08:16 RELEASE-NOTES-x86-en
+-rw-r--r--.  1 root root 170750 Jul 28 08:16 RELEASE-NOTES-x86-en.html
+lrwxrwxrwx.  1 root root     15 Jul 28 08:18 repodata -&gt; Server/repodata
+drwxr-xr-x.  3 root root   2048 Jul 28 08:18 ResilientStorage
+-rw-r--r--.  1 root root   1011 Jul 28 08:16 RPM-GPG-KEY
+-rw-r--r--.  1 root root   1011 Jul 28 08:16 RPM-GPG-KEY-oracle
+drwxr-xr-x.  3 root root   2048 Jul 28 08:18 ScalableFileSystem
+drwxr-xr-x.  4 root root   2048 Jul 28 08:18 Server
+-rw-r--r--.  1 root root    108 Jul 28 08:16 supportinfo
+-r--r--r--.  1 root root   6517 Jul 28 08:49 TRANS.TBL
+-rw-r--r--.  1 root root   1546 Jul 28 08:49 .treeinfo
+drwxr-xr-x.  3 root root   2048 Jul 28 08:18 UEK3
+#
+</pre>
+<p>Second step is to configure yum to use <b>/media</b>; I have created a new repo file <b>/etc/yum.repos.d/myyum.repo</b>:</p>
+<pre>
+# mv /etc/yum.repos.d/public-yum-ol6.repo /etc/yum.repos.d/public-yum-ol6.repo.orig
+# cat /etc/yum.repos.d/myyum.repo
+[OL67]
+name=Oracle Linux 6.7 x86_64
+baseurl=file:///media
+gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY
+gpgcheck=1
+enabled=1
+# yum clean all
+Loaded plugins: security, ulninfo
+Cleaning repos: OL67
+Cleaning up Everything
+# yum repolist
+Loaded plugins: security, ulninfo
+OL67                                                     | 3.7 kB     00:00 ...
+OL67/primary_db                                          | 3.0 MB     00:00 ...
+repo id                      repo name                                    status
+OL67                         Oracle Linux 6.7 x86_64                      3,800
+repolist: 3,800
+</pre>
+<p>I have installed Oracle 12c preinstallation RPM with:</p>
+<pre>
+# yum -y install oracle-rdbms-server-12cR1-preinstall
+Loaded plugins: security, ulninfo
+Setting up Install Process
+Resolving Dependencies
+--&gt; Running transaction check
+---&gt; Package oracle-rdbms-server-12cR1-preinstall.x86_64 0:1.0-14.el6 will be installed
+--&gt; Processing Dependency: xorg-x11-xauth for package: oracle-rdbms-server-12cR1-preinstall-1.0-14.el6.x86_64
+--&gt; Processing Dependency: xorg-x11-utils for package: oracle-rdbms-server-12cR1-preinstall-1.0-14.el6.x86_64
+--&gt; Processing Dependency: libstdc++-devel for package: oracle-rdbms-server-12cR1-preinstall-1.0-14.el6.x86_64
+--&gt; Processing Dependency: libaio-devel for package: oracle-rdbms-server-12cR1-preinstall-1.0-14.el6.x86_64
+--&gt; Processing Dependency: ksh for package: oracle-rdbms-server-12cR1-preinstall-1.0-14.el6.x86_64
+--&gt; Processing Dependency: gcc-c++ for package: oracle-rdbms-server-12cR1-preinstall-1.0-14.el6.x86_64
+--&gt; Processing Dependency: gcc for package: oracle-rdbms-server-12cR1-preinstall-1.0-14.el6.x86_64
+--&gt; Processing Dependency: compat-libstdc++-33 for package: oracle-rdbms-server-12cR1-preinstall-1.0-14.el6.x86_64
+--&gt; Processing Dependency: compat-libcap1 for package: oracle-rdbms-server-12cR1-preinstall-1.0-14.el6.x86_64
+--&gt; Running transaction check
+---&gt; Package compat-libcap1.x86_64 0:1.10-1 will be installed
+---&gt; Package compat-libstdc++-33.x86_64 0:3.2.3-69.el6 will be installed
+---&gt; Package gcc.x86_64 0:4.4.7-16.el6 will be installed
+--&gt; Processing Dependency: cpp = 4.4.7-16.el6 for package: gcc-4.4.7-16.el6.x86_64
+--&gt; Processing Dependency: cloog-ppl &gt;= 0.15 for package: gcc-4.4.7-16.el6.x86_64
+---&gt; Package gcc-c++.x86_64 0:4.4.7-16.el6 will be installed
+--&gt; Processing Dependency: libmpfr.so.1()(64bit) for package: gcc-c++-4.4.7-16.el6.x86_64
+---&gt; Package ksh.x86_64 0:20120801-28.el6 will be installed
+---&gt; Package libaio-devel.x86_64 0:0.3.107-10.el6 will be installed
+---&gt; Package libstdc++-devel.x86_64 0:4.4.7-16.el6 will be installed
+---&gt; Package xorg-x11-utils.x86_64 0:7.5-6.el6 will be installed
+--&gt; Processing Dependency: libdmx.so.1()(64bit) for package: xorg-x11-utils-7.5-6.el6.x86_64
+--&gt; Processing Dependency: libXxf86misc.so.1()(64bit) for package: xorg-x11-utils-7.5-6.el6.x86_64
+--&gt; Processing Dependency: libXxf86dga.so.1()(64bit) for package: xorg-x11-utils-7.5-6.el6.x86_64
+---&gt; Package xorg-x11-xauth.x86_64 1:1.0.2-7.1.el6 will be installed
+--&gt; Processing Dependency: libXmuu.so.1()(64bit) for package: 1:xorg-x11-xauth-1.0.2-7.1.el6.x86_64
+--&gt; Running transaction check
+---&gt; Package cloog-ppl.x86_64 0:0.15.7-1.2.el6 will be installed
+--&gt; Processing Dependency: libppl_c.so.2()(64bit) for package: cloog-ppl-0.15.7-1.2.el6.x86_64
+--&gt; Processing Dependency: libppl.so.7()(64bit) for package: cloog-ppl-0.15.7-1.2.el6.x86_64
+---&gt; Package cpp.x86_64 0:4.4.7-16.el6 will be installed
+---&gt; Package libXmu.x86_64 0:1.1.1-2.el6 will be installed
+---&gt; Package libXxf86dga.x86_64 0:1.1.4-2.1.el6 will be installed
+---&gt; Package libXxf86misc.x86_64 0:1.0.3-4.el6 will be installed
+---&gt; Package libdmx.x86_64 0:1.1.3-3.el6 will be installed
+---&gt; Package mpfr.x86_64 0:2.4.1-6.el6 will be installed
+--&gt; Running transaction check
+---&gt; Package ppl.x86_64 0:0.10.2-11.el6 will be installed
+--&gt; Finished Dependency Resolution
+
+Dependencies Resolved
+
+==========================================================================================================================================================
+ Package                                                  Arch                       Version                               Repository                Size
+==========================================================================================================================================================
+Installing:
+ oracle-rdbms-server-12cR1-preinstall                     x86_64                     1.0-14.el6                            OL67                      17 k
+Installing for dependencies:
+ cloog-ppl                                                x86_64                     0.15.7-1.2.el6                        OL67                      93 k
+ compat-libcap1                                           x86_64                     1.10-1                                OL67                      17 k
+ compat-libstdc++-33                                      x86_64                     3.2.3-69.el6                          OL67                     183 k
+ cpp                                                      x86_64                     4.4.7-16.el6                          OL67                     3.7 M
+ gcc                                                      x86_64                     4.4.7-16.el6                          OL67                      10 M
+ gcc-c++                                                  x86_64                     4.4.7-16.el6                          OL67                     4.7 M
+ ksh                                                      x86_64                     20120801-28.el6                       OL67                     759 k
+ libXmu                                                   x86_64                     1.1.1-2.el6                           OL67                      65 k
+ libXxf86dga                                              x86_64                     1.1.4-2.1.el6                         OL67                      17 k
+ libXxf86misc                                             x86_64                     1.0.3-4.el6                           OL67                      17 k
+ libaio-devel                                             x86_64                     0.3.107-10.el6                        OL67                      13 k
+ libdmx                                                   x86_64                     1.1.3-3.el6                           OL67                      14 k
+ libstdc++-devel                                          x86_64                     4.4.7-16.el6                          OL67                     1.6 M
+ mpfr                                                     x86_64                     2.4.1-6.el6                           OL67                     156 k
+ ppl                                                      x86_64                     0.10.2-11.el6                         OL67                     1.3 M
+ xorg-x11-utils                                           x86_64                     7.5-6.el6                             OL67                      94 k
+ xorg-x11-xauth                                           x86_64                     1:1.0.2-7.1.el6                       OL67                      34 k
+
+Transaction Summary
+==========================================================================================================================================================
+Install      18 Package(s)
+
+Total download size: 23 M
+Installed size: 56 M
+Downloading Packages:
+----------------------------------------------------------------------------------------------------------------------------------------------------------
+Total                                                                                                                      18 MB/s |  23 MB     00:01
+warning: rpmts_HdrFromFdno: Header V3 RSA/SHA256 Signature, key ID ec551f03: NOKEY
+Retrieving key from file:///etc/pki/rpm-gpg/RPM-GPG-KEY
+Importing GPG key 0xEC551F03:
+ Userid : Oracle OSS group (Open Source Software group) 
+ Package: rhn-client-tools-1.0.0.1-32.0.4.el6.noarch (@anaconda-OracleLinuxServer-201507280245.x86_64/6.7)
+ From   : /etc/pki/rpm-gpg/RPM-GPG-KEY
+Running rpm_check_debug
+Running Transaction Test
+Transaction Test Succeeded
+Running Transaction
+  Installing : libstdc++-devel-4.4.7-16.el6.x86_64                                                                                                   1/18
+  Installing : mpfr-2.4.1-6.el6.x86_64                                                                                                               2/18
+  Installing : cpp-4.4.7-16.el6.x86_64                                                                                                               3/18
+  Installing : libdmx-1.1.3-3.el6.x86_64                                                                                                             4/18
+  Installing : libXmu-1.1.1-2.el6.x86_64                                                                                                             5/18
+  Installing : 1:xorg-x11-xauth-1.0.2-7.1.el6.x86_64                                                                                                 6/18
+  Installing : ksh-20120801-28.el6.x86_64                                                                                                            7/18
+  Installing : compat-libstdc++-33-3.2.3-69.el6.x86_64                                                                                               8/18
+  Installing : libXxf86misc-1.0.3-4.el6.x86_64                                                                                                       9/18
+  Installing : libaio-devel-0.3.107-10.el6.x86_64                                                                                                   10/18
+  Installing : ppl-0.10.2-11.el6.x86_64                                                                                                             11/18
+  Installing : cloog-ppl-0.15.7-1.2.el6.x86_64                                                                                                      12/18
+  Installing : gcc-4.4.7-16.el6.x86_64                                                                                                              13/18
+  Installing : gcc-c++-4.4.7-16.el6.x86_64                                                                                                          14/18
+  Installing : libXxf86dga-1.1.4-2.1.el6.x86_64                                                                                                     15/18
+  Installing : xorg-x11-utils-7.5-6.el6.x86_64                                                                                                      16/18
+  Installing : compat-libcap1-1.10-1.x86_64                                                                                                         17/18
+  Installing : oracle-rdbms-server-12cR1-preinstall-1.0-14.el6.x86_64                                                                               18/18
+  Verifying  : compat-libcap1-1.10-1.x86_64                                                                                                          1/18
+  Verifying  : libXxf86dga-1.1.4-2.1.el6.x86_64                                                                                                      2/18
+  Verifying  : xorg-x11-utils-7.5-6.el6.x86_64                                                                                                       3/18
+  Verifying  : gcc-4.4.7-16.el6.x86_64                                                                                                               4/18
+  Verifying  : ppl-0.10.2-11.el6.x86_64                                                                                                              5/18
+  Verifying  : libaio-devel-0.3.107-10.el6.x86_64                                                                                                    6/18
+  Verifying  : libXxf86misc-1.0.3-4.el6.x86_64                                                                                                       7/18
+  Verifying  : mpfr-2.4.1-6.el6.x86_64                                                                                                               8/18
+  Verifying  : compat-libstdc++-33-3.2.3-69.el6.x86_64                                                                                               9/18
+  Verifying  : ksh-20120801-28.el6.x86_64                                                                                                           10/18
+  Verifying  : 1:xorg-x11-xauth-1.0.2-7.1.el6.x86_64                                                                                                11/18
+  Verifying  : oracle-rdbms-server-12cR1-preinstall-1.0-14.el6.x86_64                                                                               12/18
+  Verifying  : cpp-4.4.7-16.el6.x86_64                                                                                                              13/18
+  Verifying  : libstdc++-devel-4.4.7-16.el6.x86_64                                                                                                  14/18
+  Verifying  : libXmu-1.1.1-2.el6.x86_64                                                                                                            15/18
+  Verifying  : cloog-ppl-0.15.7-1.2.el6.x86_64                                                                                                      16/18
+  Verifying  : libdmx-1.1.3-3.el6.x86_64                                                                                                            17/18
+  Verifying  : gcc-c++-4.4.7-16.el6.x86_64                                                                                                          18/18
+
+Installed:
+  oracle-rdbms-server-12cR1-preinstall.x86_64 0:1.0-14.el6
+
+Dependency Installed:
+  cloog-ppl.x86_64 0:0.15.7-1.2.el6      compat-libcap1.x86_64 0:1.10-1     compat-libstdc++-33.x86_64 0:3.2.3-69.el6  cpp.x86_64 0:4.4.7-16.el6
+  gcc.x86_64 0:4.4.7-16.el6              gcc-c++.x86_64 0:4.4.7-16.el6      ksh.x86_64 0:20120801-28.el6               libXmu.x86_64 0:1.1.1-2.el6
+  libXxf86dga.x86_64 0:1.1.4-2.1.el6     libXxf86misc.x86_64 0:1.0.3-4.el6  libaio-devel.x86_64 0:0.3.107-10.el6       libdmx.x86_64 0:1.1.3-3.el6
+  libstdc++-devel.x86_64 0:4.4.7-16.el6  mpfr.x86_64 0:2.4.1-6.el6          ppl.x86_64 0:0.10.2-11.el6                 xorg-x11-utils.x86_64 0:7.5-6.el6
+  xorg-x11-xauth.x86_64 1:1.0.2-7.1.el6
+
+Complete!
+#
+</pre>
+<p>I have rebooted after removing ISO file from virtual drive:</p>
+<pre>
+# shutdown -r now
+</pre>
+<p>... and checked that SELinux is disabled:</p>
+<pre>
+# secon
+secon: SELinux is not enabled
+</pre>
+<p>Default Oracle Linux 6.7 kernel is Unbreakable Entreprise Kernel (UELK):</p>
+<pre>
+# uname -a
+Linux ol6tocn1.localdomain 3.8.13-68.3.4.el6uek.x86_64 #2 SMP Tue Jul 14 15:03:36 PDT 2015 x86_64 x86_64 x86_64 GNU/Linux
+</pre>
+<p>I have installed ASMLib packages after adding again ISO file to virtual cdrom drive:</p>
+<pre>
+# yum -y install oracleasm-support
+Loaded plugins: security, ulninfo
+Setting up Install Process
+Resolving Dependencies
+--&gt; Running transaction check
+---&gt; Package oracleasm-support.x86_64 0:2.1.8-1.el6 will be installed
+--&gt; Finished Dependency Resolution
+
+Dependencies Resolved
+
+===============================================================================================================
+ Package                          Arch                  Version                      Repository           Size
+===============================================================================================================
+Installing:
+ oracleasm-support                x86_64                2.1.8-1.el6                  OL67                 73 k
+
+Transaction Summary
+===============================================================================================================
+Install       1 Package(s)
+
+Total download size: 73 k
+Installed size: 216 k
+Downloading Packages:
+Running rpm_check_debug
+Running Transaction Test
+Transaction Test Succeeded
+Running Transaction
+  Installing : oracleasm-support-2.1.8-1.el6.x86_64                                                        1/1
+  Verifying  : oracleasm-support-2.1.8-1.el6.x86_64                                                        1/1
+
+Installed:
+  oracleasm-support.x86_64 0:2.1.8-1.el6
+
+Complete!
+#
+</pre>
+<p>I have downloaded from <a href="http://www.oracle.com/technetwork/server-storage/linux/asmlib/ol6-1709075.html">OTN</a> <b>oracleasmlib-2.0.4-1.el6.x86_64.rpm</b> because it is not in Oracle Linux ISO file:</p>
+<pre>
+# yum -y install oracleasmlib-2.0.4-1.el6.x86_64.rpm
+Loaded plugins: security, ulninfo
+Setting up Install Process
+Examining oracleasmlib-2.0.4-1.el6.x86_64.rpm: oracleasmlib-2.0.4-1.el6.x86_64
+Marking oracleasmlib-2.0.4-1.el6.x86_64.rpm to be installed
+Resolving Dependencies
+--&gt; Running transaction check
+---&gt; Package oracleasmlib.x86_64 0:2.0.4-1.el6 will be installed
+--&gt; Finished Dependency Resolution
+
+Dependencies Resolved
+
+===============================================================================================================
+ Package               Arch            Version                 Repository                                 Size
+===============================================================================================================
+Installing:
+ oracleasmlib          x86_64          2.0.4-1.el6             /oracleasmlib-2.0.4-1.el6.x86_64           27 k
+
+Transaction Summary
+===============================================================================================================
+Install       1 Package(s)
+
+Total size: 27 k
+Installed size: 27 k
+Downloading Packages:
+Running rpm_check_debug
+Running Transaction Test
+Transaction Test Succeeded
+Running Transaction
+  Installing : oracleasmlib-2.0.4-1.el6.x86_64                                                             1/1
+  Verifying  : oracleasmlib-2.0.4-1.el6.x86_64                                                             1/1
+
+Installed:
+  oracleasmlib.x86_64 0:2.0.4-1.el6
+
+Complete!
+#
+</pre>
+<p>I have shutdown Linux VM and removed ISO file from virtual drive:</p>
+<pre>
+# shutdown -n now
+</pre>
+<h3>Shared storage configuration</h3>
+<p>Even if I currently have only one cluster node I can start to configure shared storage because configuration will be kept by cloning first cluster node VM to second cluster node VM.<br />
+<br />
+On my host system (Windows 8.1), I have created 3 virtual disks for 3 ASM disk groups:</p>
+<li> one for OCR, voting disk and the <a href="https://blogs.oracle.com/UPGRADE/entry/grid_infrastructure_management_repository_gimr">Grid Infrastructure Management Repository</a> (GIMR) database mandatory with Oracle RAC 12.1.0.2
+</li>
+<li> one for database files<br />
+</lI></p>
+<li> one for the fast recovery area (FRA):
+</li>
+<pre>
+&gt;vboxmanage createhd --filename ol6tocn1.ol6tocn2.sata.1.vdi --size=10240 -format=VDI --variant fixe
+0%...10%...20%...30%...40%...50%...60%...70%...80%...90%...100%
+Medium created. UUID: 59ac48b8-c743-4aad-af4b-4d0cc256bc22
+
+&gt;vboxmanage createhd --filename ol6tocn1.ol6tocn2.sata.2.vdi --size=10240 -format=VDI --variant fixe
+0%...10%...20%...30%...40%...50%...60%...70%...80%...90%...100%
+Medium created. UUID: 352a960f-854d-400f-bd44-9910e9b01cbb
+
+&gt;vboxmanage createhd --filename ol6tocn1.ol6tocn2.sata.3.vdi --size=10240 -format=VDI --variant fixe
+0%...10%...20%...30%...40%...50%...60%...70%...80%...90%...100%
+Medium created. UUID: 6a89629a-db33-4df7-83f5-5f82107660c4
+
+&gt;
+
+</pre>
+<p>I have run from Windows VBOX commands to attach the virtual disks and make them shareable:</p>
+<pre>
+&gt;vboxmanage storageattach ol6tocn1 --storagectl "SATA" --port 1 --device 0 --type hdd --medium ol6tocn1.ol6tocn2.sata.1.vdi --mtype shareable
+
+&gt;vboxmanage storageattach ol6tocn1 --storagectl "SATA" --port 2 --device 0 --type hdd --medium ol6tocn1.ol6tocn2.sata.2.vdi --mtype shareable
+
+&gt;vboxmanage storageattach ol6tocn1 --storagectl "SATA" --port 3 --device 0 --type hdd --medium ol6tocn1.ol6tocn2.sata.3.vdi --mtype shareable
+
+&gt;
+
+&gt;vboxmanage modifyhd ol6tocn1.ol6tocn2.sata.1.vdi -type shareable
+
+&gt;vboxmanage modifyhd ol6tocn1.ol6tocn2.sata.2.vdi -type shareable
+
+&gt;vboxmanage modifyhd ol6tocn1.ol6tocn2.sata.3.vdi -type shareable
+
+&gt;
+</pre>
+<p>I have restarted ol6tocn1 VM and checked that the corresponding device files have been created:</p>
+<pre>
+# ls -al /dev/sd[bcd]
+brw-rw---- 1 root disk 8, 16 Sep 13 11:26 /dev/sdb
+brw-rw---- 1 root disk 8, 32 Sep 13 11:26 /dev/sdc
+brw-rw---- 1 root disk 8, 48 Sep 13 11:26 /dev/sdd
+#
+</pre>
+<p>I have created a single partition on each disk:</p>
+<pre>
+# fdisk /dev/sdb
+Device contains neither a valid DOS partition table, nor Sun, SGI or OSF disklabel
+Building a new DOS disklabel with disk identifier 0xad799975.
+Changes will remain in memory only, until you decide to write them.
+After that, of course, the previous content won't be recoverable.
+
+Warning: invalid flag 0x0000 of partition table 4 will be corrected by w(rite)
+
+WARNING: DOS-compatible mode is deprecated. It's strongly recommended to
+         switch off the mode (command 'c') and change display units to
+         sectors (command 'u').
+
+Command (m for help): n
+Command action
+   e   extended
+   p   primary partition (1-4)
+p
+Partition number (1-4): 1
+First cylinder (1-1305, default 1):
+Using default value 1
+Last cylinder, +cylinders or +size{K,M,G} (1-1305, default 1305):
+Using default value 1305
+
+Command (m for help): w
+The partition table has been altered!
+
+Calling ioctl() to re-read partition table.
+Syncing disks.
+# fdisk /dev/sdc
+Device contains neither a valid DOS partition table, nor Sun, SGI or OSF disklabel
+Building a new DOS disklabel with disk identifier 0xbc140dc4.
+Changes will remain in memory only, until you decide to write them.
+After that, of course, the previous content won't be recoverable.
+
+Warning: invalid flag 0x0000 of partition table 4 will be corrected by w(rite)
+
+WARNING: DOS-compatible mode is deprecated. It's strongly recommended to
+         switch off the mode (command 'c') and change display units to
+         sectors (command 'u').
+
+Command (m for help): n
+Command action
+   e   extended
+   p   primary partition (1-4)
+p
+Partition number (1-4): 1
+First cylinder (1-1305, default 1):
+Using default value 1
+Last cylinder, +cylinders or +size{K,M,G} (1-1305, default 1305):
+Using default value 1305
+
+Command (m for help): w
+The partition table has been altered!
+
+Calling ioctl() to re-read partition table.
+Syncing disks.
+# fdisk /dev/sdd
+Device contains neither a valid DOS partition table, nor Sun, SGI or OSF disklabel
+Building a new DOS disklabel with disk identifier 0x1c25e64a.
+Changes will remain in memory only, until you decide to write them.
+After that, of course, the previous content won't be recoverable.
+
+Warning: invalid flag 0x0000 of partition table 4 will be corrected by w(rite)
+
+WARNING: DOS-compatible mode is deprecated. It's strongly recommended to
+         switch off the mode (command 'c') and change display units to
+         sectors (command 'u').
+
+Command (m for help): n
+Command action
+   e   extended
+   p   primary partition (1-4)
+p
+Partition number (1-4): 1
+First cylinder (1-1305, default 1):
+Using default value 1
+Last cylinder, +cylinders or +size{K,M,G} (1-1305, default 1305):
+Using default value 1305
+
+Command (m for help): w
+The partition table has been altered!
+
+Calling ioctl() to re-read partition table.
+Syncing disks.
+# ls -al /dev/sd[bcd]*
+brw-rw---- 1 root disk 8, 16 Sep 13 11:29 /dev/sdb
+brw-rw---- 1 root disk 8, 17 Sep 13 11:29 /dev/sdb1
+brw-rw---- 1 root disk 8, 32 Sep 13 11:29 /dev/sdc
+brw-rw---- 1 root disk 8, 33 Sep 13 11:29 /dev/sdc1
+brw-rw---- 1 root disk 8, 48 Sep 13 11:29 /dev/sdd
+brw-rw---- 1 root disk 8, 49 Sep 13 11:29 /dev/sdd1
+#
+</pre>
+<p>I have configured ASMLib:</p>
+<pre>
+# /usr/sbin/oracleasm configure -i
+Configuring the Oracle ASM library driver.
+
+This will configure the on-boot properties of the Oracle ASM library
+driver.  The following questions will determine whether the driver is
+loaded on boot and what permissions it will have.  The current values
+will be shown in brackets ('[]').  Hitting  without typing an
+answer will keep that current value.  Ctrl-C will abort.
+
+Default user to own the driver interface []: oracle
+Default group to own the driver interface []: dba
+Start Oracle ASM library driver on boot (y/n) [n]: y
+Scan for Oracle ASM disks on boot (y/n) [y]: y
+Writing Oracle ASM library driver configuration: done
+# oracleasm init
+Creating /dev/oracleasm mount point: /dev/oracleasm
+Loading module "oracleasm": oracleasm
+Configuring "oracleasm" to use device physical block size
+Mounting ASMlib driver filesystem: /dev/oracleasm
+</pre>
+<p>I have created 3 ASM disks:</p>
+<pre>
+# oracleasm createdisk ASM1 /dev/sdb1
+Writing disk header: done
+Instantiating disk: done
+# oracleasm createdisk ASM2 /dev/sdc1
+Writing disk header: done
+Instantiating disk: done
+# oracleasm createdisk ASM3 /dev/sdd1
+Writing disk header: done
+Instantiating disk: done
+# oracleasm listdisks
+ASM1
+ASM2
+ASM3
+</pre>
+<p>I have rebooted ...:</p>
+<pre>
+# shutdown -r now
+</pre>
+<p>... and checked that the ASM disks are still available:</p>
+<pre>
+# oracleasm status
+Checking if ASM is loaded: yes
+Checking if /dev/oracleasm is mounted: yes
+# oracleasm listdisks
+ASM1
+ASM2
+ASM3
+#
+</pre>
+<h3> Clone first cluster node to second cluster node</h3>
+<p>I have shutdown ol6tocn1:</p>
+<pre>
+# shutdown -h now
+</pre>
+<p>I have first cloned the ol6tocn1 system disk:</p>
+<pre>
+&gt;vboxmanage clonehd ol6tocn1.sata.0.vdi ol6tocn2.sata.0.vdi
+0%...10%...20%...30%...40%...50%...60%...70%...80%...90%...100%
+Clone medium created in format 'VDI'. UUID: 879b618a-f25f-4adb-a75a-2749d7f1d2f1
+
+&gt;
+</pre>
+<p>Using VBOX GUI I have created a new VM named <b>ol6otcn2</b> using <b>ol6tocn2.sata.0.vdi</b> as system disk.<br />
+<br />
+I have set the same properties for ol6tocn2 as for ol6tocn1:</p>
+<li>
+RAM:  4GB
+</li>
+<li>
+2 network interfaces attached to Host-Only Adapter.
+</li>
+<p>I have attached the 3 shared disks to ol6tocn2:</p>
+<pre>
+&gt;vboxmanage storageattach ol6tocn2 --storagectl "SATA" --port 1 --device 0 --type hdd --medium ol6tocn1.ol6tocn2.sata.1.vdi --mtype shareable
+
+&gt;vboxmanage storageattach ol6tocn2 --storagectl "SATA" --port 2 --device 0 --type hdd --medium ol6tocn1.ol6tocn2.sata.2.vdi --mtype shareable
+
+&gt;vboxmanage storageattach ol6tocn2 --storagectl "SATA" --port 3 --device 0 --type hdd --medium ol6tocn1.ol6tocn2.sata.3.vdi --mtype shareable
+
+&gt;
+</pre>
+<p>I have started ol6ocn2 and from the console modified the hostname:</p>
+<pre>
+# cat /etc/sysconfig/network
+NETWORKING=yes
+HOSTNAME=ol6tocn2.localdomain
+# oracle-rdbms-server-12cR1-preinstall : Add NOZEROCONF=yes
+NOZEROCONF=yes
+#
+</pre>
+<p>Cloning the Linux machine has created new network interfaces named eth2 and eth3 but for the RAC cluster we need to have the same network interface names  for all cluster nodes namely eth0 and eth1.</p>
+<p>From the console I have reconfigured the network interfaces.<br />
+<br />
+First I have modified <b>/etc/udev/rules.d/70-persistent-net.rules</b> to have only eth0 and eth1 as network interfaces with the right MAC addresses displayed by ip addr output:</p>
+<pre>
+# cat /etc/udev/rules.d/70-persistent-net.rules  
+# This file was automatically generated by the /lib/udev/write_net_rules
+# program, run by the persistent-net-generator.rules rules file.
+#
+# You can modify it, as long as you keep each rule on a single
+# line, and change only the value of the NAME= key.
+
+
+# PCI device 0x8086:0x100e (e1000)
+SUBSYSTEM=="net", ACTION=="add", DRIVERS=="?*", ATTR{address}=="08:00:27:f8:79:80", ATTR{type}=="1", KERNEL=="eth*", NAME="eth0"
+
+# PCI device 0x8086:0x100e (e1000)
+SUBSYSTEM=="net", ACTION=="add", DRIVERS=="?*", ATTR{address}=="08:00:27:0b:5f:10", ATTR{type}=="1", KERNEL=="eth*", NAME="eth1"
+#
+</pre>
+<p>I have also modified in <b>/etc/sysconfig/network-scripts ifcfg-eth0 </b>and <b>ifcfg-eth1</b> scripts to use right MAC address for HWADDR setting and right IP address for IPADDR setting:</p>
+<pre>
+# cd /etc/sysconfig/network-scripts/
+# cat ifcfg-eth0
+DEVICE=eth0
+HWADDR=08:00:27:F8:79:80
+TYPE=Ethernet
+IPADDR=192.168.56.42
+# cat ifcfg-eth1
+DEVICE=eth1
+HWADDR=08:00:27:0B:5F:10
+TYPE=Ethernet
+IPADDR=192.168.43.42
+#
+</pre>
+<p>and I have rebooted to be able to connect with SSH and to check that network interfaces status is also OK after reboot:</p>
+<pre>
+# hostname
+ol6tocn2.localdomain
+# ip addr
+1: lo:  mtu 65536 qdisc noqueue state UNKNOWN
+    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00
+    inet 127.0.0.1/8 scope host lo
+    inet6 ::1/128 scope host
+       valid_lft forever preferred_lft forever
+2: eth1:  mtu 1500 qdisc pfifo_fast state UP qlen 1000
+    link/ether 08:00:27:0b:5f:10 brd ff:ff:ff:ff:ff:ff
+    inet 192.168.43.42/24 brd 192.168.43.255 scope global eth1
+    inet6 fe80::a00:27ff:fe0b:5f10/64 scope link
+       valid_lft forever preferred_lft forever
+3: eth0:  mtu 1500 qdisc pfifo_fast state UP qlen 1000
+    link/ether 08:00:27:f8:79:80 brd ff:ff:ff:ff:ff:ff
+    inet 192.168.56.42/24 brd 192.168.56.255 scope global eth0
+    inet6 fe80::a00:27ff:fef8:7980/64 scope link
+       valid_lft forever preferred_lft forever
+#
+</pre>
+<p>I have checked that <b>/etc/resolv.conf</b> has not been modified ...</p>
+<pre>
+# cat /etc/resolv.conf
+search localdomain
+nameserver 192.168.56.13
+</pre>
+<p>... and that DNS is OK:</p>
+<pre>
+# nslookup ol6toc-scan
+Server:         192.168.56.13
+Address:        192.168.56.13#53
+
+Name:   ol6toc-scan.localdomain
+Address: 192.168.56.47
+Name:   ol6toc-scan.localdomain
+Address: 192.168.56.45
+Name:   ol6toc-scan.localdomain
+Address: 192.168.56.46
+
+#
+</pre>
+<p>I have also checked that the ASM ddisks are available on ol6tocn2:</p>
+<pre>
+# oracleasm status
+Checking if ASM is loaded: yes
+Checking if /dev/oracleasm is mounted: yes
+# oracleasm listdisks
+ASM1
+ASM2
+ASM3
+#
+</pre>
+<p>I have configured passwordless ssh between the 2 cluster nodes for oracle account.<br />
+<br />
+First I have set oracle password on both nodes (note that oracle account has been created by the preinstallation RPM):</p>
+<pre>
+# passwd oracle
+Changing password for user oracle.
+New password:
+BAD PASSWORD: it is based on a dictionary word
+BAD PASSWORD: is too simple
+Retype new password:
+passwd: all authentication tokens updated successfully.
+</pre>
+<p>I have run with oracle account on ol6tocn1 :</p>
+<pre>
+[oracle@ol6tocn1 ~]$ ssh-keygen
+Generating public/private rsa key pair.
+Enter file in which to save the key (/home/oracle/.ssh/id_rsa):
+Created directory '/home/oracle/.ssh'.
+Enter passphrase (empty for no passphrase):
+Enter same passphrase again:
+Your identification has been saved in /home/oracle/.ssh/id_rsa.
+Your public key has been saved in /home/oracle/.ssh/id_rsa.pub.
+The key fingerprint is:
+8e:d8:a5:c3:d5:36:1c:5a:83:e4:b3:03:42:c1:77:23 oracle@ol6tocn1.localdomain
+The key's randomart image is:
++--[ RSA 2048]----+
+|   .o.  .        |
+|   .. Eoo.       |
+|    ...o+.+      |
+|     . . B o     |
+|        S =      |
+|     + * o .     |
+|    . * .        |
+|       .         |
+|                 |
++-----------------+
+[oracle@ol6tocn1 ~]$
+
+[oracle@ol6tocn1 ~]$ ssh-copy-id ol6tocn2
+The authenticity of host 'ol6tocn2 (192.168.56.42)' can't be established.
+RSA key fingerprint is 13:b8:ca:a1:15:48:03:35:f4:5f:65:e8:01:6e:f2:44.
+Are you sure you want to continue connecting (yes/no)? yes
+Warning: Permanently added 'ol6tocn2,192.168.56.42' (RSA) to the list of known hosts.
+Now try logging into the machine, with "ssh 'ol6tocn2'", and check in:
+
+  .ssh/authorized_keys
+
+to make sure we haven't added extra keys that you weren't expecting.
+
+[oracle@ol6tocn1 ~]$
+</pre>
+<p>I have run similar steps on cluster node 2:</p>
+<pre>
+[oracle@ol6tocn2 ~]$ ssh-keygen
+Generating public/private rsa key pair.
+Enter file in which to save the key (/home/oracle/.ssh/id_rsa):
+Enter passphrase (empty for no passphrase):
+Enter same passphrase again:
+Your identification has been saved in /home/oracle/.ssh/id_rsa.
+Your public key has been saved in /home/oracle/.ssh/id_rsa.pub.
+The key fingerprint is:
+20:8f:3e:06:15:d9:2e:c0:91:75:75:68:ff:21:c3:7d oracle@ol6tocn2.localdomain
+The key's randomart image is:
++--[ RSA 2048]----+
+| ..+oo.....      |
+|  + .o. o.       |
+|   .o... o .     |
+|   ..+..  = o E  |
+|  . ... S  + o   |
+|   o        .    |
+|    +            |
+|   . .           |
+|                 |
++-----------------+
+[oracle@ol6tocn2 ~]$ ssh-copy-id ol6tocn1
+The authenticity of host 'ol6tocn1 (192.168.56.41)' can't be established.
+RSA key fingerprint is 13:b8:ca:a1:15:48:03:35:f4:5f:65:e8:01:6e:f2:44.
+Are you sure you want to continue connecting (yes/no)? yes
+Warning: Permanently added 'ol6tocn1,192.168.56.41' (RSA) to the list of known hosts.
+oracle@ol6tocn1's password:
+Now try logging into the machine, with "ssh 'ol6tocn1'", and check in:
+
+  .ssh/authorized_keys
+
+to make sure we haven't added extra keys that you weren't expecting.
+
+[oracle@ol6tocn2 ~]$
+</pre>
+<p>I have checked that I can connect from each local node to each remote node without password:</p>
+<pre>
+[oracle@ol6tocn1 ~]$ ssh ol6tocn2 hostname
+ol6tocn2.localdomain
+[oracle@ol6tocn1 ~]$
+</pre>
+<p>and:</p>
+<pre>
+[oracle@ol6tocn2 ~]$ ssh ol6tocn1 hostname
+ol6tocn1.localdomain
+[oracle@ol6tocn2 ~]$
+</pre>
+<p>I have also enabled passwordless ssh on each node with <u>local</u> ssh connection (i.e. from ol6tocn1 to ol6tocn1 and from ol6tocn2 to ol6tocn2):</p>
+<pre>
+[oracle@ol6tocn1 ~]$ ssh-copy-id ol6tocn1
+The authenticity of host 'ol6tocn1 (192.168.56.41)' can't be established.
+RSA key fingerprint is 13:b8:ca:a1:15:48:03:35:f4:5f:65:e8:01:6e:f2:44.
+Are you sure you want to continue connecting (yes/no)? yes
+Warning: Permanently added 'ol6tocn1,192.168.56.41' (RSA) to the list of known hosts.
+oracle@ol6tocn1's password:
+Now try logging into the machine, with "ssh 'ol6tocn1'", and check in:
+
+  .ssh/authorized_keys
+
+to make sure we haven't added extra keys that you weren't expecting.
+
+[oracle@ol6tocn1 ~]$
+</pre>
+<p>and:</p>
+<pre>
+[oracle@ol6tocn2 ~]$ ssh-copy-id ol6tocn2
+The authenticity of host 'ol6tocn2 (192.168.56.42)' can't be established.
+RSA key fingerprint is 13:b8:ca:a1:15:48:03:35:f4:5f:65:e8:01:6e:f2:44.
+Are you sure you want to continue connecting (yes/no)? yes
+Warning: Permanently added 'ol6tocn2,192.168.56.42' (RSA) to the list of known hosts.
+oracle@ol6tocn2's password:
+Now try logging into the machine, with "ssh 'ol6tocn2'", and check in:
+
+  .ssh/authorized_keys
+
+to make sure we haven't added extra keys that you weren't expecting.
+
+[oracle@ol6tocn2 ~]$
+</pre>
+<p>I have checked that I connect locally on each node without password:</p>
+<pre>
+[oracle@ol6tocn1 ~]$ ssh ol6tocn1 hostname
+ol6tocn1.localdomain
+[oracle@ol6tocn1 ~]$
+</pre>
+<p>and:</p>
+<pre>
+[oracle@ol6tocn2 ~]$ ssh ol6tocn2 hostname
+ol6tocn2.localdomain
+[oracle@ol6tocn2 ~]$
+</pre>
+<p>I have disabled NTP configuration on both nodes with:</p>
+<pre>
+#  mv /etc/ntp.conf /etc/ntp.conf.orig
+</pre>
+<h3> run CLUVFY</h3>
+<p>I have uploaded Grid Infrastructure 12.1.0.2 media (note that there is only one such media that must be used for both Entreprise Edition and SE2) to first cluster node after creating /stage directory:</p>
+<pre>
+# mkdir /stage
+# chown oracle:dba /stage
+</pre>
+<p>I have run with oracle account:</p>
+<pre>
+$ unzip linuxamd64_12102_grid_1of2.zip
+$ unzip linuxamd64_12102_grid_2of2.zip
+</pre>
+<p>I have run CLUVFY :</p>
+<pre>
+$ ./grid/runcluvfy.sh stage -pre crsinst -n "ol6tocn1,ol6tocn2"
+
+Performing pre-checks for cluster services setup
+
+Checking node reachability...
+Node reachability check passed from node "ol6tocn1"
+
+
+Checking user equivalence...
+User equivalence check passed for user "oracle"
+
+Checking node connectivity...
+
+Checking hosts config file...
+
+Verification of the hosts config file successful
+
+Node connectivity passed for subnet "192.168.56.0" with node(s) ol6tocn1,ol6tocn2
+TCP connectivity check passed for subnet "192.168.56.0"
+
+Node connectivity passed for subnet "192.168.43.0" with node(s) ol6tocn1,ol6tocn2
+TCP connectivity check passed for subnet "192.168.43.0"
+
+
+Interfaces found on subnet "192.168.56.0" that are likely candidates for a private interconnect are:
+ol6tocn1 eth0:192.168.56.41
+ol6tocn2 eth0:192.168.56.42
+
+Interfaces found on subnet "192.168.43.0" that are likely candidates for a private interconnect are:
+ol6tocn1 eth1:192.168.43.41
+ol6tocn2 eth1:192.168.43.42
+
+WARNING:
+Could not find a suitable set of interfaces for VIPs
+Checking subnet mask consistency...
+Subnet mask consistency check passed for subnet "192.168.56.0".
+Subnet mask consistency check passed for subnet "192.168.43.0".
+Subnet mask consistency check passed.
+
+Node connectivity check passed
+
+Checking multicast communication...
+
+Checking subnet "192.168.56.0" for multicast communication with multicast group "224.0.0.251"...
+Check of subnet "192.168.56.0" for multicast communication with multicast group "224.0.0.251" passed.
+
+Check of multicast communication passed.
+
+Checking ASMLib configuration.
+Check for ASMLib configuration passed.
+Total memory check failed
+Check failed on nodes:
+        ol6tocn2,ol6tocn1
+Available memory check passed
+Swap space check passed
+Free disk space check passed for "ol6tocn2:/usr,ol6tocn2:/var,ol6tocn2:/etc,ol6tocn2:/sbin,ol6tocn2:/tmp"
+Free disk space check passed for "ol6tocn1:/usr,ol6tocn1:/var,ol6tocn1:/etc,ol6tocn1:/sbin,ol6tocn1:/tmp"
+Check for multiple users with UID value 54321 passed
+User existence check passed for "oracle"
+Group existence check passed for "oinstall"
+Group existence check passed for "dba"
+Membership check for user "oracle" in group "oinstall" [as Primary] passed
+Membership check for user "oracle" in group "dba" passed
+Run level check passed
+Hard limits check passed for "maximum open file descriptors"
+Soft limits check passed for "maximum open file descriptors"
+Hard limits check passed for "maximum user processes"
+Soft limits check passed for "maximum user processes"
+System architecture check passed
+Kernel version check passed
+Kernel parameter check passed for "semmsl"
+Kernel parameter check passed for "semmns"
+Kernel parameter check passed for "semopm"
+Kernel parameter check passed for "semmni"
+Kernel parameter check passed for "shmmax"
+Kernel parameter check passed for "shmmni"
+Kernel parameter check passed for "shmall"
+Kernel parameter check passed for "file-max"
+Kernel parameter check passed for "ip_local_port_range"
+Kernel parameter check passed for "rmem_default"
+Kernel parameter check passed for "rmem_max"
+Kernel parameter check passed for "wmem_default"
+Kernel parameter check passed for "wmem_max"
+Kernel parameter check passed for "aio-max-nr"
+Kernel parameter check passed for "panic_on_oops"
+Package existence check passed for "binutils"
+Package existence check passed for "compat-libcap1"
+Package existence check passed for "compat-libstdc++-33(x86_64)"
+Package existence check passed for "libgcc(x86_64)"
+Package existence check passed for "libstdc++(x86_64)"
+Package existence check passed for "libstdc++-devel(x86_64)"
+Package existence check passed for "sysstat"
+Package existence check passed for "gcc"
+Package existence check passed for "gcc-c++"
+Package existence check passed for "ksh"
+Package existence check passed for "make"
+Package existence check passed for "glibc(x86_64)"
+Package existence check passed for "glibc-devel(x86_64)"
+Package existence check passed for "libaio(x86_64)"
+Package existence check passed for "libaio-devel(x86_64)"
+Package existence check passed for "nfs-utils"
+
+Checking availability of ports "6200,6100" required for component "Oracle Notification Service (ONS)"
+Port availability check passed for ports "6200,6100"
+
+Checking availability of ports "42424" required for component "Oracle Cluster Synchronization Services (CSSD)"
+Port availability check passed for ports "42424"
+Check for multiple users with UID value 0 passed
+Current group ID check passed
+
+Starting check for consistency of primary group of root user
+
+Check for consistency of root user's primary group passed
+
+Starting Clock synchronization checks using Network Time Protocol(NTP)...
+No NTP Daemons or Services were found to be running
+
+Clock synchronization check using Network Time Protocol(NTP) passed
+
+Core file name pattern consistency check passed.
+
+User "oracle" is not part of "root" group. Check passed
+Default user file creation mask check passed
+Checking integrity of file "/etc/resolv.conf" across nodes
+
+"domain" and "search" entries do not coexist in any "/etc/resolv.conf" file
+All nodes have same "search" order defined in file "/etc/resolv.conf"
+The DNS response time for an unreachable node is within acceptable limit on all nodes
+checking DNS response from all servers in "/etc/resolv.conf"
+
+Check for integrity of file "/etc/resolv.conf" passed
+
+Time zone consistency check passed
+
+Checking integrity of name service switch configuration file "/etc/nsswitch.conf" ...
+All nodes have same "hosts" entry defined in file "/etc/nsswitch.conf"
+Check for integrity of name service switch configuration file "/etc/nsswitch.conf" passed
+
+
+Checking daemon "avahi-daemon" is not configured and running
+Daemon not configured check passed for process "avahi-daemon"
+Daemon not running check passed for process "avahi-daemon"
+
+Starting check for /dev/shm mounted as temporary file system ...
+
+Check for /dev/shm mounted as temporary file system passed
+
+Starting check for /boot mount ...
+
+Check for /boot mount passed
+
+Starting check for zeroconf check ...
+
+Check for zeroconf check passed
+
+Pre-check for cluster services setup was unsuccessful on all the nodes.
+$
+</pre>
+<p>I have ignored "WARNING: Could not find a suitable set of interfaces for VIPs" and "total memory check failed". See what Helmut Hutlzer (Oracle Corp. employee working for RAC team) has written about <a href="http://www.hhutzler.de/blog/cluvfy_error/#warning-could-not-find-a-suitable-set-of-interfaces-for-vips">suitable address for VIPS</a>.</p>
+<p>Note the important change with respect to 12.1.0.1 RAC prerequisites: the ASM diskgroup to store OCR and voting disk must also store the GIMR database: this implies that the minimum disk size is about 6 GB.</p>
+<p>The 2 cluster node VM are now ready for Grid Infrastructure installation.</p>
