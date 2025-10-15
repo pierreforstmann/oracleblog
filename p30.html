@@ -1,0 +1,528 @@
+<p>For Oracle 11g and 12c on Linux Oracle Corp. has released a RPM that allows to install required packages and to configure Linux before installing Oracle Grid Infrastructure and/or Oracle Database. You can find in the <a href="http://docs.oracle.com/database/121/LADBI/olinrpm.htm#LADBI7474">Oracle Database Installation Guide 12c release 1 (12.1) for Linux  </a>documentation a chapter describing how to install this RPM named the "preinstallation RPM" for Oracle Linux 5 and Oracle Linux 6.</p>
+<p>However I did not find in this documentation how to install this RPM for Oracle Linux 7. Likewise OTN site only documents this RPM installation for <a href="http://www.oracle.com/technetwork/articles/servers-storage-admin/ginnydbinstallonlinux-488779.html">Oracle Linux 6</a> or <a href="http://www.oracle.com/technetwork/articles/servers-storage-admin/ginny-dbinstallonlinux-2111493.html">Oracle Linux 5</a>. Oracle Corp has released the preinstallation RPM for OL7 but I did not find any official document for this. This blog post shows how to install this RPM for Oracle Linux 7 (OL7) and how to test this RPM with Oracle Database 12.1.0.2 installation.</p>
+<h3>Preinstallation RPM installation</h3>
+<p>It is assumed that the Linux machine has direct internet connection so that you can use Oracle public yum repository (if your Linux machine is not connected to Internet you can also download it from <a href="http://public-yum.oracle.com/repo/OracleLinux/OL7/addons/x86_64/">Oracle Linux 7.0 public yum addons repository</a>.) You must also connect as root to run all following steps unless otherwise stated. OL7 default kernel is Unbreakable Enterprise Kernel (UEK):</p>
+<pre>
+# uname -a
+Linux ol7twsf.localdomain 3.8.13-35.3.1.el7uek.x86_64 #2 SMP Wed Jun 25 15:27:43 PDT 2014 x86_64 x86_64 x86_64 GNU/Linux
+</pre>
+<p>To download this RPM from your OL7 machine you first need to modify the default yum configuration file. Modify <b> /etc/yum.repos.d/public-yum-ol7.repo</b> to enable ol7_addons repository: set enabled=1 instead of 0 in:</p>
+<pre>
+[ol7_addons]
+name=Oracle Linux $releasever Add ons ($basearch)
+baseurl=http://public-yum.oracle.com/repo/OracleLinux/OL7/addons/$basearch/
+gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-oracle
+gpgcheck=1
+enabled=1
+</pre>
+<p>Run yum to ask RPM download and installation with the -y flag to answer automatically yes to yum questions:</p>
+<pre>
+# yum -y install oracle-rdbms-server-12cR1-preinstall
+Loaded plugins: langpacks
+ol7_UEKR3                                                                                             | 1.2 kB  00:00:00
+ol7_addons                                                                                            | 1.2 kB  00:00:00
+ol7_latest                                                                                            | 1.4 kB  00:00:00
+(1/7): ol7_UEKR3/x86_64/updateinfo                                                                    |  23 kB  00:00:00
+(2/7): ol7_addons/x86_64/primary                                                                      |  21 kB  00:00:00
+(3/7): ol7_latest/x86_64/updateinfo                                                                   |  94 kB  00:00:00
+(4/7): ol7_addons/x86_64/updateinfo                                                                   | 3.4 kB  00:00:01
+(5/7): ol7_latest/x86_64/group                                                                        | 652 kB  00:00:01
+(6/7): ol7_UEKR3/x86_64/primary                                                                       | 5.4 MB  00:00:07
+(7/7): ol7_latest/x86_64/primary                                                                      | 7.3 MB  00:00:08
+ol7_UEKR3                                                                                                            131/131
+ol7_addons                                                                                                             62/62
+ol7_latest                                                                                                         7461/7461
+Resolving Dependencies
+--&gt; Running transaction check
+---&gt; Package oracle-rdbms-server-12cR1-preinstall.x86_64 0:1.0-1.el7 will be installed
+--&gt; Processing Dependency: xorg-x11-utils for package: oracle-rdbms-server-12cR1-preinstall-1.0-1.el7.x86_64
+--&gt; Processing Dependency: gcc-c++ for package: oracle-rdbms-server-12cR1-preinstall-1.0-1.el7.x86_64
+--&gt; Processing Dependency: compat-libcap1 for package: oracle-rdbms-server-12cR1-preinstall-1.0-1.el7.x86_64
+--&gt; Processing Dependency: ksh for package: oracle-rdbms-server-12cR1-preinstall-1.0-1.el7.x86_64
+--&gt; Processing Dependency: libaio-devel for package: oracle-rdbms-server-12cR1-preinstall-1.0-1.el7.x86_64
+--&gt; Processing Dependency: xorg-x11-xauth for package: oracle-rdbms-server-12cR1-preinstall-1.0-1.el7.x86_64
+--&gt; Processing Dependency: compat-libstdc++-33 for package: oracle-rdbms-server-12cR1-preinstall-1.0-1.el7.x86_64
+--&gt; Processing Dependency: libstdc++-devel for package: oracle-rdbms-server-12cR1-preinstall-1.0-1.el7.x86_64
+--&gt; Processing Dependency: nfs-utils for package: oracle-rdbms-server-12cR1-preinstall-1.0-1.el7.x86_64
+--&gt; Running transaction check
+---&gt; Package compat-libcap1.x86_64 0:1.10-7.el7 will be installed
+---&gt; Package compat-libstdc++-33.x86_64 0:3.2.3-71.el7 will be installed
+---&gt; Package gcc-c++.x86_64 0:4.8.2-16.2.el7_0 will be installed
+--&gt; Processing Dependency: gcc = 4.8.2-16.2.el7_0 for package: gcc-c++-4.8.2-16.2.el7_0.x86_64
+--&gt; Processing Dependency: libstdc++ = 4.8.2-16.2.el7_0 for package: gcc-c++-4.8.2-16.2.el7_0.x86_64
+---&gt; Package ksh.x86_64 0:20120801-19.el7 will be installed
+---&gt; Package libaio-devel.x86_64 0:0.3.109-12.el7 will be installed
+---&gt; Package libstdc++-devel.x86_64 0:4.8.2-16.2.el7_0 will be installed
+---&gt; Package nfs-utils.x86_64 1:1.3.0-0.el7 will be installed
+--&gt; Processing Dependency: libtirpc &gt;= 0.2.3-1 for package: 1:nfs-utils-1.3.0-0.el7.x86_64
+--&gt; Processing Dependency: rpcbind for package: 1:nfs-utils-1.3.0-0.el7.x86_64
+--&gt; Processing Dependency: keyutils for package: 1:nfs-utils-1.3.0-0.el7.x86_64
+--&gt; Processing Dependency: libevent for package: 1:nfs-utils-1.3.0-0.el7.x86_64
+--&gt; Processing Dependency: libnfsidmap for package: 1:nfs-utils-1.3.0-0.el7.x86_64
+--&gt; Processing Dependency: libevent-2.0.so.5()(64bit) for package: 1:nfs-utils-1.3.0-0.el7.x86_64
+--&gt; Processing Dependency: libtirpc.so.1()(64bit) for package: 1:nfs-utils-1.3.0-0.el7.x86_64
+--&gt; Processing Dependency: libnfsidmap.so.0()(64bit) for package: 1:nfs-utils-1.3.0-0.el7.x86_64
+---&gt; Package xorg-x11-utils.x86_64 0:7.5-13.1.el7 will be installed
+--&gt; Processing Dependency: libXext.so.6()(64bit) for package: xorg-x11-utils-7.5-13.1.el7.x86_64
+--&gt; Processing Dependency: libXv.so.1()(64bit) for package: xorg-x11-utils-7.5-13.1.el7.x86_64
+--&gt; Processing Dependency: libXtst.so.6()(64bit) for package: xorg-x11-utils-7.5-13.1.el7.x86_64
+--&gt; Processing Dependency: libXrender.so.1()(64bit) for package: xorg-x11-utils-7.5-13.1.el7.x86_64
+--&gt; Processing Dependency: libXxf86vm.so.1()(64bit) for package: xorg-x11-utils-7.5-13.1.el7.x86_64
+--&gt; Processing Dependency: libXxf86misc.so.1()(64bit) for package: xorg-x11-utils-7.5-13.1.el7.x86_64
+--&gt; Processing Dependency: libXrandr.so.2()(64bit) for package: xorg-x11-utils-7.5-13.1.el7.x86_64
+--&gt; Processing Dependency: libdmx.so.1()(64bit) for package: xorg-x11-utils-7.5-13.1.el7.x86_64
+--&gt; Processing Dependency: libXinerama.so.1()(64bit) for package: xorg-x11-utils-7.5-13.1.el7.x86_64
+--&gt; Processing Dependency: libXxf86dga.so.1()(64bit) for package: xorg-x11-utils-7.5-13.1.el7.x86_64
+--&gt; Processing Dependency: libXi.so.6()(64bit) for package: xorg-x11-utils-7.5-13.1.el7.x86_64
+---&gt; Package xorg-x11-xauth.x86_64 1:1.0.7-6.1.el7 will be installed
+--&gt; Processing Dependency: libXmuu.so.1()(64bit) for package: 1:xorg-x11-xauth-1.0.7-6.1.el7.x86_64
+--&gt; Running transaction check
+---&gt; Package gcc.x86_64 0:4.8.2-16.el7 will be updated
+---&gt; Package gcc.x86_64 0:4.8.2-16.2.el7_0 will be an update
+--&gt; Processing Dependency: cpp = 4.8.2-16.2.el7_0 for package: gcc-4.8.2-16.2.el7_0.x86_64
+--&gt; Processing Dependency: libgomp = 4.8.2-16.2.el7_0 for package: gcc-4.8.2-16.2.el7_0.x86_64
+--&gt; Processing Dependency: libgcc &gt;= 4.8.2-16.2.el7_0 for package: gcc-4.8.2-16.2.el7_0.x86_64
+---&gt; Package keyutils.x86_64 0:1.5.8-3.el7 will be installed
+---&gt; Package libXext.x86_64 0:1.3.2-2.1.el7 will be installed
+---&gt; Package libXi.x86_64 0:1.7.2-2.1.el7 will be installed
+---&gt; Package libXinerama.x86_64 0:1.1.3-2.1.el7 will be installed
+---&gt; Package libXmu.x86_64 0:1.1.1-5.1.el7 will be installed
+--&gt; Processing Dependency: libXt.so.6()(64bit) for package: libXmu-1.1.1-5.1.el7.x86_64
+---&gt; Package libXrandr.x86_64 0:1.4.1-2.1.el7 will be installed
+---&gt; Package libXrender.x86_64 0:0.9.8-2.1.el7 will be installed
+---&gt; Package libXtst.x86_64 0:1.2.2-2.1.el7 will be installed
+---&gt; Package libXv.x86_64 0:1.0.9-2.1.el7 will be installed
+---&gt; Package libXxf86dga.x86_64 0:1.1.4-2.1.el7 will be installed
+---&gt; Package libXxf86misc.x86_64 0:1.0.3-7.1.el7 will be installed
+---&gt; Package libXxf86vm.x86_64 0:1.1.3-2.1.el7 will be installed
+---&gt; Package libdmx.x86_64 0:1.1.3-3.el7 will be installed
+---&gt; Package libevent.x86_64 0:2.0.21-4.el7 will be installed
+---&gt; Package libnfsidmap.x86_64 0:0.25-9.el7 will be installed
+---&gt; Package libstdc++.x86_64 0:4.8.2-16.el7 will be updated
+---&gt; Package libstdc++.x86_64 0:4.8.2-16.2.el7_0 will be an update
+---&gt; Package libtirpc.x86_64 0:0.2.4-0.3.el7 will be installed
+---&gt; Package rpcbind.x86_64 0:0.2.0-23.el7 will be installed
+--&gt; Running transaction check
+---&gt; Package cpp.x86_64 0:4.8.2-16.el7 will be updated
+---&gt; Package cpp.x86_64 0:4.8.2-16.2.el7_0 will be an update
+---&gt; Package libXt.x86_64 0:1.1.4-6.1.el7 will be installed
+--&gt; Processing Dependency: libICE.so.6()(64bit) for package: libXt-1.1.4-6.1.el7.x86_64
+--&gt; Processing Dependency: libSM.so.6()(64bit) for package: libXt-1.1.4-6.1.el7.x86_64
+---&gt; Package libgcc.x86_64 0:4.8.2-16.el7 will be updated
+---&gt; Package libgcc.x86_64 0:4.8.2-16.2.el7_0 will be an update
+---&gt; Package libgomp.x86_64 0:4.8.2-16.el7 will be updated
+---&gt; Package libgomp.x86_64 0:4.8.2-16.2.el7_0 will be an update
+--&gt; Running transaction check
+---&gt; Package libICE.x86_64 0:1.0.8-7.el7 will be installed
+---&gt; Package libSM.x86_64 0:1.2.1-7.el7 will be installed
+--&gt; Finished Dependency Resolution
+
+Dependencies Resolved
+
+=============================================================================================================================
+ Package                                         Arch              Version                       Repository             Size
+=============================================================================================================================
+Installing:
+ oracle-rdbms-server-12cR1-preinstall            x86_64            1.0-1.el7                     ol7_addons             16 k
+Installing for dependencies:
+ compat-libcap1                                  x86_64            1.10-7.el7                    ol7_latest             17 k
+ compat-libstdc++-33                             x86_64            3.2.3-71.el7                  ol7_latest            188 k
+ gcc-c++                                         x86_64            4.8.2-16.2.el7_0              ol7_latest            7.2 M
+ keyutils                                        x86_64            1.5.8-3.el7                   ol7_latest             53 k
+ ksh                                             x86_64            20120801-19.el7               ol7_latest            878 k
+ libICE                                          x86_64            1.0.8-7.el7                   ol7_latest             61 k
+ libSM                                           x86_64            1.2.1-7.el7                   ol7_latest             37 k
+ libXext                                         x86_64            1.3.2-2.1.el7                 ol7_latest             36 k
+ libXi                                           x86_64            1.7.2-2.1.el7                 ol7_latest             37 k
+ libXinerama                                     x86_64            1.1.3-2.1.el7                 ol7_latest             13 k
+ libXmu                                          x86_64            1.1.1-5.1.el7                 ol7_latest             68 k
+ libXrandr                                       x86_64            1.4.1-2.1.el7                 ol7_latest             24 k
+ libXrender                                      x86_64            0.9.8-2.1.el7                 ol7_latest             24 k
+ libXt                                           x86_64            1.1.4-6.1.el7                 ol7_latest            167 k
+ libXtst                                         x86_64            1.2.2-2.1.el7                 ol7_latest             19 k
+ libXv                                           x86_64            1.0.9-2.1.el7                 ol7_latest             17 k
+ libXxf86dga                                     x86_64            1.1.4-2.1.el7                 ol7_latest             18 k
+ libXxf86misc                                    x86_64            1.0.3-7.1.el7                 ol7_latest             19 k
+ libXxf86vm                                      x86_64            1.1.3-2.1.el7                 ol7_latest             17 k
+ libaio-devel                                    x86_64            0.3.109-12.el7                ol7_latest             12 k
+ libdmx                                          x86_64            1.1.3-3.el7                   ol7_latest             15 k
+ libevent                                        x86_64            2.0.21-4.el7                  ol7_latest            208 k
+ libnfsidmap                                     x86_64            0.25-9.el7                    ol7_latest             44 k
+ libstdc++-devel                                 x86_64            4.8.2-16.2.el7_0              ol7_latest            1.5 M
+ libtirpc                                        x86_64            0.2.4-0.3.el7                 ol7_latest             81 k
+ nfs-utils                                       x86_64            1:1.3.0-0.el7                 ol7_latest            357 k
+ rpcbind                                         x86_64            0.2.0-23.el7                  ol7_latest             54 k
+ xorg-x11-utils                                  x86_64            7.5-13.1.el7                  ol7_latest            110 k
+ xorg-x11-xauth                                  x86_64            1:1.0.7-6.1.el7               ol7_latest             28 k
+Updating for dependencies:
+ cpp                                             x86_64            4.8.2-16.2.el7_0              ol7_latest            5.9 M
+ gcc                                             x86_64            4.8.2-16.2.el7_0              ol7_latest             16 M
+ libgcc                                          x86_64            4.8.2-16.2.el7_0              ol7_latest             86 k
+ libgomp                                         x86_64            4.8.2-16.2.el7_0              ol7_latest            118 k
+ libstdc++                                       x86_64            4.8.2-16.2.el7_0              ol7_latest            288 k
+
+Transaction Summary
+=============================================================================================================================
+Install  1 Package  (+29 Dependent packages)
+Upgrade             (  5 Dependent packages)
+
+Total download size: 34 M
+Downloading packages:
+Delta RPMs disabled because /usr/bin/applydeltarpm not installed.
+warning: /var/cache/yum/x86_64/7Server/ol7_latest/packages/compat-libcap1-1.10-7.el7.x86_64.rpm: Header V3 RSA/SHA256 Signature, key ID ec551f03: NOKEY
+Public key for compat-libcap1-1.10-7.el7.x86_64.rpm is not installed
+(1/35): compat-libcap1-1.10-7.el7.x86_64.rpm                                                          |  17 kB  00:00:00
+(2/35): compat-libstdc++-33-3.2.3-71.el7.x86_64.rpm                                                   | 188 kB  00:00:01
+(3/35): cpp-4.8.2-16.2.el7_0.x86_64.rpm                                                               | 5.9 MB  00:00:07
+(4/35): gcc-c++-4.8.2-16.2.el7_0.x86_64.rpm                                                           | 7.2 MB  00:00:10
+(5/35): keyutils-1.5.8-3.el7.x86_64.rpm                                                               |  53 kB  00:00:00
+(6/35): ksh-20120801-19.el7.x86_64.rpm                                                                | 878 kB  00:00:01
+(7/35): libICE-1.0.8-7.el7.x86_64.rpm                                                                 |  61 kB  00:00:00
+(8/35): gcc-4.8.2-16.2.el7_0.x86_64.rpm                                                               |  16 MB  00:00:19
+(9/35): libSM-1.2.1-7.el7.x86_64.rpm                                                                  |  37 kB  00:00:00
+(10/35): libXext-1.3.2-2.1.el7.x86_64.rpm                                                             |  36 kB  00:00:00
+(11/35): libXi-1.7.2-2.1.el7.x86_64.rpm                                                               |  37 kB  00:00:00
+(12/35): libXinerama-1.1.3-2.1.el7.x86_64.rpm                                                         |  13 kB  00:00:00
+(13/35): libXrandr-1.4.1-2.1.el7.x86_64.rpm                                                           |  24 kB  00:00:00
+(14/35): libXrender-0.9.8-2.1.el7.x86_64.rpm                                                          |  24 kB  00:00:00
+(15/35): libXmu-1.1.1-5.1.el7.x86_64.rpm                                                              |  68 kB  00:00:00
+(16/35): libXtst-1.2.2-2.1.el7.x86_64.rpm                                                             |  19 kB  00:00:00
+(17/35): libXv-1.0.9-2.1.el7.x86_64.rpm                                                               |  17 kB  00:00:00
+(18/35): libXt-1.1.4-6.1.el7.x86_64.rpm                                                               | 167 kB  00:00:00
+(19/35): libXxf86dga-1.1.4-2.1.el7.x86_64.rpm                                                         |  18 kB  00:00:00
+(20/35): libXxf86misc-1.0.3-7.1.el7.x86_64.rpm                                                        |  19 kB  00:00:00
+(21/35): libXxf86vm-1.1.3-2.1.el7.x86_64.rpm                                                          |  17 kB  00:00:00
+(22/35): libaio-devel-0.3.109-12.el7.x86_64.rpm                                                       |  12 kB  00:00:00
+(23/35): libdmx-1.1.3-3.el7.x86_64.rpm                                                                |  15 kB  00:00:00
+(24/35): libevent-2.0.21-4.el7.x86_64.rpm                                                             | 208 kB  00:00:00
+(25/35): libgcc-4.8.2-16.2.el7_0.x86_64.rpm                                                           |  86 kB  00:00:00
+(26/35): libnfsidmap-0.25-9.el7.x86_64.rpm                                                            |  44 kB  00:00:00
+(27/35): libgomp-4.8.2-16.2.el7_0.x86_64.rpm                                                          | 118 kB  00:00:00
+(28/35): libstdc++-4.8.2-16.2.el7_0.x86_64.rpm                                                        | 288 kB  00:00:01
+(29/35): libtirpc-0.2.4-0.3.el7.x86_64.rpm                                                            |  81 kB  00:00:00
+(30/35): libstdc++-devel-4.8.2-16.2.el7_0.x86_64.rpm                                                  | 1.5 MB  00:00:01
+Public key for oracle-rdbms-server-12cR1-preinstall-1.0-1.el7.x86_64.rpm is not installed= ] 1.0 MB/s |  33 MB  00:00:00 ETA
+(31/35): oracle-rdbms-server-12cR1-preinstall-1.0-1.el7.x86_64.rpm                                    |  16 kB  00:00:00
+(32/35): rpcbind-0.2.0-23.el7.x86_64.rpm                                                              |  54 kB  00:00:00
+(33/35): xorg-x11-utils-7.5-13.1.el7.x86_64.rpm                                                       | 110 kB  00:00:00
+(34/35): xorg-x11-xauth-1.0.7-6.1.el7.x86_64.rpm                                                      |  28 kB  00:00:00
+(35/35): nfs-utils-1.3.0-0.el7.x86_64.rpm                                                             | 357 kB  00:00:01
+-----------------------------------------------------------------------------------------------------------------------------
+Total                                                                                        1.3 MB/s |  34 MB  00:00:26
+Retrieving key from file:///etc/pki/rpm-gpg/RPM-GPG-KEY-oracle
+Importing GPG key 0xEC551F03:
+ Userid     : "Oracle OSS group (Open Source Software group) "
+ Fingerprint: 4214 4123 fecf c55b 9086 313d 72f9 7b74 ec55 1f03
+ Package    : 7:oraclelinux-release-7.0-1.0.3.el7.x86_64 (@anaconda/7.0)
+ From       : /etc/pki/rpm-gpg/RPM-GPG-KEY-oracle
+Running transaction check
+Running transaction test
+Transaction test succeeded
+Running transaction
+  Installing : libXext-1.3.2-2.1.el7.x86_64                                                                             1/40
+  Updating   : libgcc-4.8.2-16.2.el7_0.x86_64                                                                           2/40
+  Updating   : libstdc++-4.8.2-16.2.el7_0.x86_64                                                                        3/40
+  Installing : libstdc++-devel-4.8.2-16.2.el7_0.x86_64                                                                  4/40
+  Installing : libXi-1.7.2-2.1.el7.x86_64                                                                               5/40
+  Installing : libICE-1.0.8-7.el7.x86_64                                                                                6/40
+  Installing : libXrender-0.9.8-2.1.el7.x86_64                                                                          7/40
+  Installing : libtirpc-0.2.4-0.3.el7.x86_64                                                                            8/40
+  Installing : rpcbind-0.2.0-23.el7.x86_64                                                                              9/40
+  Installing : libXrandr-1.4.1-2.1.el7.x86_64                                                                          10/40
+  Installing : libSM-1.2.1-7.el7.x86_64                                                                                11/40
+  Installing : libXt-1.1.4-6.1.el7.x86_64                                                                              12/40
+  Installing : libXmu-1.1.1-5.1.el7.x86_64                                                                             13/40
+  Installing : 1:xorg-x11-xauth-1.0.7-6.1.el7.x86_64                                                                   14/40
+  Installing : libXtst-1.2.2-2.1.el7.x86_64                                                                            15/40
+  Installing : compat-libstdc++-33-3.2.3-71.el7.x86_64                                                                 16/40
+  Installing : libXxf86misc-1.0.3-7.1.el7.x86_64                                                                       17/40
+  Installing : libdmx-1.1.3-3.el7.x86_64                                                                               18/40
+  Installing : libXinerama-1.1.3-2.1.el7.x86_64                                                                        19/40
+  Installing : libXxf86vm-1.1.3-2.1.el7.x86_64                                                                         20/40
+  Installing : libXv-1.0.9-2.1.el7.x86_64                                                                              21/40
+  Installing : libXxf86dga-1.1.4-2.1.el7.x86_64                                                                        22/40
+  Installing : xorg-x11-utils-7.5-13.1.el7.x86_64                                                                      23/40
+  Installing : keyutils-1.5.8-3.el7.x86_64                                                                             24/40
+  Installing : ksh-20120801-19.el7.x86_64                                                                              25/40
+  Installing : libaio-devel-0.3.109-12.el7.x86_64                                                                      26/40
+  Updating   : libgomp-4.8.2-16.2.el7_0.x86_64                                                                         27/40
+  Installing : compat-libcap1-1.10-7.el7.x86_64                                                                        28/40
+  Installing : libnfsidmap-0.25-9.el7.x86_64                                                                           29/40
+  Installing : libevent-2.0.21-4.el7.x86_64                                                                            30/40
+  Installing : 1:nfs-utils-1.3.0-0.el7.x86_64                                                                          31/40
+  Updating   : cpp-4.8.2-16.2.el7_0.x86_64                                                                             32/40
+  Updating   : gcc-4.8.2-16.2.el7_0.x86_64                                                                             33/40
+  Installing : gcc-c++-4.8.2-16.2.el7_0.x86_64                                                                         34/40
+  Installing : oracle-rdbms-server-12cR1-preinstall-1.0-1.el7.x86_64                                                   35/40
+  Cleanup    : gcc-4.8.2-16.el7.x86_64                                                                                 36/40
+  Cleanup    : libstdc++-4.8.2-16.el7.x86_64                                                                           37/40
+  Cleanup    : libgcc-4.8.2-16.el7.x86_64                                                                              38/40
+  Cleanup    : cpp-4.8.2-16.el7.x86_64                                                                                 39/40
+  Cleanup    : libgomp-4.8.2-16.el7.x86_64                                                                             40/40
+  Verifying  : 1:nfs-utils-1.3.0-0.el7.x86_64                                                                           1/40
+  Verifying  : libXxf86misc-1.0.3-7.1.el7.x86_64                                                                        2/40
+  Verifying  : libdmx-1.1.3-3.el7.x86_64                                                                                3/40
+  Verifying  : libgcc-4.8.2-16.2.el7_0.x86_64                                                                           4/40
+  Verifying  : libXmu-1.1.1-5.1.el7.x86_64                                                                              5/40
+  Verifying  : libtirpc-0.2.4-0.3.el7.x86_64                                                                            6/40
+  Verifying  : libXinerama-1.1.3-2.1.el7.x86_64                                                                         7/40
+  Verifying  : libXtst-1.2.2-2.1.el7.x86_64                                                                             8/40
+  Verifying  : compat-libstdc++-33-3.2.3-71.el7.x86_64                                                                  9/40
+  Verifying  : libXxf86vm-1.1.3-2.1.el7.x86_64                                                                         10/40
+  Verifying  : xorg-x11-utils-7.5-13.1.el7.x86_64                                                                      11/40
+  Verifying  : rpcbind-0.2.0-23.el7.x86_64                                                                             12/40
+  Verifying  : libXrandr-1.4.1-2.1.el7.x86_64                                                                          13/40
+  Verifying  : 1:xorg-x11-xauth-1.0.7-6.1.el7.x86_64                                                                   14/40
+  Verifying  : libXv-1.0.9-2.1.el7.x86_64                                                                              15/40
+  Verifying  : libXt-1.1.4-6.1.el7.x86_64                                                                              16/40
+  Verifying  : libXrender-0.9.8-2.1.el7.x86_64                                                                         17/40
+  Verifying  : cpp-4.8.2-16.2.el7_0.x86_64                                                                             18/40
+  Verifying  : oracle-rdbms-server-12cR1-preinstall-1.0-1.el7.x86_64                                                   19/40
+  Verifying  : gcc-c++-4.8.2-16.2.el7_0.x86_64                                                                         20/40
+  Verifying  : gcc-4.8.2-16.2.el7_0.x86_64                                                                             21/40
+  Verifying  : libstdc++-4.8.2-16.2.el7_0.x86_64                                                                       22/40
+  Verifying  : libevent-2.0.21-4.el7.x86_64                                                                            23/40
+  Verifying  : libnfsidmap-0.25-9.el7.x86_64                                                                           24/40
+  Verifying  : libICE-1.0.8-7.el7.x86_64                                                                               25/40
+  Verifying  : compat-libcap1-1.10-7.el7.x86_64                                                                        26/40
+  Verifying  : libgomp-4.8.2-16.2.el7_0.x86_64                                                                         27/40
+  Verifying  : libSM-1.2.1-7.el7.x86_64                                                                                28/40
+  Verifying  : libaio-devel-0.3.109-12.el7.x86_64                                                                      29/40
+  Verifying  : libstdc++-devel-4.8.2-16.2.el7_0.x86_64                                                                 30/40
+  Verifying  : ksh-20120801-19.el7.x86_64                                                                              31/40
+  Verifying  : libXi-1.7.2-2.1.el7.x86_64                                                                              32/40
+  Verifying  : libXxf86dga-1.1.4-2.1.el7.x86_64                                                                        33/40
+  Verifying  : libXext-1.3.2-2.1.el7.x86_64                                                                            34/40
+  Verifying  : keyutils-1.5.8-3.el7.x86_64                                                                             35/40
+  Verifying  : libgomp-4.8.2-16.el7.x86_64                                                                             36/40
+  Verifying  : libgcc-4.8.2-16.el7.x86_64                                                                              37/40
+  Verifying  : gcc-4.8.2-16.el7.x86_64                                                                                 38/40
+  Verifying  : cpp-4.8.2-16.el7.x86_64                                                                                 39/40
+  Verifying  : libstdc++-4.8.2-16.el7.x86_64                                                                           40/40
+
+Installed:
+  oracle-rdbms-server-12cR1-preinstall.x86_64 0:1.0-1.el7
+
+Dependency Installed:
+  compat-libcap1.x86_64 0:1.10-7.el7    compat-libstdc++-33.x86_64 0:3.2.3-71.el7  gcc-c++.x86_64 0:4.8.2-16.2.el7_0
+  keyutils.x86_64 0:1.5.8-3.el7         ksh.x86_64 0:20120801-19.el7               libICE.x86_64 0:1.0.8-7.el7
+  libSM.x86_64 0:1.2.1-7.el7            libXext.x86_64 0:1.3.2-2.1.el7             libXi.x86_64 0:1.7.2-2.1.el7
+  libXinerama.x86_64 0:1.1.3-2.1.el7    libXmu.x86_64 0:1.1.1-5.1.el7              libXrandr.x86_64 0:1.4.1-2.1.el7
+  libXrender.x86_64 0:0.9.8-2.1.el7     libXt.x86_64 0:1.1.4-6.1.el7               libXtst.x86_64 0:1.2.2-2.1.el7
+  libXv.x86_64 0:1.0.9-2.1.el7          libXxf86dga.x86_64 0:1.1.4-2.1.el7         libXxf86misc.x86_64 0:1.0.3-7.1.el7
+  libXxf86vm.x86_64 0:1.1.3-2.1.el7     libaio-devel.x86_64 0:0.3.109-12.el7       libdmx.x86_64 0:1.1.3-3.el7
+  libevent.x86_64 0:2.0.21-4.el7        libnfsidmap.x86_64 0:0.25-9.el7            libstdc++-devel.x86_64 0:4.8.2-16.2.el7_0
+  libtirpc.x86_64 0:0.2.4-0.3.el7       nfs-utils.x86_64 1:1.3.0-0.el7             rpcbind.x86_64 0:0.2.0-23.el7
+  xorg-x11-utils.x86_64 0:7.5-13.1.el7  xorg-x11-xauth.x86_64 1:1.0.7-6.1.el7
+
+Dependency Updated:
+  cpp.x86_64 0:4.8.2-16.2.el7_0            gcc.x86_64 0:4.8.2-16.2.el7_0              libgcc.x86_64 0:4.8.2-16.2.el7_0
+  libgomp.x86_64 0:4.8.2-16.2.el7_0        libstdc++.x86_64 0:4.8.2-16.2.el7_0
+
+Complete!
+#
+</pre>
+<p>In addition to RPM installations the preinstallation RPM also:</p>
+<li>
+creates the Linux oracle user account and the dba and oinstall groups:
+</li>
+<li>
+and configures the Linux kernel.
+</li>
+<p>
+You can find a detailed log for these steps in <b>/var/log/oracle-rdbms-server-12cR1-preinstall/backup/&lt;timestamp&gt;/orakernel.log</b>:</p>
+<pre>
+# cat /var/log/oracle-rdbms-server-12cR1-preinstall/backup/Jan-31-2015-16-32-54/orakernel.log
+Adding group oinstall with gid 54321
+Adding group dba
+Adding user oracle with user id 54321, initial login group oinstall, supplementary group dba and  home directory /home/oracle
+Changing ownership of /home/oracle to oracle:oinstall
+Please set password for oracle user
+uid=54321(oracle) gid=54321(oinstall) groups=54321(oinstall),54322(dba)
+Creating oracle user passed
+
+Verifying  kernel parameters as per Oracle recommendations...
+Adding fs.file-max = 6815744
+Adding kernel.sem = 250 32000 100 128
+Adding kernel.shmmni = 4096
+Adding kernel.shmall = 1073741824
+Adding kernel.shmmax = 4398046511104
+Adding kernel.panic_on_oops = 1
+Adding net.core.rmem_default = 262144
+Adding net.core.rmem_max = 4194304
+Adding net.core.wmem_default = 262144
+Adding net.core.wmem_max = 1048576
+Adding fs.aio-max-nr = 1048576
+Adding net.ipv4.ip_local_port_range = 9000 65500
+Setting kernel parameters as per oracle recommendations...
+Altered file /etc/sysctl.conf
+Original file backed up at /etc/sysctl.conf.orabackup
+Verifying &amp; setting of kernel parameters passed
+
+Setting user limits using /etc/security/limits.d/oracle-rdbms-server-12cR1-preinstall.conf
+
+Verifying oracle user OS limits as per Oracle recommendations...
+Adding oracle soft nofile  1024
+Adding oracle hard nofile  65536
+Adding oracle soft nproc  16384
+Adding oracle hard nproc  16384
+Adding oracle soft stack  10240
+Adding oracle hard stack  32768
+Setting oracle user OS limits as per Oracle recommendations...
+Altered file /etc/security/limits.d/oracle-rdbms-server-12cR1-preinstall.conf
+Original file backed up at /var/log/oracle-rdbms-server-12cR1-preinstall/backup/Jan-31-2015-16-32-54
+Verifying &amp; setting of user limits passed
+
+Verifying kernel boot parameters as per Oracle recommendations...
+old boot params: "vconsole.keymap=fr vconsole.font=latarcyrheb-sun16 rd.lvm.lv=ol/swap rd.lvm.lv=ol/root crashkernel=auto  rhgb quiet", new boot params: "vconsole.keymap=fr vconsole.font=latarcyrheb-sun16 rd.lvm.lv=ol/swap rd.lvm.lv=ol/root crashkernel=auto rhgb quiet numa=off"
+
+old boot params: "vconsole.keymap=fr vconsole.font=latarcyrheb-sun16 rd.lvm.lv=ol/swap rd.lvm.lv=ol/root crashkernel=auto rhgb quiet numa=off", new boot params: "vconsole.keymap=fr vconsole.font=latarcyrheb-sun16 rd.lvm.lv=ol/swap rd.lvm.lv=ol/root crashkernel=auto rhgb quiet numa=off transparent_hugepage=never"
+
+Setting kernel boot parameters as per Oracle recommendations...
+Generating grub configuration file ...
+Found linux image: /boot/vmlinuz-3.10.0-123.el7.x86_64
+Found initrd image: /boot/initramfs-3.10.0-123.el7.x86_64.img
+Found linux image: /boot/vmlinuz-3.8.13-35.3.1.el7uek.x86_64
+Found initrd image: /boot/initramfs-3.8.13-35.3.1.el7uek.x86_64.img
+Warning: Please don't use old title `Oracle Linux Server, with Unbreakable Enterprise Kernel 3.8.13-35.3.1.el7uek.x86_64' for GRUB_DEFAULT, use `Advanced options for Oracle Linux Server&gt;Oracle Linux Server, with Unbreakable Enterprise Kernel 3.8.13-35.3.1.el7uek.x86_64' (for versions before 2.00) or `gnulinux-advanced-d76c1028-71ca-4116-87b4-040dda3d03d2&gt;gnulinux-3.8.13-35.3.1.el7uek.x86_64-advanced-d76c1028-71ca-4116-87b4-040dda3d03d2' (for 2.00 or later)
+Found linux image: /boot/vmlinuz-0-rescue-83850a30d9cc4ce7a8dc8f25f4d9f0cd
+Found initrd image: /boot/initramfs-0-rescue-83850a30d9cc4ce7a8dc8f25f4d9f0cd.img
+done
+Boot parameters will be effected on next reboot
+Altered file /etc/default/grub
+Original file backed up at /etc/default/grub.orabackup
+Verifying &amp; setting of boot parameters passed
+
+Taking a backup of old config files under /var/log/oracle-rdbms-server-12cR1-preinstall/backup/Jan-31-2015-16-32-54
+</pre>
+<h3>Oracle Database 12.1.0.2 installation</h3>
+<p>I have installed Oracle Database 12.1.0.2 in silent mode with following steps run with root account ...</p>
+<pre>
+# mkdir -p /u01/app/oracle/product/12.1.0.2/db
+# chown oracle:oinstall /u01/app/oracle/product/12.1.0.2/db
+# chown oracle:oinstall /u01/app/oracle/
+</pre>
+<p>.. and following steps run with oracle account:</p>
+<pre>
+$ cd /stage/database
+export DISTRIB=`pwd`
+./runInstaller -silent \
+   -responseFile $DISTRIB/response/db_install.rsp      \
+   oracle.install.option=INSTALL_DB_SWONLY             \
+   UNIX_GROUP_NAME=oinstall                            \
+   INVENTORY_LOCATION=/u01/app/oracle/oraInventory     \
+   SELECTED_LANGUAGES=en                               \
+   ORACLE_HOME=/u01/app/oracle/product/12.1.0.2/db     \
+   ORACLE_BASE=/u01/app/oracle                         \
+   oracle.install.db.InstallEdition=EE                 \
+   oracle.install.db.isCustomInstall=false             \
+   oracle.install.db.DBA_GROUP=dba                     \
+   oracle.install.db.OPER_GROUP=dba                    \
+   oracle.install.db.BACKUPDBA_GROUP=dba               \
+   oracle.install.db.DGDBA_GROUP=dba                   \
+   oracle.install.db.KMDBA_GROUP=dba                   \
+   SECURITY_UPDATES_VIA_MYORACLESUPPORT=false          \
+   DECLINE_SECURITY_UPDATES=true                       \
+   waitforcompletion=true
+Starting Oracle Universal Installer...
+
+Checking Temp space: must be greater than 500 MB.   Actual 30681 MB    Passed
+Checking swap space: must be greater than 150 MB.   Actual 2063 MB    Passed
+Preparing to launch Oracle Universal Installer from /tmp/OraInstall2015-01-31_05-24-02PM. Please wait ...
+$ [WARNING] [INS-32055] The Central Inventory is located in the Oracle base.
+   ACTION: Oracle recommends placing this Central Inventory in a location outside the Oracle base directory.
+[WARNING] [INS-13014] Target environment does not meet some optional requirements.
+   CAUSE: Some of the optional prerequisites are not met. See logs for details. /tmp/OraInstall2015-01-31_05-24-02PM/installActions2015-01-31_05-24-02PM.log
+   ACTION: Identify the list of failed prerequisite checks from the log: /tmp/OraInstall2015-01-31_05-24-02PM/installActions2015-01-31_05-24-02PM.log. Then either from the log file or from installation manual find the appropriate configuration to meet the prerequisites and fix it manually.
+You can find the log of this install session at:
+ /u01/app/oracle/oraInventory/logs/installActions2015-01-31_05-24-02PM.log
+The installation of Oracle Database 12c was successful.
+Please check '/u01/app/oracle/oraInventory/logs/silentInstall2015-01-31_05-24-02PM.log' for more details.
+
+As a root user, execute the following script(s):
+        1. /u01/app/oracle/oraInventory/orainstRoot.sh
+        2. /u01/app/oracle/product/12.1.0.2/db/root.sh
+</pre>
+<p>The only optional prerequisite that has failed is the swap space size:</p>
+<pre>
+INFO: ------------------List of failed Tasks------------------
+INFO: *********************************************
+INFO: Swap Size: This is a prerequisite condition to test whether sufficient total swap space is available on the system.
+INFO: Severity:IGNORABLE
+INFO: OverallStatus:VERIFICATION_FAILED
+INFO: -----------------End of failed Tasks List----------------
+</pre>
+<p>This new Linux machine has 2 GB of RAM and OL7 automatic disk partitioning has assigned 2 GB to swap space:</p>
+<pre>
+# grep RAM: /var/log/messages
+Jan 31 16:12:20 ol7twsf kernel: Reserving 257MB of memory at 608MB for crashkernel (System RAM: 2047MB)
+
+# lvs
+  LV   VG   Attr       LSize  Pool Origin Data%  Move Log Cpy%Sync Convert
+  root ol   -wi-ao---- 37.49g
+  swap ol   -wi-ao----  2.02g
+#
+</pre>
+<p>The last installation steps have been run with root account:</p>
+<pre>
+# /u01/app/oracle/oraInventory/orainstRoot.sh
+Changing permissions of /u01/app/oracle/oraInventory.
+Adding read,write permissions for group.
+Removing read,write,execute permissions for world.
+
+Changing groupname of /u01/app/oracle/oraInventory to oinstall.
+The execution of the script is complete.
+#  /u01/app/oracle/product/12.1.0.2/db/root.sh
+Check /u01/app/oracle/product/12.1.0.2/db/install/root_ol7twsf.localdomain_2015-01-31_17-59-52.log for the output of root script
+# cat /u01/app/oracle/product/12.1.0.2/db/install/root_ol7twsf.localdomain_2015-01-31_17-59-52.log
+Performing root user operation.
+
+The following environment variables are set as:
+    ORACLE_OWNER= oracle
+    ORACLE_HOME=  /u01/app/oracle/product/12.1.0.2/db
+   Copying dbhome to /usr/local/bin ...
+   Copying oraenv to /usr/local/bin ...
+   Copying coraenv to /usr/local/bin ...
+
+
+Creating /etc/oratab file...
+Entries will be added to the /etc/oratab file as needed by
+Database Configuration Assistant when a database is created
+Finished running generic part of root script.
+Now product-specific root actions will be performed.
+#
+</pre>
+<p>Oracle Database 12.1.0.2 has been successfully installed:</p>
+<pre>
+$ export ORACLE_HOME=/u01/app/oracle/product/12.1.0.2/db
+$ PATH=$ORACLE_HOME/bin:$PATH
+$ $ORACLE_HOME/OPatch/opatch lsinv
+Oracle Interim Patch Installer version 12.1.0.1.3
+Copyright (c) 2015, Oracle Corporation.  All rights reserved.
+
+
+Oracle Home       : /u01/app/oracle/product/12.1.0.2/db
+Central Inventory : /u01/app/oracle/oraInventory
+   from           : /u01/app/oracle/product/12.1.0.2/db/oraInst.loc
+OPatch version    : 12.1.0.1.3
+OUI version       : 12.1.0.2.0
+Log file location : /u01/app/oracle/product/12.1.0.2/db/cfgtoollogs/opatch/opatch2015-01-31_18-19-49PM_1.log
+
+Lsinventory Output file location : /u01/app/oracle/product/12.1.0.2/db/cfgtoollogs/opatch/lsinv/lsinventory2015-01-31_18-19-49PM.txt
+
+--------------------------------------------------------------------------------
+Installed Top-level Products (1):
+
+Oracle Database 12c                                                  12.1.0.2.0
+There are 1 products installed in this Oracle Home.
+
+
+There are no Interim patches installed in this Oracle Home.
+
+
+--------------------------------------------------------------------------------
+
+OPatch succeeded.
+$
+</pre>
+<p>All of these steps have been run on a brand new OL7 virtual machine: this shows that the preinstallation RPM works successfully for Oracle Database 12.1.0.2 on Oracle Linux 7.</p>
