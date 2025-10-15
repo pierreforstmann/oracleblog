@@ -1,0 +1,174 @@
+<p>If you read the Oracle database documentation, it is not clear: I have not found any clear answer for this question.</p>
+<p>The purpose of this blog article is to try to give an answer to this question by tracing system calls run by a dedicated server process to check if we see some I/O system call and by checking /proc/pid/fd for open file descriptors.</p>
+<p>I have used 2 environments: both are running Oracle Linux 6.3 64-bit with Oracle Grid Infrastructure 11.2.0.3 and Oracle database 11.2.0.3 and have a database using ASM:</p>
+<li>
+the first one is using ASM without ASMLib: udev is used to have device persistant naming and right permissions at system boot.
+</li>
+<li>
+the second one is using ASM with ASMLib.
+</li>
+<p>
+To understand the process I am going to use, you need first to understand the following:<br />
+<br />
+1. Even if you use ASM, you need to know that it is not the ASM instance that is doing the I/O work. I/O requests are still managed by the database instance on metadata given by ASM instance to database instance. This is clearly stated in the <A href="http://docs.oracle.com/cd/E11882_01/server.112/e25789/physical.htm#CNCPT88989">Concepts Guide</A>:<i>"ASM instances manage the metadata of the disk group and provide file layout information to the database instances. Database instances direct I/O to ASM disks without going through an ASM instance."</i><br />
+<br />
+2. It is the dedicated server process executing the SQL statement for a given database client that is going to read needed data in the right datafiles. This is also clearly stated in the <A href="http://docs.oracle.com/cd/E11882_01/server.112/e25789/process.htm">Concepts Guide</A>:<i>"For example, these processes parse SQL queries, place them in the shared pool,  create and execute a query plan for each query, and read buffers from the database buffer cache or from disk."</i><br />
+</p>
+<h3>Testing ASM without ASMLib</h3>
+<p>Start a new database session:</p>
+<pre>
+SQL&gt; @gpid
+SQL&gt; select spid
+  2  from v$process p, v$session s
+  3  where p.addr = s.paddr
+  4  and s.sid = (select sid from v$mystat where rownum=1);
+
+SPID
+------------------------
+2969
+</pre>
+<p>Start strace on the related dedicated server process:</p>
+<pre>
+# strace -p 2969 -o 2969.log
+Process 2969 attached - interrupt to quit
+</pre>
+<p>Run some database queries:</p>
+<pre>
+SQL&gt; select name from v$datafile;
+
+NAME
+--------------------------------------------------------------------------------
++DATA/pr11/datafile/system.256.823295401
++DATA/pr11/datafile/sysaux.257.823295403
++DATA/pr11/datafile/undotbs1.258.823295403
++DATA/pr11/datafile/users.259.823295405
+
+SQL&gt; select path from v$asm_disk;
+
+PATH
+--------------------------------------------------------------------------------
+/dev/asm-disk1
+/dev/asm-disk2
+
+SQL&gt;
+</pre>
+<p>Check open file descriptors in <b>/proc</b> file system for the related dedicated server process PID:</p>
+<pre>
+# ls -al /proc/2969/fd
+total 0
+dr-x------ 2 root   root    0 Aug 17 14:46 .
+dr-xr-xr-x 7 oracle sysasm  0 Aug 17 14:46 ..
+lr-x------ 1 root   root   64 Aug 17 14:47 0 -&gt; /dev/null
+l-wx------ 1 root   root   64 Aug 17 14:47 1 -&gt; /dev/null
+l-wx------ 1 root   root   64 Aug 17 14:47 12 -&gt; pipe:[107956]
+l-wx------ 1 root   root   64 Aug 17 14:47 2 -&gt; /dev/null
+lrwx------ 1 root   root   64 Aug 17 14:47 256 -&gt; /dev/asm-disk1
+lr-x------ 1 root   root   64 Aug 17 14:47 3 -&gt; /dev/null
+lr-x------ 1 root   root   64 Aug 17 14:47 4 -&gt; /dev/null
+lr-x------ 1 root   root   64 Aug 17 14:47 5 -&gt; /u01/oracle/db11203/rdbms/mesg/oraus.msb
+lr-x------ 1 root   root   64 Aug 17 14:47 6 -&gt; /proc/2969/fd
+lr-x------ 1 root   root   64 Aug 17 14:47 7 -&gt; /dev/zero
+lrwx------ 1 root   root   64 Aug 17 14:47 8 -&gt; /u01/oracle/admin/PR11/adump/PR11_ora_2969_1.aud
+lr-x------ 1 root   root   64 Aug 17 14:47 9 -&gt; pipe:[107955]
+#
+</pre>
+<p>We see that first ASM disk has been opened which shows that ASM without ASMLib is using the <b>open</b> system call. In the strace trace file we also see that <b>pread</b> system call has been used to read data on this device:</p>
+<pre>
+# grep 'pread(256' 2969.log
+pread(256, "\25\302\1\1\4\2\272 \v&amp;\312]\251"..., 16384, 1348485120) = 16384
+pread(256, "\25\302\20&lt;\5\377\377\1\4zc\200G\1&quot;..., 16384, 1350565888) = 16384
+pread(256, &quot;\25\302\22&lt;\5\377\377\1\4\305\177\346}221&quot;..., 16384, 1350598656) = 16384
+pread(256, &quot;\25\302\30:\5\377\377\1\4\33@ \16&quot;..., 16384, 1351614464) = 16384
+pread(256, &quot;\25\302\1\1\4\2\272 \v&amp;\312]\251&quot;..., 16384, 1348485120) = 16384
+pread(256, &quot;\25\302\20&lt;\5\377\377\1\4zc\200G\1&quot;..., 16384, 1350565888) = 16384
+pread(256, &quot;\25\302\22&lt;\5\377\377\1\4\305\177\346}221&quot;..., 16384, 1350598656) = 16384
+pread(256, &quot;\25\302 ;\5\377\377\1\4\365\34\3\3\2+D&quot;..., 16384, 1352663040) = 16384
+#
+</pre>
+<p>Note that you can sometimes get the open system call trace for the ASM disk but I have not been able to have a reproducible test case for that.</p>
+<h3>Testing ASM with ASMLib</h3>
+<p>Start a new database session:</p>
+<pre>
+SQL&gt; @gpid
+SQL&gt; select spid
+  2  from v$process p, v$session s
+  3  where p.addr = s.paddr
+  4  and s.sid = (select sid from v$mystat where rownum=1);
+
+SPID
+------------------------
+3967
+
+SQL&gt;
+</pre>
+<p>Start strace on the related dedicated server process:</p>
+<pre>
+# strace -p 3967 -o 3967.log
+Process 3967 attached - interrupt to quit
+</pre>
+<p>Run some database queries:</p>
+<pre>
+
+SQL&gt; select name from v$datafile;
+
+NAME
+--------------------------------------------------------------------------------
++DATA/pr11/datafile/system.256.823471309
++DATA/pr11/datafile/sysaux.257.823471311
++DATA/pr11/datafile/undotbs1.258.823471313
++DATA/pr11/datafile/users.259.823471315
+
+SQL&gt; select path from v$asm_disk;
+
+PATH
+--------------------------------------------------------------------------------
+ORCL:ASM1
+ORCL:ASM2
+
+SQL&gt;
+</pre>
+<p>We can see that ASMLib has used the <b>open</b> system call to access a file that is not a ASM disk device file:</p>
+pre>
+# ls -al /proc/3967/fd
+total 0
+dr-x------ 2 root   root      0 Aug 17 17:00 .
+dr-xr-xr-x 8 oracle asmadmin  0 Aug 17 17:00 ..
+lr-x------ 1 root   root     64 Aug 17 17:01 0 -&gt; /dev/null
+l-wx------ 1 root   root     64 Aug 17 17:01 1 -&gt; /dev/null
+lrwx------ 1 root   root     64 Aug 17 17:01 10 -&gt; /dev/oracleasm/iid/0000000000000003
+l-wx------ 1 root   root     64 Aug 17 17:01 12 -&gt; pipe:[80866]
+l-wx------ 1 root   root     64 Aug 17 17:01 2 -&gt; /dev/null
+lr-x------ 1 root   root     64 Aug 17 17:01 3 -&gt; /dev/null
+lr-x------ 1 root   root     64 Aug 17 17:01 4 -&gt; /dev/null
+lr-x------ 1 root   root     64 Aug 17 17:01 5 -&gt; /u01/oracle/db11203/rdbms/mesg/oraus.msb
+lr-x------ 1 root   root     64 Aug 17 17:01 6 -&gt; /proc/3967/fd
+lr-x------ 1 root   root     64 Aug 17 17:01 7 -&gt; /dev/zero
+lrwx------ 1 root   root     64 Aug 17 17:01 8 -&gt; /u01/oracle/admin/PR11/adump/PR11_ora_3967_1.aud
+lr-x------ 1 root   root     64 Aug 17 17:01 9 -&gt; pipe:[80865]
+#
+# file /dev/oracleasm/iid/0000000000000003
+/dev/oracleasm/iid/0000000000000003: empty
+# file /dev/oracleasm/disks/ASM1
+/dev/oracleasm/disks/ASM1: block special
+# file /dev/oracleasm/disks/ASM2
+/dev/oracleasm/disks/ASM2: block special
+#
+
+</pre>
+<p>There is also <u>no</u> <b>pread</b> system call trace in strace.log:</p>
+<pre>
+# grep pread 3967.log
+#
+</pre>
+<p>Actually this file has just been created according to its <b>open</b> system call trace:</p>
+<pre>
+# grep open  3967.log
+open("/opt/oracle/extapi/64/asm/orcl/1/libasm.so", O_RDONLY) = 10
+open("/dev/oracleasm/.check_iid", O_RDWR) = 10
+open("/dev/oracleasm/iid/0000000000000003", O_RDWR|O_CREAT, 0770) = 10
+[root@ol6elsa1 tmp]#
+</pre>
+<h3>Conclusion</h3>
+<p>It is clear that ASM without ASMlib is using OS system calls to execute I/O requests whereas ASM with ASMLib is not using the same system calls to execute I/O requests. This means that ASMLib is not using OS system calls: this is confirmed by authors of 
+<A HREF="http://www.mhprofessional.com/product.php?isbn=0071496076">Oracle Automatic Storage Management Under-the-Hood &amp; Practical Deployment Guide </A>
+who wrote page 88 that "<i>ASM accesses disks through the standard OS interfaces used by Oracle to access any file (unless an ASMLIB is used)</i>".</p>
