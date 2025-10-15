@@ -1,0 +1,189 @@
+<p>I have installed Oracle 12.1 on my personal PC running Windows 8 using a local account having administrator privilege.</p>
+<h3> Download installation media </h3>
+<p>You need to download from OTN:<br />
+<br />
+- winx64_12c_database_1of2.zip<br />
+<br />
+- winx64_12c_database_2of2.zip<br />
+</p>
+<h3>Extract both files from the same directory</h3>
+<p>Using 7-zip executable, run:</p>
+<pre>
+c:\stage&gt;c:\"Program Files"\7-Zip\7z.exe x winx64_12c_database_1of2.zip
+c:\stage&gt;c:\"Program Files"\7-Zip\7z.exe x winx64_12c_database_2of2.zip
+</pre>
+<h3>Run Oracle Universal Installer  (OUI) in silent mode</h3>
+<p>Run following script from cmd.exe window in the directory where installation media has been extracted:</p>
+<pre>
+database\setup -silent "ORACLE_BASE=c:\oracle\product" "ORACLE_HOME=c:\oracle\product\121" 
+"oracle.install.option=INSTAL_DB_SWONLY" "oracle.install.IsBuiltInAccount=true" "DECLINE_SECURITY_UPDATES=true" 
+"oracle.install.db.InstallEdition=E" "oracle.install.db.isCustomInstall=false" "oracle.install.db.DBA_GROUP=dba" 
+"oracle.install.db.OPER_GROUP=dba" "orace.install.db.BACKUPDBA_GROUP=dba"  "oracle.install.db.DGDBA_GROUP=dba"  
+"oracle.install.db.KMDBA_GROUP=dba"
+</pre>
+<p>This script starts to display a User Access Control window where you must click Yes. A new cmd.exe window is opened by OUI: you need to wait that the ending messages of this window are:</p>
+<pre>
+The installation of Oracle Database 12c was successful.
+Please check 'C:\Program Files\Oracle\Inventory\logs\silentInstallYYYY-MM-DD_HH-MI-SSPM.log' for more details.
+Successfully Setup Software.
+</pre>
+<p>Note that during the installation Windows firewall can ask if you want to allow Java to use public network addresses.</p>
+<p>Check that silentinstallXXX.log ends with:</p>
+<pre>
+INFO: Exit Status is 0
+INFO: Shutdown Oracle Database 12c Release 1 Installer
+INFO: Unloading Setup Drive
+</pre>
+<p>At this step OUI has:<br />
+<br />
+- created Oracle Inventory in C\:Program Files\Oracle\Inventory<br />
+<br />
+- installed Oracle Database Home in C:\oracle\product\121.</p>
+<p>Check that SQL*Plus version has the right version and that Oracle Inventory is OK:</p>
+<pre>
+c:\tmp&gt;sqlplus -v
+
+SQL*Plus: Release 12.1.0.1.0 Production
+
+c:\tmp&gt;c:\oracle\product\121\OPatch\opatch lsinv
+Oracle Interim Patch Installer version 12.1.0.1.0
+Copyright (c) 2012, Oracle Corporation.  All rights reserved.
+
+Oracle Home       : c:\oracle\product\121
+Central Inventory : C:\Program Files\Oracle\Inventory
+from           : n/a
+OPatch version    : 12.1.0.1.0
+OUI version       : 12.1.0.1.0
+Log file location : c:\oracle\product\121\cfgtoollogs\opatch\opatch2013-12-27_18-50-34PM_1.log
+
+Lsinventory Output file location : c:\oracle\product\121\cfgtoollogs\opatch\lsinv\lsinventory2013-12-27_18-50-34PM.txt
+
+--------------------------------------------------------------------------------
+Installed Top-level Products (1):
+
+Oracle Database 12c                                                  12.1.0.1.0
+There are 1 products installed in this Oracle Home.
+
+There are no Interim patches installed in this Oracle Home.
+
+--------------------------------------------------------------------------------
+
+OPatch succeeded.
+
+c:\tmp&gt;
+</pre>
+<h3>Create a database</h3>
+<p>To create a database open a new cmd.exe window with "run as administrator" option. I have used following script to create a container database with 2 pluggable databases (PDBs):</p>
+<pre>
+dbca -silent -createDatabase -templateName General_Purpose.dbc -gdbName cdb12c -sid cdb12c -createAsContainerDatabase true 
+-numberOfPdbs 2 -pdbName pdb -pdbadminUsername pdba -pdbadminPassword oracle12c -SysPassword oracle12c -SystemPassword 
+oracle12c -emConfiguration NONE -datafileDestination c:\oradata -storageType FS -characterSet  AL32UTF8 -memoryPercentage 10
+</pre>
+<p>Here is script execution with DBCA log:</p>
+<pre>
+c:\tmp&gt;crdb.bat
+
+c:\tmp&gt;dbca -silent -createDatabase -templateName General_Purpose.dbc -gdbName cdb12c -sid cdb12c
+-createAsContainerDatabase true -numberOfPdbs 2 -pdbName pdb -pdbadminUsername pdba -pdbadminPassword oracle12c -SysPassword oracle12c -SystemPassword oracle12c -emConfiguration NONE -datafileDestination c:\oradata -storageType FS -characterSet  AL32UTF8 -memoryPercentage 10
+4% complete
+Copying database files
+5% complete
+6% complete
+12% complete
+17% complete
+22% complete
+27% complete
+30% complete
+Creating and starting Oracle instance
+32% complete
+35% complete
+36% complete
+37% complete
+41% complete
+44% complete
+45% complete
+48% complete
+Completing Database Creation
+50% complete
+53% complete
+55% complete
+63% complete
+71% complete
+74% complete
+Creating Pluggable Databases
+79% complete
+84% complete
+100% complete
+Look at the log file "c:\oracle\product\cfgtoollogs\dbca\cdb12c\cdb12c0.log" for further details.
+
+c:\tmp&gt;type c:\oracle\product\cfgtoollogs\dbca\cdb12c\cdb12c0.log
+
+Unique database identifier check passed.
+
+C:\ has enough space. Required space is 12004 MB , available space is 157260 MB.
+File Validations Successful.
+DBCA_PROGRESS : 4%
+Copying database files
+DBCA_PROGRESS : 5%
+DBCA_PROGRESS : 6%
+DBCA_PROGRESS : 12%
+DBCA_PROGRESS : 17%
+DBCA_PROGRESS : 22%
+DBCA_PROGRESS : 27%
+DBCA_PROGRESS : 30%
+Creating and starting Oracle instance
+DBCA_PROGRESS : 32%
+DBCA_PROGRESS : 35%
+DBCA_PROGRESS : 36%
+DBCA_PROGRESS : 37%
+DBCA_PROGRESS : 41%
+DBCA_PROGRESS : 44%
+DBCA_PROGRESS : 45%
+DBCA_PROGRESS : 48%
+Completing Database Creation
+DBCA_PROGRESS : 50%
+DBCA_PROGRESS : 53%
+DBCA_PROGRESS : 55%
+DBCA_PROGRESS : 63%
+DBCA_PROGRESS : 71%
+DBCA_PROGRESS : 74%
+Creating Pluggable Databases
+DBCA_PROGRESS : 79%
+DBCA_PROGRESS : 84%
+DBCA_PROGRESS : 100%
+Database creation complete. For details check the logfiles at:
+c:\oracle\product\cfgtoollogs\dbca\cdb12c.
+Database Information:
+Global Database Name:cdb12c
+System Identifier(SID):cdb12c
+</pre>
+<h3>Check that the database is a container database with 2 PDBs:</h3>
+<pre>
+SQL&gt; set linesize 132
+SQL&gt; select * from v$version;
+
+BANNER                                                                               CON_ID
+-------------------------------------------------------------------------------- ----------
+Oracle Database 12c Enterprise Edition Release 12.1.0.1.0 - 64bit Production              0
+PL/SQL Release 12.1.0.1.0 - Production                                                    0
+CORE    12.1.0.1.0      Production                                                                0
+TNS for 64-bit Windows: Version 12.1.0.1.0 - Production                                   0
+NLSRTL Version 12.1.0.1.0 - Production                                                    0
+
+SQL&gt; select name, cdb from v$database;
+
+NAME      CDB
+--------- ---
+CDB12C    YES
+
+SQL&gt;
+
+SQL&gt; select pdb_name, status from dba_pdbs;
+
+PDB_NAME   STATUS
+---------- -------------
+PDB1       NORMAL
+PDB$SEED   NORMAL
+PDB2       NORMAL
+</pre>
+<p>Note that I could not install Oracle Database 12.1 on Windows 7 Pro due to fatal error INS-30131 for unknown reason (error occured with OUI graphical user interface and with OUI silent mode).</p>
