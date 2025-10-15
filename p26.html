@@ -1,0 +1,719 @@
+<p>This blog post shows how to install Oracle Database 12.1.0.2 in silent mode and to use DBCA in silent mode to create a 12.1.0.2 database on Windows 2012:</p>
+<li>
+for a database using ASM storage and Grid Infrastructure (GI)
+</li>
+<li>
+for a database using only NTFS storage.
+</li>
+<p>
+The configuration used is Windows 2012 and VirtualBox 4.3.16 used in <a href="http://pierreforstmanndotcom.wordpress.com/2014/10/27/how-to-install-grid-infrastructure-12-1-0-2-on-windows-2012-in-almost-full-silent-mode/" /> my previous blog article</a>.<br />
+The Windows user account that is used is oracle unless otherwise stated. GI 12.1.0.2 has already been installed on this server.<br />
+</p>
+<h3>Oracle Database 12.1.0.2 installation in silent mode</h3>
+<p>On host machine unzip <b>winx64_12102_database_1of2.zip </b> and <b>winx64_12102_database_2of2.zip</b> in same target directory <b>winx64_12102_database</b>. I have not been unable to run F:\winx64_12102_database\database\setup.exe. So I have copied database directory to H:\stage:</p>
+<pre>
+PS H:\&gt; xcopy F:\winx64_12102_database\database stage /s
+</pre>
+<p>Launch following script to install Oracle Database 12.1.0.2 into <b>H:\oracle\db12102</b> directory (note ORACLE_HOSTNAME and oracle.install.db.isRACOneInstall settings) - the actual script has all options and parameters in one single line:</p>
+<pre>
+H:\stage&gt;.\setup.exe -silent 
+ORACLE_BASE="h:\oracle\base" 
+ORACLE_HOME="h:\oracle\db12102"  
+ORACLE_HOSTNAME=w12dc01 
+oracle.install.option=INSTALL_DB_SWONLY 
+SELECTED_LANGUAGES=en 
+oracle.install.IsBuiltInAccount=true 
+oracle.install.db.InstallEdition=EE 
+oracle.install.db.isRACOneInstall=false 
+oracle.install.IsBuiltInAccount=true 
+SECURITY_UPDATES_VIA_MYORACLESUPPORT=false 
+DECLINE_SECURITY_UPDATES=true
+</pre>
+<p>Answer Yes to Windows UAC window to allow setup.exe execution; a new window is opened where the following should be displayed:</p>
+<pre>
+ Preparing to launch Oracle Universal Installer from C:\Users\oracle\AppData\Local\Temp\OraInstall2014-10-28_10-23-35PM. Please wait ... 
+[WARNING] [INS-35810] You have selected to use Built-in Account for installation and configuration of O
+racle Home. Oracle recommends that you specify a Windows User Account with limited privilege to install and configure a secure Oracle Home.
+   ACTION: Specify a Windows User Account.
+[WARNING] [INS-32018] The selected Oracle home is outside of Oracle base.
+   ACTION: Oracle recommends installing Oracle software within the Oracle base directory. Adjust the Oracle home or Oracle base accordingly.
+You can find the log of this install session at:
+ C:\Program Files\Oracle\Inventory\logs\installActions2014-10-28_10-23-35PM.log
+Dll to load is C:\Users\oracle\AppData\Local\Temp\OraInstall2014-10-28_10-23-35PM\Win64RunProcesses.dll
+Loading psapi.dll from C:\Users\oracle\AppData\Local\Temp\OraInstall2014-10-28_10-23-35PM\psapi.dll
+PersistEnv
+INFO: h:\oracle\db12102\odp.net\managed\common\oracle.manageddataaccess.dll is registered successfully in GAC.
+INFO: h:\oracle\db12102\odp.net\managed\publisherpolicy\4\policy.4.121.oracle.manageddataaccess.dll is registered successfully in GAC.
+INFO: h:\oracle\db12102\odp.net\managed\x64\oracle.manageddataaccessdtc.dll is registered successfully in GAC.
+INFO: h:\oracle\db12102\odp.net\bin\4\oracle.dataaccess.dll is registered successfully in GAC.
+INFO: h:\oracle\db12102\odp.net\publisherpolicy\4\policy.4.112.oracle.dataaccess.dll is registered successfully in GAC.
+INFO: h:\oracle\db12102\odp.net\publisherpolicy\4\policy.4.121.oracle.dataaccess.dll is registered successfully in GAC.
+
+INFO: The following section has been added.
+<section />
+
+
+INFO: The following element added under DbProviderFactories.
+
+
+INFO: Counters registered successfully in the system.
+
+INFO: The following section has been added.
+<section />
+
+
+INFO: The following element added under DbProviderFactories.
+
+
+
+INFO:  section has been successfully added/modified
+
+INFO: Counters registered successfully in the system.INFO: h:\oracle\db12102\asp.net\bin\4\oracle.web.dll is registered successfullyin GAC.
+INFO: h:\oracle\db12102\asp.net\publisherpolicy\4\policy.4.112.oracle.web.dll is registered successfully in GAC.
+INFO: h:\oracle\db12102\asp.net\publisherpolicy\4\policy.4.121.oracle.web.dll is registered successfully in GAC.
+INFO: Following entries added in GroupedProviders.xml file.
+
+
+INFO: Following entry added to machine.config file.
+
+
+INFO: Following entry added to machine.config file.
+
+
+INFO: Following entry added to machine.config file.
+
+
+INFO: Following entry added to machine.config file.
+
+
+INFO: Following entry added to machine.config file.
+
+
+INFO: Following entry added to machine.config file.
+
+Connection string name OraAspNetConString is set successfully
+
+INFO: h:\oracle\db12102\ode.net\bin\4\oracle.database.extensions.dll is registered successfully in GAC.
+The installation of Oracle Database 12c was successful.
+Please check 'C:\Program Files\Oracle\Inventory\logs\silentInstall2014-10-28_10-23-35PM.log' for more details.
+Successfully Setup Software.
+
+Please press Enter to exit...
+</pre>
+<p>Check Oracle Inventory:</p>
+<pre>
+PS C:\Users\oracle&gt; $env:ORACLE_HOME="H:\oracle\db12102"
+PS C:\Users\oracle&gt; cmd.exe
+Microsoft Windows [Version 6.2.9200]
+(c) 2012 Microsoft Corporation. All rights reserved.
+
+C:\Users\oracle&gt;%ORACLE_HOME%\opatch\opatch lsinv
+Oracle Interim Patch Installer version 12.1.0.1.3
+Copyright (c) 2014, Oracle Corporation.  All rights reserved.
+
+
+Oracle Home       : H:\oracle\db12102
+Central Inventory : C:\Program Files\Oracle\Inventory
+   from           : n/a
+OPatch version    : 12.1.0.1.3
+OUI version       : 12.1.0.2.0
+Log file location : H:\oracle\db12102\cfgtoollogs\opatch\opatch2014-10-28_22-58-17PM_1.log
+
+Lsinventory Output file location : H:\oracle\db12102\cfgtoollogs\opatch\lsinv\lsinventory2014-10-28_22-58-17PM.txt
+
+--------------------------------------------------------------------------------
+Installed Top-level Products (1):
+
+Oracle Database 12c                                                  12.1.0.2.0
+There are 1 products installed in this Oracle Home.
+
+
+There are no Interim patches installed in this Oracle Home.
+
+
+--------------------------------------------------------------------------------
+
+OPatch succeeded.
+
+C:\Users\oracle&gt;
+</pre>
+<p>Check Windows Registry:</p>
+<pre>
+PS C:\Users\oracle&gt; reg query hklm\software\oracle\key_oraDB12Home1
+
+HKEY_LOCAL_MACHINE\software\oracle\key_oraDB12Home1
+    ORACLE_HOME    REG_SZ    h:\oracle\db12102
+    ORACLE_HOME_NAME    REG_SZ    OraDB12Home1
+    ORACLE_GROUP_NAME    REG_SZ    Oracle - OraDB12Home1
+    NLS_LANG    REG_SZ    AMERICAN_AMERICA.WE8MSWIN1252
+    ORACLE_BUNDLE_NAME    REG_SZ    Enterprise
+    OLEDB    REG_SZ    h:\oracle\db12102\oledb\mesg
+    ORACLE_HOME_TYPE    REG_SZ    1
+    ORACLE_SVCUSER    REG_SZ    NT AUTHORITY\SYSTEM
+    ORACLE_SVCUSER_PWDREQ    REG_SZ    0
+    ORACLE_BASE    REG_SZ    h:\oracle\base
+    MSHELP_TOOLS    REG_SZ    h:\oracle\db12102\MSHELP
+    ORACLE_HOME_KEY    REG_SZ    SOFTWARE\ORACLE\KEY_OraDB12Home1
+    SQLPATH    REG_SZ    h:\oracle\db12102\dbs
+    RDBMS_CONTROL    REG_SZ    h:\oracle\db12102\DATABASE
+    RDBMS_ARCHIVE    REG_SZ    h:\oracle\db12102\DATABASE\ARCHIVE
+
+HKEY_LOCAL_MACHINE\software\oracle\key_oraDB12Home1\ODE
+HKEY_LOCAL_MACHINE\software\oracle\key_oraDB12Home1\OLEDB
+PS C:\Users\oracle&gt;
+</pre>
+<p>ORA_DBA group has been added to oracle user account:</p>
+<pre>
+PS C:\Users\oracle&gt; net user oracle
+User name                    oracle
+Full Name
+Comment
+User's comment
+Country/region code          000 (System Default)
+Account active               Yes
+Account expires              Never
+
+Password last set            10/22/2014 7:37:36 PM
+Password expires             12/3/2014 7:37:36 PM
+Password changeable          10/22/2014 7:37:36 PM
+Password required            Yes
+User may change password     Yes
+
+Workstations allowed         All
+Logon script
+User profile
+Home directory
+Last logon                   10/28/2014 10:19:53 PM
+
+Logon hours allowed          All
+
+Local Group Memberships      *Administrators       *ORA_ASMADMIN
+                             *ORA_ASMDBA           *ORA_DBA
+                             *ORA_OraDB12Home1_SYSB*ORA_OraDB12Home1_SYSD
+                             *ORA_OraDB12Home1_SYSK*ORA_OraGI12Home1_SYSB
+                             *ORA_OraGI12Home1_SYSD*ORA_OraGI12Home1_SYSK
+                             *Users
+Global Group memberships     *None
+The command completed successfully.
+
+PS C:\Users\oracle&gt;
+</pre>
+<h3>Fast Recovery Area (FRA) disk group creation</h3>
+<p>Run following commands:</p>
+<pre>
+PS C:\Users\oracle&gt; $env:ORACLE_SID="+ASM"
+PS C:\Users\oracle&gt; sqlplus / as sysasm
+
+SQL*Plus: Release 12.1.0.2.0 Production on Wed Oct 29 19:36:14 2014
+
+Copyright (c) 1982, 2014, Oracle.  All rights reserved.
+
+
+Connected to:
+Oracle Database 12c Enterprise Edition Release 12.1.0.2.0 - 64bit Production
+With the Automatic Storage Management option
+SQL&gt; create diskgroup FRA external redundancy disk '\\.\ORCLDISK2';
+
+Diskgroup created.
+
+SQL&gt; exit
+</pre>
+<p>Check that FRA disk group is mounted and registered in Oracle Restart:</p>
+<pre>
+PS C:\Users\oracle&gt; crsctl stat res -t
+--------------------------------------------------------------------------------
+Name           Target  State        Server                   State details
+--------------------------------------------------------------------------------
+Local Resources
+--------------------------------------------------------------------------------
+ora.DATA.dg
+               ONLINE  ONLINE       w12dc01                  STABLE
+ora.FRA.dg
+               ONLINE  ONLINE       w12dc01                  STABLE
+ora.LISTENER.lsnr
+               ONLINE  ONLINE       w12dc01                  STABLE
+ora.asm
+               ONLINE  ONLINE       w12dc01                  Started,STABLE
+ora.ons
+               OFFLINE OFFLINE      w12dc01                  STABLE
+--------------------------------------------------------------------------------
+Cluster Resources
+--------------------------------------------------------------------------------
+ora.cssd
+      1        ONLINE  ONLINE       w12dc01                  STABLE
+ora.evmd
+      1        ONLINE  ONLINE       w12dc01                  STABLE
+--------------------------------------------------------------------------------
+PS C:\Users\oracle&gt;
+</pre>
+<h3>DBCA PowerShell session</h3>
+<p>I have installed Oracle Database with Oracle home user property set to Windows built-in account. This implies that when using oracle account to use DBCA I get:</p>
+<pre>
+PRCD-1025 : Failed to create database cdb12c
+PRKH-1014 : Current user "oracle" is not the oracle owner user "nt authority\system" of oracle home "h:\oracle\db12102"
+DBCA_PROGRESS : DBCA Operation failed.
+</pre>
+<p>If I try to use Administrator account from a Adminstrator Windows session DBCA complains that locations +FRA and +DATA don't exist.</p>
+<p>I have been able to run DBCA from the oracle account Windows session but from a Powershell "Run as Administrator" (you need to right click the Powershell icon in the Task Bar to start a Powershell Run as Administrator).</p>
+<h3>Database creation with ASM storage</h3>
+<p>To create a container database with 2 pluggable databases to use DATA and FRA ASM diskgroups I have used following script (actual script has all pararameters on one single line):</p>
+<pre>
+dbca 
+-silent 
+-createDatabase 
+-templateName General_Purpose.dbc 
+-gdbName cdb12c 
+-sid cdb12c 
+-createAsContainerDatabase true 
+-numberOfPdbs 2 
+-pdbName pdb 
+-pdbadminUsername pdba 
+-pdbadminPassword oracle12c 
+-SysPassword oracle12c 
+-SystemPassword oracle12c 
+-emConfiguration NONE 
+-storageType ASM 
+-diskGroupName +DATA 
+-recoveryGroupName +FRA 
+-characterSet  AL32UTF8 
+-memoryPercentage 40
+</pre>
+<p>Running this scripts takes about 10 minutes with following output:</p>
+<pre>
+Cleaning up failed steps
+4% complete
+Registering database with Oracle Restart
+8% complete
+Copying database files
+9% complete
+10% complete
+15% complete
+20% complete
+25% complete
+38% complete
+Creating and starting Oracle instance
+40% complete
+43% complete
+44% complete
+45% complete
+48% complete
+51% complete
+52% complete
+55% complete
+Completing Database Creation
+57% complete
+60% complete
+62% complete
+70% complete
+77% complete
+80% complete
+Creating Pluggable Databases
+85% complete
+90% complete
+100% complete
+Look at the log file "h:\oracle\base\cfgtoollogs\dbca\cdb12c\cdb12c0.log" for further details.
+</pre>
+<p>Go back to an oracle account Powershell session and check that database has been created as expected:</p>
+<pre>
+PS C:\Users\oracle&gt; sqlplus / as sysdba
+
+SQL*Plus: Release 12.1.0.2.0 Production on Wed Oct 29 20:34:43 2014
+
+Copyright (c) 1982, 2014, Oracle.  All rights reserved.
+
+
+Connected to:
+Oracle Database 12c Enterprise Edition Release 12.1.0.2.0 - 64bit Production
+With the Partitioning, Automatic Storage Management, OLAP, Advanced Analytics
+and Real Application Testing options
+SQL&gt; select name, cdb from v$database;
+
+NAME      CDB
+--------- ---
+CDB12C    YES
+
+SQL&gt; show pdbs;
+
+    CON_ID CON_NAME                       OPEN MODE  RESTRICTED
+---------- ------------------------------ ---------- ----------
+         2 PDB$SEED                       READ ONLY  NO
+         3 PDB1                           READ WRITE NO
+         4 PDB2                           READ WRITE NO
+SQL&gt; select name from v$controlfile;
+
+NAME
+--------------------------------------------------------------------------------
++DATA/CDB12C/CONTROLFILE/current.261.862257941
++FRA/CDB12C/CONTROLFILE/current.256.862257943
+
+SQL&gt; select member from v$logfile;
+
+MEMBER
+--------------------------------------------------------------------------------
++DATA/CDB12C/ONLINELOG/group_3.264.862257955
++FRA/CDB12C/ONLINELOG/group_3.259.862257957
++DATA/CDB12C/ONLINELOG/group_2.263.862257949
++FRA/CDB12C/ONLINELOG/group_2.258.862257951
++DATA/CDB12C/ONLINELOG/group_1.262.862257945
++FRA/CDB12C/ONLINELOG/group_1.257.862257947
+
+6 rows selected.
+
+SQL&gt; select name from v$datafile;
+
+NAME
+--------------------------------------------------------------------------------
++DATA/CDB12C/DATAFILE/system.258.862257741
++DATA/CDB12C/601EBA5E0CEC4A0A9B2C871BFF2E055F/DATAFILE/system.267.862257979
++DATA/CDB12C/DATAFILE/sysaux.257.862257695
++DATA/CDB12C/601EBA5E0CEC4A0A9B2C871BFF2E055F/DATAFILE/sysaux.266.862257979
++DATA/CDB12C/DATAFILE/undotbs1.260.862257787
++DATA/CDB12C/DATAFILE/users.259.862257787
++DATA/CDB12C/9C6E701EF01F4FCF9D22FAF33F0638CF/DATAFILE/system.270.862258555
++DATA/CDB12C/9C6E701EF01F4FCF9D22FAF33F0638CF/DATAFILE/sysaux.271.862258557
++DATA/CDB12C/9C6E701EF01F4FCF9D22FAF33F0638CF/DATAFILE/users.273.862258625
++DATA/CDB12C/6A00A4F74168489DA12F9A776035C2DA/DATAFILE/system.274.862258629
++DATA/CDB12C/6A00A4F74168489DA12F9A776035C2DA/DATAFILE/sysaux.275.862258629
+
+NAME
+--------------------------------------------------------------------------------
++DATA/CDB12C/6A00A4F74168489DA12F9A776035C2DA/DATAFILE/users.277.862258701
+
+12 rows selected.
+
+SQL&gt; show parameter memory_target
+
+NAME                                 TYPE        VALUE
+------------------------------------ ----------- ------------------------------
+memory_target                        big integer 1648M
+SQL&gt; show parameter memory_max_target
+
+NAME                                 TYPE        VALUE
+------------------------------------ ----------- ------------------------------
+memory_max_target                    big integer 1648M
+SQL&gt; select value
+  2  from nls_database_parameters
+  3  where parameter='NLS_CHARACTERSET';
+
+VALUE
+--------------------------------------------------------------------------------
+AL32UTF8
+
+SQL&gt;
+</pre>
+<p>Check that database has been registered in Oracle Restart:</p>
+<pre>
+PS C:\Users\oracle&gt; srvctl config database -d cdb12c
+Database unique name: cdb12c
+Database name: cdb12c
+Oracle home: h:\oracle\db12102
+Oracle user: nt authority\system
+Spfile: +DATA/CDB12C/PARAMETERFILE/spfile.269.862258339
+Password file:
+Domain:
+Start options: open
+Stop options: immediate
+Database role: PRIMARY
+Management policy: AUTOMATIC
+Disk Groups: FRA,DATA
+Services:
+Database instance: cdb12c
+PS C:\Users\oracle&gt; crsctl stat res -t
+--------------------------------------------------------------------------------
+Name           Target  State        Server                   State details
+--------------------------------------------------------------------------------
+Local Resources
+--------------------------------------------------------------------------------
+ora.DATA.dg
+               ONLINE  ONLINE       w12dc01                  STABLE
+ora.FRA.dg
+               ONLINE  ONLINE       w12dc01                  STABLE
+ora.LISTENER.lsnr
+               ONLINE  ONLINE       w12dc01                  STABLE
+ora.asm
+               ONLINE  ONLINE       w12dc01                  Started,STABLE
+ora.ons
+               OFFLINE OFFLINE      w12dc01                  STABLE
+--------------------------------------------------------------------------------
+Cluster Resources
+--------------------------------------------------------------------------------
+ora.cdb12c.db
+      1        ONLINE  ONLINE       w12dc01                  Open,STABLE
+ora.cssd
+      1        ONLINE  ONLINE       w12dc01                  STABLE
+ora.evmd
+      1        ONLINE  ONLINE       w12dc01                  STABLE
+--------------------------------------------------------------------------------
+PS C:\Users\oracle&gt;
+</pre>
+<p>Switch to cmd.exe to use sc.exe and to check that DBCA has created one Windows service for database cdb12c:</p>
+<pre>
+C:\Users\oracle&gt;sc query | findstr  Oracle |  findstr cdb12c
+
+C:\Users\oracle&gt;sc query | findstr  Oracle |  findstr CDB12C
+SERVICE_NAME: OracleServiceCDB12C
+DISPLAY_NAME: OracleServiceCDB12C
+
+C:\Users\oracle&gt;sc qc OracleServiceCDB12C
+[SC] QueryServiceConfig SUCCESS
+
+SERVICE_NAME: OracleServiceCDB12C
+        TYPE               : 10  WIN32_OWN_PROCESS
+        START_TYPE         : 3   DEMAND_START
+        ERROR_CONTROL      : 1   NORMAL
+        BINARY_PATH_NAME   : h:\oracle\db12102\bin\ORACLE.EXE CDB12C
+        LOAD_ORDER_GROUP   :
+        TAG                : 0
+        DISPLAY_NAME       : OracleServiceCDB12C
+        DEPENDENCIES       :
+        SERVICE_START_NAME : LocalSystem
+
+C:\Users\oracle&gt;
+</pre>
+<h3>Database creation with NTFS storage</h3>
+<p>To create a non container database using NTFS file system I have used following script (actual script has all pararameters on one single line - and this script has also been run from a Powershell "Run as Administrator"):</p>
+<pre>
+dbca 
+-silent 
+-createDatabase 
+-templateName General_Purpose.dbc 
+-gdbName db12 
+-sid db12 
+-SysPassword oracle12c 
+-SystemPassword oracle12c 
+-emConfiguration NONE 
+-storageType FS 
+-datafileDestination h:\oradata 
+-characterSet  AL32UTF8 
+-memoryPercentage 20
+</pre>
+<p>Running this scripts takes about 15 minutes with following output:</p>
+<pre>
+Cleaning up failed steps
+5% complete
+Registering database with Oracle Restart
+11% complete
+Copying database files
+12% complete
+14% complete
+21% complete
+27% complete
+34% complete
+41% complete
+44% complete
+Creating and starting Oracle instance
+46% complete
+51% complete
+55% complete
+60% complete
+61% complete
+64% complete
+66% complete
+Completing Database Creation
+70% complete
+73% complete
+76% complete
+86% complete
+96% complete
+100% complete
+Look at the log file "h:\oracle\base\cfgtoollogs\dbca\db12\db120.log" for further details.
+</pre>
+<p>Go back to an oracle account Powershell session and check that database has been created as expected:</p>
+<pre>
+PS C:\Users\oracle&gt; sqlplus / as sysdba
+
+SQL*Plus: Release 12.1.0.2.0 Production on Thu Oct 30 19:56:22 2014
+
+Copyright (c) 1982, 2014, Oracle.  All rights reserved.
+
+
+Connected to:
+Oracle Database 12c Enterprise Edition Release 12.1.0.2.0 - 64bit Production
+With the Partitioning, OLAP, Advanced Analytics and Real Application Testing options
+
+SQL&gt; select name, cdb from v$database;
+
+NAME      CDB
+--------- ---
+DB12      NO
+
+SQL&gt;
+SQL&gt;
+SQL&gt; select name from v$controlfile;
+
+NAME
+--------------------------------------------------------------------------------
+H:\ORADATA\DB12\CONTROL01.CTL
+H:\ORACLE\BASE\FAST_RECOVERY_AREA\DB12\CONTROL02.CTL
+
+SQL&gt; select member from v$logfile;
+
+MEMBER
+--------------------------------------------------------------------------------
+H:\ORADATA\DB12\REDO03.LOG
+H:\ORADATA\DB12\REDO02.LOG
+H:\ORADATA\DB12\REDO01.LOG
+
+SQL&gt; select name from v$datafile;
+
+NAME
+--------------------------------------------------------------------------------
+H:\ORADATA\DB12\SYSTEM01.DBF
+H:\ORADATA\DB12\SYSAUX01.DBF
+H:\ORADATA\DB12\UNDOTBS01.DBF
+H:\ORADATA\DB12\USERS01.DBF
+
+SQL&gt; show parameter memory_target
+
+NAME                                 TYPE        VALUE
+------------------------------------ ----------- ------------------------------
+memory_target                        big integer 820M
+SQL&gt; show parameter memory_max_target
+
+NAME                                 TYPE        VALUE
+------------------------------------ ----------- ------------------------------
+memory_max_target                    big integer 820M
+SQL&gt; select value
+  2  from nls_database_parameters
+  3  where parameter = 'NLS_CHARACTERSET';
+
+VALUE
+--------------------------------------------------------------------------------
+AL32UTF8
+
+SQL&gt; show parameter db_recovery_file_dest
+
+NAME                                 TYPE        VALUE
+------------------------------------ ----------- ------------------------------
+db_recovery_file_dest                string      h:\oracle\base\fast_recovery_a
+                                                 rea
+db_recovery_file_dest_size           big integer 6420M
+</pre>
+<p>Note that DBCA has created by default the database files directory H:\oradata and set FRA parameters for database instance. Check that database has been registered in Oracle Restart:</p>
+<pre>
+PS C:\Users\oracle&gt; srvctl config database -d db12
+Database unique name: db12
+Database name: db12
+Oracle home: h:\oracle\db12102
+Oracle user: nt authority\system
+Spfile: h:\oracle\db12102\database\spfiledb12.ora
+Password file:
+Domain:
+Start options: open
+Stop options: immediate
+Database role: PRIMARY
+Management policy: AUTOMATIC
+Disk Groups:
+Services:
+Database instance: db12
+PS C:\Users\oracle&gt; crsctl stat res -t
+--------------------------------------------------------------------------------
+Name           Target  State        Server                   State details
+--------------------------------------------------------------------------------
+Local Resources
+--------------------------------------------------------------------------------
+ora.DATA.dg
+               ONLINE  ONLINE       w12dc01                  STABLE
+ora.FRA.dg
+               ONLINE  ONLINE       w12dc01                  STABLE
+ora.LISTENER.lsnr
+               ONLINE  ONLINE       w12dc01                  STABLE
+ora.asm
+               ONLINE  ONLINE       w12dc01                  Started,STABLE
+ora.ons
+               OFFLINE OFFLINE      w12dc01                  STABLE
+--------------------------------------------------------------------------------
+Cluster Resources
+--------------------------------------------------------------------------------
+ora.cdb12c.db
+      1        ONLINE  ONLINE       w12dc01                  Open,STABLE
+ora.cssd
+      1        ONLINE  ONLINE       w12dc01                  STABLE
+ora.db12.db
+      1        ONLINE  ONLINE       w12dc01                  Open,STABLE
+ora.evmd
+      1        ONLINE  ONLINE       w12dc01                  STABLE
+--------------------------------------------------------------------------------
+PS C:\Users\oracle&gt;
+</pre>
+<p>Switch to cmd.exe to use sc.exe and to check that DBCA has created 2 Windows service for database DB12:</p>
+<pre>
+PS C:\Users\oracle&gt; cmd.exe
+Microsoft Windows [Version 6.2.9200]
+(c) 2012 Microsoft Corporation. All rights reserved.
+
+C:\Users\oracle&gt;sc query | findstr  Oracle |  findstr DB12
+SERVICE_NAME: OracleServiceCDB12C
+DISPLAY_NAME: OracleServiceCDB12C
+SERVICE_NAME: OracleServiceDB12
+DISPLAY_NAME: OracleServiceDB12
+SERVICE_NAME: OracleVssWriterDB12
+DISPLAY_NAME: OracleVssWriterDB12
+
+C:\Users\oracle&gt;sc qc OracleServiceDB12
+[SC] QueryServiceConfig SUCCESS
+
+SERVICE_NAME: OracleServiceDB12
+        TYPE               : 10  WIN32_OWN_PROCESS
+        START_TYPE         : 3   DEMAND_START
+        ERROR_CONTROL      : 1   NORMAL
+        BINARY_PATH_NAME   : h:\oracle\db12102\bin\ORACLE.EXE DB12
+        LOAD_ORDER_GROUP   :
+        TAG                : 0
+        DISPLAY_NAME       : OracleServiceDB12
+        DEPENDENCIES       :
+        SERVICE_START_NAME : LocalSystem
+
+C:\Users\oracle&gt;sc qc OracleVssWriterDB12
+[SC] QueryServiceConfig SUCCESS
+
+SERVICE_NAME: OracleVssWriterDB12
+        TYPE               : 10  WIN32_OWN_PROCESS
+        START_TYPE         : 3   DEMAND_START
+        ERROR_CONTROL      : 1   NORMAL
+        BINARY_PATH_NAME   : h:\oracle\db12102\bin\OraVSSW.exe DB12
+        LOAD_ORDER_GROUP   :
+        TAG                : 0
+        DISPLAY_NAME       : OracleVssWriterDB12
+        DEPENDENCIES       :
+        SERVICE_START_NAME : LocalSystem
+
+C:\Users\oracle&gt;
+</pre>
+<h3>Windows Registry entries for new Oracle Home and new Oracle databases</h3>
+<p>Following entries have been created:</p>
+<pre>
+PS C:\Users\oracle&gt; reg query hklm\software\oracle\KEY_OraDB12Home1
+
+HKEY_LOCAL_MACHINE\software\oracle\KEY_OraDB12Home1
+    ORACLE_HOME    REG_SZ    h:\oracle\db12102
+    ORACLE_HOME_NAME    REG_SZ    OraDB12Home1
+    ORACLE_GROUP_NAME    REG_SZ    Oracle - OraDB12Home1
+    NLS_LANG    REG_SZ    AMERICAN_AMERICA.WE8MSWIN1252
+    ORACLE_BUNDLE_NAME    REG_SZ    Enterprise
+    OLEDB    REG_SZ    h:\oracle\db12102\oledb\mesg
+    ORACLE_HOME_TYPE    REG_SZ    1
+    ORACLE_SVCUSER    REG_SZ    NT AUTHORITY\SYSTEM
+    ORACLE_SVCUSER_PWDREQ    REG_SZ    0
+    ORACLE_BASE    REG_SZ    h:\oracle\base
+    MSHELP_TOOLS    REG_SZ    h:\oracle\db12102\MSHELP
+    ORACLE_HOME_KEY    REG_SZ    SOFTWARE\ORACLE\KEY_OraDB12Home1
+    SQLPATH    REG_SZ    h:\oracle\db12102\dbs
+    RDBMS_CONTROL    REG_SZ    h:\oracle\db12102\DATABASE
+    RDBMS_ARCHIVE    REG_SZ    h:\oracle\db12102\DATABASE\ARCHIVE
+    ORACLE_SID    REG_SZ    db12
+    ORA_cdb12c_AUTOSTART    REG_EXPAND_SZ    FALSE
+    ORA_cdb12c_SHUTDOWN    REG_EXPAND_SZ    TRUE
+    ORA_cdb12c_SHUTDOWNTYPE    REG_EXPAND_SZ    immediate
+    ORA_cdb12c_SHUTDOWN_TIMEOUT    REG_EXPAND_SZ    90
+    ORA_db12_AUTOSTART    REG_EXPAND_SZ    FALSE
+    ORA_db12_SHUTDOWN    REG_EXPAND_SZ    TRUE
+    ORA_db12_SHUTDOWNTYPE    REG_EXPAND_SZ    immediate
+    ORA_db12_SHUTDOWN_TIMEOUT    REG_EXPAND_SZ    90
+
+HKEY_LOCAL_MACHINE\software\oracle\KEY_OraDB12Home1\ODE
+HKEY_LOCAL_MACHINE\software\oracle\KEY_OraDB12Home1\OLEDB
+PS C:\Users\oracle&gt;
+</pre>
+<h3>About Oracle Home User</h3>
+<p>I have tried to use Oracle Home User but I was not able to make it work: this is why I have used a standard built-in Windows  account instead of using a dedicated account. <a href="http://www.oracle.com/technetwork/database/windows/tech-info/oraclehomeuser-windowsdb-12c-1970558.pdf">Oracle Home User is new Oracle Database 12c feature on Windows.</p>
