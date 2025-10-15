@@ -1,0 +1,578 @@
+<p>Today 1st September 2015 Oracle Corp. has released patchset 12.1.0.2 for Oracle Database 12c release 1 for Standard Edition 14 months after patchset 12.1.0.2 for  Enterprise Edition (22-JUL-2014).</p>
+<h3>SE2 installation</h3>
+<p>For this installation I have used a new Oracle Linux 6.7 64-bit VirtualBox virtual machine without any Oracle Database software.</p>
+<p>First I have configured YUM repository with root account only to enable <code>public_ol6_u7_base</code> in<br />
+<b>/etc/yum.repos.d/public-yum-ol6.repo</b>:</p>
+<pre>[public_ol6_u7_base]
+name=Oracle Linux $releasever Update 7 installation media copy ($basearch)
+baseurl=http://public-yum.oracle.com/repo/OracleLinux/OL6/7/base/$basearch/
+gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-oracle
+gpgcheck=1
+enabled=1
+</pre>
+<p>I have added hostname to <b>/etc/hosts</b>:</p>
+<pre>$ cat /etc/hosts
+127.0.0.1   localhost localhost.localdomain localhost4 localhost4.localdomain4
+::1         localhost localhost.localdomain localhost6 localhost6.localdomain6
+192.168.56.82 ol6tose1
+</pre>
+<p>I have disabled firewall to allow Oracle Net connections:</p>
+<pre>
+# chkconfig iptables off
+</pre>
+<p>I have also disabled SELINUX and rebooted Oracle Linux machine:</p>
+<pre># cat /etc/selinux/config
+# This file controls the state of SELinux on the system.
+# SELINUX= can take one of these three values:
+#     enforcing - SELinux security policy is enforced.
+#     permissive - SELinux prints warnings instead of enforcing.
+#     disabled - No SELinux policy is loaded.
+SELINUX=disabled
+# SELINUXTYPE= can take one of these two values:
+#     targeted - Targeted processes are protected,
+#     mls - Multi Level Security protection.
+SELINUXTYPE=targeted
+# reboot
+</pre>
+<p>After reboot I have installed Oracle Database preinstallation RPM with:</p>
+<pre># yum -y install oracle-rdbms-server-12cR1-preinstall
+</pre>
+<p>This RPM installation has also created the oracle account which I have used for following steps.</p>
+<p>I have uploaded Oracle Database SE2 installation media to <b>/home/oracle/stage</b> directory:</p>
+<pre>$ ls -al linuxamd64_12102_database_se2_*
+-rw-r--r--. 1 oracle oinstall 1673591558 Sep  1 20:42 linuxamd64_12102_database_se2_1of2.zip
+-rw-r--r--. 1 oracle oinstall 1015358809 Sep  1 20:43 linuxamd64_12102_database_se2_2of2.zip
+</pre>
+<p>I have unzipped these 2 files:</p>
+<pre>$ unzip linuxamd64_12102_database_se2_1of2.zip
+$ unzip linuxamd64_12102_database_se2_2of2.zip
+</pre>
+<p>I have switched to root account to create first Oracle Home root directory <b>/u01</b> and future database directories:</p>
+<pre># mkdir /u01
+# chown oracle:dba /u01
+# mkdir /u01/oradata
+# chown oracle:dba /u01/oradata
+# mkdir -p /u02/fra
+# chown oracle:dba /u02/fra
+</pre>
+<p>I have created full Oracle Home directory with oracle account:</p>
+<pre>$ mkdir -p /u01/app/oracle/product/12.1.0.2/se2
+</pre>
+<p>I have created the silent installation script for Oracle Universal Installer (OUI):</p>
+<pre>$ cat di.ksh
+cd database
+export DISTRIB=`pwd`
+./runInstaller -silent \
+-responseFile $DISTRIB/response/db_install.rsp      \
+oracle.install.option=INSTALL_DB_SWONLY             \
+UNIX_GROUP_NAME=oinstall                            \
+INVENTORY_LOCATION=/u01/app/oracle/oraInventory     \
+SELECTED_LANGUAGES=en                               \
+ORACLE_HOME=/u01/app/oracle/product/12.1.0.2/se2    \
+ORACLE_BASE=/u01/app/oracle                         \
+oracle.install.db.InstallEdition=SE2                \
+oracle.install.db.isCustomInstall=false             \
+oracle.install.db.DBA_GROUP=dba                     \
+oracle.install.db.OPER_GROUP=dba                    \
+oracle.install.db.BACKUPDBA_GROUP=dba               \
+oracle.install.db.DGDBA_GROUP=dba                   \
+oracle.install.db.KMDBA_GROUP=dba                   \
+SECURITY_UPDATES_VIA_MYORACLESUPPORT=false          \
+DECLINE_SECURITY_UPDATES=true
+</pre>
+<p>I have launched this script and waited for the message <u>"Successfully Setup Software":</u></p>
+<pre>./di.ksh
+Starting Oracle Universal Installer...
+
+Checking Temp space: must be greater than 500 MB.   Actual 22758 MB    Passed
+Checking swap space: must be greater than 150 MB.   Actual 3967 MB    Passed
+Preparing to launch Oracle Universal Installer from /tmp/OraInstall2015-09-01_08-52-17PM. Please wait ...
+[WARNING] [INS-32055] The Central Inventory is located in the Oracle base.
+ACTION: Oracle recommends placing this Central Inventory in a location outside the Oracle base directory.
+You can find the log of this install session at:
+/u01/app/oracle/oraInventory/logs/installActions2015-09-01_08-52-17PM.log
+The installation of Oracle Database 12c was successful.
+Please check '/u01/app/oracle/oraInventory/logs/silentInstall2015-09-01_08-52-17PM.log' for more details.
+
+As a root user, execute the following script(s):
+1. /u01/app/oracle/oraInventory/orainstRoot.sh
+2. /u01/app/oracle/product/12.1.0.2/se2/root.sh
+
+Successfully Setup Software.
+</pre>
+<p>I have switched to root account to run:</p>
+<pre># /u01/app/oracle/oraInventory/orainstRoot.sh
+Changing permissions of /u01/app/oracle/oraInventory.
+Adding read,write permissions for group.
+Removing read,write,execute permissions for world.
+
+Changing groupname of /u01/app/oracle/oraInventory to oinstall.
+The execution of the script is complete.
+#
+# /u01/app/oracle/product/12.1.0.2/se2/root.sh
+Check /u01/app/oracle/product/12.1.0.2/se2/install/root_ol6tose1_2015-09-01_20-57-12.log for the output of root script
+# cat /u01/app/oracle/product/12.1.0.2/se2/install/root_ol6tose1_2015-09-01_20-57-12.log
+Performing root user operation.
+
+The following environment variables are set as:
+ORACLE_OWNER= oracle
+ORACLE_HOME=  /u01/app/oracle/product/12.1.0.2/se2
+Copying dbhome to /usr/local/bin ...
+Copying oraenv to /usr/local/bin ...
+Copying coraenv to /usr/local/bin ...
+
+Creating /etc/oratab file...
+Entries will be added to the /etc/oratab file as needed by
+Database Configuration Assistant when a database is created
+Finished running generic part of root script.
+Now product-specific root actions will be performed.
+</pre>
+<p>With oracle account I have setup <b>.profile</b> for ORACLE_HOME and SQL*Plus login.sql:</p>
+<pre>$ cat .profile
+export ORACLE_HOME=/u01/app/oracle/product/12.1.0.2/se2
+PATH=$ORACLE_HOME/bin:$PATH
+#
+export EDITOR=vi
+export SQLPATH=/home/oracle/scripts
+$ . .profile
+$ cat $SQLPATH/login.sql
+set sqlprompt "&amp;&amp;_USER@&amp;&amp;_CONNECT_IDENTIFIER&gt;"
+set linesize 120
+column parameter format a30
+column value format a20
+</pre>
+<p>At this step running opatch does not display any SE2 information:</p>
+<pre>$ $ORACLE_HOME/OPatch/opatch lsinv
+Oracle Interim Patch Installer version 12.1.0.1.3
+Copyright (c) 2015, Oracle Corporation.  All rights reserved.
+
+Oracle Home       : /u01/app/oracle/product/12.1.0.2/se2
+Central Inventory : /u01/app/oracle/oraInventory
+from           : /u01/app/oracle/product/12.1.0.2/se2/oraInst.loc
+OPatch version    : 12.1.0.1.3
+OUI version       : 12.1.0.2.0
+Log file location : /u01/app/oracle/product/12.1.0.2/se2/cfgtoollogs/opatch/opatch2015-09-01_20-59-38PM_1.log
+
+Lsinventory Output file location : /u01/app/oracle/product/12.1.0.2/se2/cfgtoollogs/opatch/lsinv/lsinventory2015-09-01_20-59-38PM.txt
+
+--------------------------------------------------------------------------------
+Installed Top-level Products (1):
+
+Oracle Database 12c                                                  12.1.0.2.0
+There are 1 products installed in this Oracle Home.
+
+There are no Interim patches installed in this Oracle Home.
+
+--------------------------------------------------------------------------------
+
+OPatch succeeded.
+$ $ORACLE_HOME/OPatch/opatch lsinv -details
+Oracle Interim Patch Installer version 12.1.0.1.3
+Copyright (c) 2015, Oracle Corporation.  All rights reserved.
+
+Oracle Home       : /u01/app/oracle/product/12.1.0.2/se2
+Central Inventory : /u01/app/oracle/oraInventory
+from           : /u01/app/oracle/product/12.1.0.2/se2/oraInst.loc
+OPatch version    : 12.1.0.1.3
+OUI version       : 12.1.0.2.0
+Log file location : /u01/app/oracle/product/12.1.0.2/se2/cfgtoollogs/opatch/opatch2015-09-01_21-02-43PM_1.log
+
+Lsinventory Output file location : /u01/app/oracle/product/12.1.0.2/se2/cfgtoollogs/opatch/lsinv/lsinventory2015-09-01_21-02-43PM.txt
+
+--------------------------------------------------------------------------------
+Installed Top-level Products (1):
+
+Oracle Database 12c                                                  12.1.0.2.0
+There are 1 products installed in this Oracle Home.
+
+Installed Products (126):
+
+Assistant Common Files                                               12.1.0.2.0
+Buildtools Common Files                                              12.1.0.2.0
+Cluster Verification Utility Common Files                            12.1.0.2.0
+Database Configuration and Upgrade Assistants                        12.1.0.2.0
+Database Migration Assistant for Unicode                             12.1.0.2.0
+Database SQL Scripts                                                 12.1.0.2.0
+Database Workspace Manager                                           12.1.0.2.0
+DB TOOLS Listener                                                    12.1.0.2.0
+Deinstallation Tool                                                  12.1.0.2.0
+Enterprise Edition Options                                           12.1.0.2.0
+Expat libraries                                                       2.0.1.0.2
+Generic Connectivity Common Files                                    12.1.0.2.0
+Hadoopcore Component                                                 12.1.0.2.0
+HAS Common Files                                                     12.1.0.2.0
+HAS Files for DB                                                     12.1.0.2.0
+Installation Common Files                                            12.1.0.2.0
+Installation Plugin Files                                            12.1.0.2.0
+Installer SDK Component                                              12.1.0.2.0
+JAccelerator (COMPANION)                                             12.1.0.2.0
+Java Development Kit                                                 1.6.0.75.0
+LDAP Required Support Files                                          12.1.0.2.0
+OLAP SQL Scripts                                                     12.1.0.2.0
+Oracle Advanced Security                                             12.1.0.2.0
+Oracle Application Express                                           12.1.0.2.0
+Oracle Bali Share                                                    11.1.1.6.0
+Oracle Call Interface (OCI)                                          12.1.0.2.0
+Oracle Clusterware RDBMS Files                                       12.1.0.2.0
+Oracle Configuration Manager                                         10.3.8.1.1
+Oracle Configuration Manager Client                                  10.3.2.1.0
+Oracle Configuration Manager Deconfiguration                         10.3.1.0.0
+Oracle Containers for Java                                           12.1.0.2.0
+Oracle Context Companion                                             12.1.0.2.0
+Oracle Core Required Support Files                                   12.1.0.2.0
+Oracle Core Required Support Files for Core DB                       12.1.0.2.0
+Oracle Core XML Development Kit                                      12.1.0.2.0
+Oracle Database 12c                                                  12.1.0.2.0
+Oracle Database 12c                                                  12.1.0.2.0
+Oracle Database 12c Multimedia Files                                 12.1.0.2.0
+Oracle Database Deconfiguration                                      12.1.0.2.0
+Oracle Database Gateway for ODBC                                     12.1.0.2.0
+Oracle Database Plugin for Oracle Virtual Assembly Builder           12.1.0.2.0
+Oracle Database User Interface                                       11.0.0.0.0
+Oracle Database Utilities                                            12.1.0.2.0
+Oracle Database Vault option                                         12.1.0.2.0
+Oracle DBCA Deconfiguration                                          12.1.0.2.0
+Oracle Extended Windowing Toolkit                                    11.1.1.6.0
+Oracle Globalization Support                                         12.1.0.2.0
+Oracle Globalization Support                                         12.1.0.2.0
+Oracle Globalization Support For Core                                12.1.0.2.0
+Oracle Help for Java                                                 11.1.1.7.0
+Oracle Help Share Library                                            11.1.1.7.0
+Oracle Ice Browser                                                   11.1.1.7.0
+Oracle Internet Directory Client                                     12.1.0.2.0
+Oracle Java Client                                                   12.1.0.2.0
+Oracle Java Layout Engine                                            11.0.0.0.0
+Oracle JDBC Server Support Package                                   12.1.0.2.0
+Oracle JDBC/OCI Instant Client                                       12.1.0.2.0
+Oracle JDBC/THIN Interfaces                                          12.1.0.2.0
+Oracle JFC Extended Windowing Toolkit                                11.1.1.6.0
+Oracle JVM                                                           12.1.0.2.0
+Oracle JVM For Core                                                  12.1.0.2.0
+Oracle Label Security                                                12.1.0.2.0
+Oracle LDAP administration                                           12.1.0.2.0
+Oracle Locale Builder                                                12.1.0.2.0
+Oracle Multimedia                                                    12.1.0.2.0
+Oracle Multimedia Client Option                                      12.1.0.2.0
+Oracle Multimedia Java Advanced Imaging                              12.1.0.2.0
+Oracle Multimedia Locator                                            12.1.0.2.0
+Oracle Multimedia Locator Java Required Support Files                12.1.0.2.0
+Oracle Multimedia Locator RDBMS Files                                12.1.0.2.0
+Oracle Net                                                           12.1.0.2.0
+Oracle Net Java Required Support Files                               12.1.0.2.0
+Oracle Net Listener                                                  12.1.0.2.0
+Oracle Net Required Support Files                                    12.1.0.2.0
+Oracle Net Services                                                  12.1.0.2.0
+Oracle Netca Client                                                  12.1.0.2.0
+Oracle Notification Service                                          12.1.0.2.0
+Oracle Notification Service (eONS)                                   12.1.0.2.0
+Oracle Notification Service for Instant Client                       12.1.0.2.0
+Oracle ODBC Driver                                                   12.1.0.2.0
+Oracle ODBC Driverfor Instant Client                                 12.1.0.2.0
+Oracle One-Off Patch Installer                                       12.1.0.1.2
+Oracle Programmer                                                    12.1.0.2.0
+Oracle Quality of Service Management (Client)                        12.1.0.2.0
+Oracle RAC Deconfiguration                                           12.1.0.2.0
+Oracle RAC Required Support Files-HAS                                12.1.0.2.0
+Oracle Recovery Manager                                              12.1.0.2.0
+Oracle Security Developer Tools                                      12.1.0.2.0
+Oracle SQL Developer                                                 12.1.0.2.0
+Oracle Starter Database                                              12.1.0.2.0
+Oracle Text                                                          12.1.0.2.0
+Oracle Text ATG Language Support Files                               12.1.0.2.0
+Oracle Text for Core                                                 12.1.0.2.0
+Oracle Text Required Support Files                                   12.1.0.2.0
+Oracle Universal Connection Pool                                     12.1.0.2.0
+Oracle Universal Installer                                           12.1.0.2.0
+Oracle USM Deconfiguration                                           12.1.0.2.0
+Oracle Wallet Manager                                                12.1.0.2.0
+Oracle XML Development Kit                                           12.1.0.2.0
+Oracle XML Query                                                     12.1.0.2.0
+oracle.swd.oui.core.min                                              12.1.0.2.0
+Parser Generator Required Support Files                              12.1.0.2.0
+Perl Interpreter                                                     5.14.1.0.0
+Perl Modules                                                         5.14.1.0.0
+PL/SQL                                                               12.1.0.2.0
+PL/SQL Embedded Gateway                                              12.1.0.2.0
+Platform Required Support Files                                      12.1.0.2.0
+Precompiler Common Files                                             12.1.0.2.0
+Precompiler Common Files for Core                                    12.1.0.2.0
+Precompiler Required Support Files                                   12.1.0.2.0
+Precompilers                                                         12.1.0.2.0
+RDBMS Required Support Files                                         12.1.0.2.0
+RDBMS Required Support Files for Instant Client                      12.1.0.2.0
+RDBMS Required Support Files Runtime                                 12.1.0.2.0
+Required Support Files                                               12.1.0.2.0
+Sample Schema Data                                                   12.1.0.2.0
+Secure Socket Layer                                                  12.1.0.2.0
+SQL*Plus                                                             12.1.0.2.0
+SQL*Plus Files for Instant Client                                    12.1.0.2.0
+SQL*Plus Required Support Files                                      12.1.0.2.0
+SQLJ Runtime                                                         12.1.0.2.0
+SSL Required Support Files for InstantClient                         12.1.0.2.0
+Tracle File Analyzer                                                 12.1.0.2.0
+XDK Required Support Files                                           12.1.0.2.0
+XML Parser for Java                                                  12.1.0.2.0
+XML Parser for Oracle JVM                                            12.1.0.2.0
+There are 126 products installed in this Oracle Home.
+
+There are no Interim patches installed in this Oracle Home.
+
+--------------------------------------------------------------------------------
+
+OPatch succeeded.
+
+</pre>
+<h3>SE2 non-container database creation</h3>
+<p>I have created the DBCA script to create a non-container database:</p>
+<pre>$ cat crdb.ksh
+set -x
+dbca \
+-silent \
+-createDatabase \
+-templateName General_Purpose.dbc   \
+-gdbName se2 \
+-pdbadminPassword oracle12c \
+-SysPassword oracle12c \
+-SystemPassword oracle12c \
+-emConfiguration NONE \
+-datafileDestination /u01/oradata\
+-asmSysPassword oracle12c \
+-characterSet AL32UTF8 \
+-totalMemory 1024 \
+-recoveryAreaDestination /u02/fra
+</pre>
+<p>I have launched this script:</p>
+<pre>$ ./crdb.ksh
+++ dbca -silent -createDatabase -templateName General_Purpose.dbc -gdbName se2 -pdbadminPassword oracle12c -SysPassword oracle12c -SystemPassword oracle12c -emConfiguration NONE -datafileDestination /u01/oradata -asmSysPassword oracle12c -characterSet AL32UTF8 -totalMemory 1024 -recoveryAreaDestination /u02/fra
+Copying database files
+1% complete
+3% complete
+11% complete
+18% complete
+37% complete
+Creating and starting Oracle instance
+40% complete
+45% complete
+50% complete
+55% complete
+56% complete
+60% complete
+62% complete
+Completing Database Creation
+66% complete
+70% complete
+73% complete
+85% complete
+96% complete
+100% complete
+Look at the log file "/u01/app/oracle/cfgtoollogs/dbca/se2/se2.log" for further details.
+</pre>
+<p>I have checked the created database especially enabled options and default settings for In Memory option:</p>
+<pre>$ . oraenv
+ORACLE_SID = [oracle] ? se2
+The Oracle base has been set to /u01/app/oracle
+$ sqlplus /  as sysdba @c
+
+SQL*Plus: Release 12.1.0.2.0 Production on Tue Sep 1 21:48:16 2015
+
+Copyright (c) 1982, 2014, Oracle.  All rights reserved.
+
+Connected to:
+Oracle Database 12c Standard Edition Release 12.1.0.2.0 - 64bit Production
+
+SYS@se2&gt;select name from v$database;
+
+NAME
+---------
+SE2
+
+SYS@se2&gt;select cdb from v$database;
+
+CDB
+---
+NO
+
+SYS@se2&gt;--
+SYS@se2&gt;select * from v$version;
+
+BANNER                                                                               CON_ID
+-------------------------------------------------------------------------------- ----------
+Oracle Database 12c Standard Edition Release 12.1.0.2.0 - 64bit Production                0
+PL/SQL Release 12.1.0.2.0 - Production                                                    0
+CORE    12.1.0.2.0      Production                                                                0
+TNS for Linux: Version 12.1.0.2.0 - Production                                            0
+NLSRTL Version 12.1.0.2.0 - Production                                                    0
+
+SYS@se2&gt;show parameter inmemory
+
+NAME                                 TYPE        VALUE
+------------------------------------ ----------- ------------------------------
+inmemory_clause_default              string
+inmemory_force                       string      DEFAULT
+inmemory_max_populate_servers        integer     0
+inmemory_query                       string      ENABLE
+inmemory_size                        big integer 0
+inmemory_trickle_repopulate_servers_ integer     1
+percent
+optimizer_inmemory_aware             boolean     TRUE
+SYS@se2&gt;select * from v$option where parameter like '%Mem%';
+
+PARAMETER                                VALUE                    CON_ID
+---------------------------------------- -------------------- ----------
+In-Memory Column Store                   FALSE                         0
+In-Memory Aggregation                    FALSE                         0
+
+SYS@se2&gt;--
+SYS@se2&gt;select * from v$option where value='TRUE';
+
+PARAMETER                                VALUE                    CON_ID
+---------------------------------------- -------------------- ----------
+Objects                                  TRUE                          0
+Connection multiplexing                  TRUE                          0
+Connection pooling                       TRUE                          0
+Database queuing                         TRUE                          0
+Incremental backup and recovery          TRUE                          0
+Instead-of triggers                      TRUE                          0
+Parallel load                            TRUE                          0
+Proxy authentication/authorization       TRUE                          0
+Plan Stability                           TRUE                          0
+Coalesce Index                           TRUE                          0
+Transparent Application Failover         TRUE                          0
+
+PARAMETER                                VALUE                    CON_ID
+---------------------------------------- -------------------- ----------
+Sample Scan                              TRUE                          0
+Java                                     TRUE                          0
+OLAP Window Functions                    TRUE                          0
+Flashback Data Archive                   TRUE                          0
+DICOM                                    TRUE                          0
+XStream                                  TRUE                          0
+
+17 rows selected.
+
+SYS@se2&gt;--
+SYS@se2&gt;select * from v$option where value='FALSE';
+
+PARAMETER                                VALUE                    CON_ID
+---------------------------------------- -------------------- ----------
+Partitioning                             FALSE                         0
+Real Application Clusters                FALSE                         0
+Advanced replication                     FALSE                         0
+Bit-mapped indexes                       FALSE                         0
+Parallel backup and recovery             FALSE                         0
+Parallel execution                       FALSE                         0
+Point-in-time tablespace recovery        FALSE                         0
+Fine-grained access control              FALSE                         0
+Change Data Capture                      FALSE                         0
+Online Index Build                       FALSE                         0
+Managed Standby                          FALSE                         0
+
+PARAMETER                                VALUE                    CON_ID
+---------------------------------------- -------------------- ----------
+Materialized view rewrite                FALSE                         0
+Database resource manager                FALSE                         0
+Spatial                                  FALSE                         0
+Automatic Storage Management             FALSE                         0
+Export transportable tablespaces         FALSE                         0
+Fast-Start Fault Recovery                FALSE                         0
+Duplexed backups                         FALSE                         0
+Block Media Recovery                     FALSE                         0
+Fine-grained Auditing                    FALSE                         0
+Application Role                         FALSE                         0
+Enterprise User Security                 FALSE                         0
+
+PARAMETER                                VALUE                    CON_ID
+---------------------------------------- -------------------- ----------
+Oracle Data Guard                        FALSE                         0
+Oracle Label Security                    FALSE                         0
+OLAP                                     FALSE                         0
+Basic Compression                        FALSE                         0
+Join index                               FALSE                         0
+Trial Recovery                           FALSE                         0
+Advanced Analytics                       FALSE                         0
+Online Redefinition                      FALSE                         0
+Streams Capture                          FALSE                         0
+File Mapping                             FALSE                         0
+Block Change Tracking                    FALSE                         0
+
+PARAMETER                                VALUE                    CON_ID
+---------------------------------------- -------------------- ----------
+Flashback Table                          FALSE                         0
+Flashback Database                       FALSE                         0
+Transparent Data Encryption              FALSE                         0
+Backup Encryption                        FALSE                         0
+Unused Block Compression                 FALSE                         0
+Oracle Database Vault                    FALSE                         0
+Result Cache                             FALSE                         0
+SQL Plan Management                      FALSE                         0
+SecureFiles Encryption                   FALSE                         0
+Real Application Testing                 FALSE                         0
+Active Data Guard                        FALSE                         0
+
+PARAMETER                                VALUE                    CON_ID
+---------------------------------------- -------------------- ----------
+Server Flash Cache                       FALSE                         0
+Advanced Compression                     FALSE                         0
+Deferred Segment Creation                FALSE                         0
+Unified Auditing                         FALSE                         0
+Management Database                      FALSE                         0
+I/O Server                               FALSE                         0
+ASM Proxy Instance                       FALSE                         0
+Exadata Discovery                        FALSE                         0
+Data Mining                              FALSE                         0
+Global Data Services                     FALSE                         0
+Adaptive Execution Plans                 FALSE                         0
+
+PARAMETER                                VALUE                    CON_ID
+---------------------------------------- -------------------- ----------
+Table Clustering                         FALSE                         0
+Zone Maps                                FALSE                         0
+Real Application Security                FALSE                         0
+Privilege Analysis                       FALSE                         0
+Data Redaction                           FALSE                         0
+Cross Transportable Backups              FALSE                         0
+Cache Fusion Lock Accelerator            FALSE                         0
+Snapshot time recovery                   FALSE                         0
+Heat Map                                 FALSE                         0
+Automatic Data Optimization              FALSE                         0
+Transparent Sensitive Data Protection    FALSE                         0
+
+PARAMETER                                VALUE                    CON_ID
+---------------------------------------- -------------------- ----------
+In-Memory Column Store                   FALSE                         0
+Advanced Index Compression               FALSE                         0
+In-Memory Aggregation                    FALSE                         0
+
+69 rows selected.
+
+SYS@se2&gt;--
+SYS@se2&gt;column comp_name format a35
+SYS@se2&gt;column version format a12
+SYS@se2&gt;column status format a10
+SYS@se2&gt;select comp_name, version, status from dba_registry;
+
+COMP_NAME                           VERSION      STATUS
+----------------------------------- ------------ ----------
+Oracle Database Vault               12.1.0.2.0   VALID
+Oracle Application Express          4.2.5.00.08  VALID
+Oracle Label Security               12.1.0.2.0   VALID
+Spatial                             12.1.0.2.0   OPTION OFF
+Oracle Multimedia                   12.1.0.2.0   VALID
+Oracle Text                         12.1.0.2.0   VALID
+Oracle Workspace Manager            12.1.0.2.0   VALID
+Oracle XML Database                 12.1.0.2.0   VALID
+Oracle Database Catalog Views       12.1.0.2.0   VALID
+Oracle Database Packages and Types  12.1.0.2.0   VALID
+JServer JAVA Virtual Machine        12.1.0.2.0   VALID
+
+COMP_NAME                           VERSION      STATUS
+----------------------------------- ------------ ----------
+Oracle XDK                          12.1.0.2.0   VALID
+Oracle Database Java Packages       12.1.0.2.0   VALID
+OLAP Analytic Workspace             12.1.0.2.0   OPTION OFF
+Oracle OLAP API                     12.1.0.2.0   OPTION OFF
+Oracle Real Application Clusters    12.1.0.2.0   OPTION OFF
+
+16 rows selected.
+</pre>
+<p>Note that SQL*Plus connection header  and v$version clearly display "Standard Edition".</p>
