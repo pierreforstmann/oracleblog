@@ -1,0 +1,285 @@
+<p>If you want to trace operating system calls made by an Oracle process you need to know:<br />
+<br />
+1. what is the tracing tool you can use<br />
+<br />
+2.how to use this tracing tool with an Oracle process.</p>
+<p>For this article I'm going to show how to trace the open system call in Oracle 11.2.0.3 running on Oracle Linux 6.3 64-bit. The <b>open</b> system call is the UNIX general purpose system call to open a file or a device: on success it returns a number representing a file descriptor in the Linux kernel file table.</p>
+<p>Note that all Linux operating system calls are documented in the section 2 of the man pages. You can have a list of these operating system calls with </p>
+<pre>
+$ ls /usr/share/man/man2
+</pre>
+<p>The tracing tool we are going to use is <b>strace</b>. Here is an example of <b>strace</b> with a small C program. First, create a file named <i>/home/oracle/strace/TheAlbum:</i></p>
+<pre>
+touch /home/oracle/strace/TheAlbum
+</pre>
+<p>Compile the following C program:</p>
+<pre>
+/*
+** fopen.c
+**
+*/
+
+#include &lt;stdio.h&gt;
+#include &lt;errno.h&gt;
+#include &lt;stdlib.h&gt;
+#include &lt;string.h&gt;
+#include &lt;time.h&gt;
+
+extern int errno;
+
+
+int main(int argc, char** argv)
+{
+
+        FILE *f;
+
+        f = fopen("/home/oracle/strace/TheAlbum","r");
+        if (errno != 0)
+        {
+                printf("ERROR: fopen: errno=%d\n", errno);
+                exit(1);
+        }
+
+}
+</pre>
+<p>with</p>
+<pre>
+$ gcc -o fopen fopen.c
+</pre>
+<p>This has created a executable file named fopen:</p>
+<pre>
+$ file fopen
+fopen: ELF 64-bit LSB executable, x86-64, version 1 (SYSV), dynamically linked (uses shared libs), for GNU/Linux 2.6.18, not stripped
+</pre>
+<p>To trace system calls made by fopen with strace you need to run:</p>
+<pre>
+$ strace ./fopen
+</pre>
+<p>which displays:</p>
+<pre>
+$ strace ./fopen
+execve("./fopen", ["./fopen"], [/* 30 vars */]) = 0
+brk(0)                                  = 0x2341000
+mmap(NULL, 4096, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0) = 0x7f0cfc511000
+access("/etc/ld.so.preload", R_OK)      = -1 ENOENT (No such file or directory)
+open("/u01/oracle/db11203/lib/tls/x86_64/libc.so.6", O_RDONLY) = -1 ENOENT (No such file or directory)
+stat("/u01/oracle/db11203/lib/tls/x86_64", 0x7fffa89dd630) = -1 ENOENT (No such file or directory)
+open("/u01/oracle/db11203/lib/tls/libc.so.6", O_RDONLY) = -1 ENOENT (No such file or directory)
+stat("/u01/oracle/db11203/lib/tls", 0x7fffa89dd630) = -1 ENOENT (No such file or directory)
+open("/u01/oracle/db11203/lib/x86_64/libc.so.6", O_RDONLY) = -1 ENOENT (No such file or directory)
+stat("/u01/oracle/db11203/lib/x86_64", 0x7fffa89dd630) = -1 ENOENT (No such file or directory)
+open("/u01/oracle/db11203/lib/libc.so.6", O_RDONLY) = -1 ENOENT (No such file or directory)
+stat("/u01/oracle/db11203/lib", {st_mode=S_IFDIR|0755, st_size=12288, ...}) = 0
+open("/etc/ld.so.cache", O_RDONLY)      = 3
+fstat(3, {st_mode=S_IFREG|0644, st_size=37379, ...}) = 0
+mmap(NULL, 37379, PROT_READ, MAP_PRIVATE, 3, 0) = 0x7f0cfc507000
+close(3)                                = 0
+open("/lib64/libc.so.6", O_RDONLY)      = 3
+read(3, "\177ELF\2\1\1\3\3&gt;\1\360\355\301&lt;9&quot;..., 832) = 832
+fstat(3, {st_mode=S_IFREG|0755, st_size=1922152, ...}) = 0
+mmap(0x393cc00000, 3745960, PROT_READ|PROT_EXEC, MAP_PRIVATE|MAP_DENYWRITE, 3, 0) = 0x393cc00000
+mprotect(0x393cd8a000, 2093056, PROT_NONE) = 0
+mmap(0x393cf89000, 20480, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_FIXED|MAP_DENYWRITE, 3, 0x189000) = 0x393cf89000
+mmap(0x393cf8e000, 18600, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_FIXED|MAP_ANONYMOUS, -1, 0) = 0x393cf8e000
+close(3)                                = 0
+mmap(NULL, 4096, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0) = 0x7f0cfc506000
+mmap(NULL, 4096, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0) = 0x7f0cfc505000
+mmap(NULL, 4096, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0) = 0x7f0cfc504000
+arch_prctl(ARCH_SET_FS, 0x7f0cfc505700) = 0
+mprotect(0x393cf89000, 16384, PROT_READ) = 0
+mprotect(0x393c61f000, 4096, PROT_READ) = 0
+munmap(0x7f0cfc507000, 37379)           = 0
+brk(0)                                  = 0x2341000
+brk(0x2362000)                          = 0x2362000
+open(&quot;/home/oracle/strace/TheAlbum&quot;, O_RDONLY) = 3
+exit_group(0)                           = ?
+</pre>
+<p>We see that the C library <b>fopen</b> call has been translated into the system call <b>open</b>:</p>
+<pre>
+open("/home/oracle/strace/TheAlbum", O_RDONLY) = 3
+</pre>
+<p>Now you need to setup database to do the strace test. Create SQL file <b>setup.sql</b> with following content:</p>
+<pre>
+set echo on
+drop user strace cascade;
+--
+create user strace identified by strace;
+alter user strace quota unlimited on users;
+grant select_catalog_role to strace;
+grant create session to strace;
+grant create table to strace;
+connect strace/strace;
+create table t(x int);
+select tablespace_name
+from user_tables
+where table_name='T';
+insert into t select object_id from dba_objects;
+commit;
+--
+exit
+</pre>
+<p>Run the script on the right database:</p>
+<pre>
+$ sqlplus / as sysdba @setup
+
+SQL*Plus: Release 11.2.0.3.0 Production on Fri Aug 16 13:02:18 2013
+
+Copyright (c) 1982, 2011, Oracle.  All rights reserved.
+
+
+Connected to:
+Oracle Database 11g Enterprise Edition Release 11.2.0.3.0 - 64bit Production
+With the Partitioning, OLAP, Data Mining and Real Application Testing options
+
+SQL&gt; drop user strace cascade;
+
+User dropped.
+
+SQL&gt; --
+SQL&gt; create user strace identified by strace;
+
+User created.
+
+SQL&gt; alter user strace quota unlimited on users;
+
+User altered.
+
+SQL&gt; grant select_catalog_role to strace;
+
+Grant succeeded.
+
+SQL&gt; grant create session to strace;
+
+Grant succeeded.
+
+SQL&gt; grant create table to strace;
+
+Grant succeeded.
+
+SQL&gt; connect strace/strace;
+Connected.
+SQL&gt; create table t(x int);
+
+Table created.
+
+SQL&gt; select tablespace_name
+  2  from user_tables
+  3  where table_name='T';
+
+TABLESPACE_NAME
+------------------------------
+USERS
+
+SQL&gt; insert into t select object_id from dba_objects;
+
+74510 rows created.
+
+SQL&gt; commit;
+
+Commit complete.
+
+SQL&gt; --
+SQL&gt; exit
+</pre>
+<p>To trace a system call run by an Oracle database process, you need to identify the Oracle process on Linux. Unless you are using shared server a new database connection has a new Linux process that is the <u>dedicated server process</u> which will execute SQL statements sent to the database session by the database client. First we need to identify the current SID of the current session: we can use V$MYSTAT.SID column because this column will always return the SID of the <u>current</u> session:</p>
+<pre>
+SQL&gt; select sid, count(*)
+  2  from v$mystat
+  3  group by sid;
+
+       SID   COUNT(*)
+---------- ----------
+        22        638
+
+</pre>
+<p>For our test we only need to have one row so we can add ROWNUM=1 clause:</p>
+<pre>
+SQL&gt; select sid from v$mystat where rownum=1;
+
+       SID
+----------
+        22
+
+SQL&gt;
+</pre>
+<p>To get the Linux process identifier of this dedicated server process, we need to use the view V$PROCESS because V$SESSION does not have this data. V$PROCESS.SPID contains the operating system identifier of an Oracle database process: on Linux it is the process identifier or <b>PID</b>. To join V$PROCESS and V$SESSION we need to join V$PROCESS.ADDR and V$SESSION.SADDR. The query to retrieve dedicated server process pid for the current session is:</p>
+<pre>
+set echo on
+select spid
+from v$process p, v$session s
+where p.addr = s.paddr
+and s.sid = (select sid from v$mystat where rownum=1);
+</pre>
+<p>Create a script named <b>gpid.sql</b> and add above code to this script.</p>
+<p>Because the dedicated server process is started in background by the database instance we cannot use strace as in the above example. Instead we must use the -p option to attach strace to an existing process and we will need to connect as root for this.</p>
+<p>Shutdown and restart database:</p>
+<pre>
+$ srvctl stop database -d fs0
+$ srvctl start database -d fs0
+</pre>
+<p>Connect to database instance and get corresponding processs pid:</p>
+<pre>
+$ sqlplus strace/strace
+
+SQL*Plus: Release 11.2.0.3.0 Production on Fri Aug 16 12:28:53 2013
+
+Copyright (c) 1982, 2011, Oracle.  All rights reserved.
+
+
+Connected to:
+Oracle Database 11g Enterprise Edition Release 11.2.0.3.0 - 64bit Production
+With the Partitioning, OLAP, Data Mining and Real Application Testing options
+
+SQL&gt; @gpid
+SQL&gt; select spid
+  2  from v$process p, v$session s
+  3  where p.addr = s.paddr
+  4  and s.sid = (select sid from v$mystat where rownum=1);
+
+SPID
+------------------------
+4983
+
+SQL&gt;
+</pre>
+<p>Do <u>not</u> exit database session and from another shell window connect as root and start strace with the previous PID and with -o option to log trace output in a file:</p>
+<pre>
+# strace -p 4983 -o 4983.log
+Process 4983 attached - interrupt to quit
+</pre>
+<p>Go back to database session, run a simple query and exit:</p>
+<pre>
+SQL&gt; select count(*) from t;
+
+  COUNT(*)
+----------
+     74510
+
+SQL&gt; exit
+</pre>
+<p>strace has detected the the database process has ended:</p>
+<pre>
+Process 4983 detached
+</pre>
+<p>You can look for <b>open</b> system call in the trace file:</p>
+<pre>
+# grep open 4983.log
+open("/u01/oradata/FS0/users01.dbf", O_RDWR|O_DSYNC) = 8
+open("/u01/oracle/db11203/rdbms/mesg/diaus.msb", O_RDONLY) = 5
+open("/u01/oracle/db11203/rdbms/mesg/diaus.msb", O_RDONLY) = 5
+#
+
+</pre>
+<p>We can see that the dedicated server process had opened the USERS datafile to be able to read data for the table T:</p>
+<pre>
+SQL&gt; select file_name, tablespace_name
+  2  from dba_data_files
+  3  where file_name like '%users%';
+
+FILE_NAME                      TABLESPACE_NAME
+------------------------------ ------------------------------
+/u01/oradata/FS0/users01.dbf   USERS
+
+SQL&gt;
+</pre>
+<p>Note that to reproduce this test you may need to flush buffer cache or restart database instance.</p>
