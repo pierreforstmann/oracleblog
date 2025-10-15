@@ -1,0 +1,66 @@
+<p><a href="http://www.oracle.com/technetwork/developer-tools/apex/overview/index-155186.html">Oracle Application Express (APEX)</a> is an web application development tool that is installed by default with Oracle Database when database is created with Database Creation Assistant (DBCA).</p>
+<p>Oracle Corp. has made available a free workspace on <a href="https://apex.oracle.com/en/" />http://apex.oracle.com</a> for everyone : this includes a 25 megabyte schema in an Oracle database hosted in some Oracle Corp. data center. As far as I know this is the only public SQL access to an Oracle database that is hosted by Oracle Corp:<br />
+public SQL access here means that from APEX web interface you can run SQL statements but this is the only way to run SQL statement for this database because there is no way to have some SQL*Plus or SQL Developer direct connection to this database. </p>
+<p><a href="http://joelkallman.blogspot.fr/" />Joel Kallman blog</a> is likely the best information source where you can find implementation details about this system: in <a href="http://joelkallman.blogspot.fr/2008/02/who-uses-apexoraclecom.html?showComment=1203696120000#c3914885611089619351">2008</a> apex.oracle.com was running on a 2 CPU single server with 16 GB of RAM.</p>
+<p>The access granted by apex.oracle.com is implemented with an Oracle database account which has the same name as the APEX workspace. This account cannot access most of the V$ views or DBA views (view names with DBA prefix). For example trying to access following views always return "ORA-00942: table or view does not exist" :</p>
+<pre>
+select * from sys.v_$database;
+select * from sys.v_$instance;
+select * from sys.v_$parameter;
+select * from sys.v_$archived_log;
+select * from sys.dba_data_files;
+</pre>
+<p>However you can access following V$ views:</p>
+<pre>
+sys.v_$version;
+sys.v_$active_instances;
+sys.v_$session_connect_info;
+sys.v_$session_longops;
+sys.sysfiles;
+</pre>
+<p>Did you know that SYSFILES is a Oracle version 5 view (according to <a href="https://docs.oracle.com/cd/A57673_01/DOC/server/doc/SRF73/ch2a.htm#toc018">Oracle7 Server Reference Manual</a>) that still exists in Oracle 12  ?<br />
+<br />
+Of course you also have access to ALL views (view names with ALL prefix) including:</p>
+<pre>
+all_users
+all_objects
+all_tables
+</pre>
+<p>Your database account has also execute privilege on SYS_CONTEXT function and I have used the following script to retrieve database information that is in V$DATABASE or in V$INSTANCE (or displayed by some SQL*Plus SHOW commands):</p>
+<pre>
+select sys_context('USERENV','HOST') from dual;
+select sys_context('USERENV','OS_USER') from dual;
+select sys_context('USERENV','DB_NAME') from dual;
+select sys_context('USERENV','DB_UNIQUE_NAME') from dual;
+select sys_context('USERENV','INSTANCE_NAME') from dual;
+select sys_context('USERENV','CON_NAME') from dual;
+select sys_context('USERENV','CON_ID') from dual;
+</pre>
+<p>Here are my findings about the database:</p>
+<li> Oracle version used is 12.1.0.2 Entreprise Edition on Linux (from V$VERSION) - you can also retrieve this information by using the top right question mark icon (the Help button) and by clicking "About" menu option
+</li>
+<li>
+It is a 2-node RAC database using ASM (from V$ACTIVE_INSTANCES and SYSFILES)
+</li>
+<li>
+ARCHIVELOG mode is enabled (you can see archive logs backups in V$SESSION_LONGOPS)
+</li>
+<li>
+About 25000 APEX workspaces are using about 470 GB of datafiles (from ALL_USERS and SYSFILES)
+</li>
+<li>
+Database is a non-container database (non-CDB): because CON_NAME is the same as DB_NAME and CON_ID is 0. You can also check this by trying the change the current pluggable database (PDB) with something like:</p>
+<pre>
+alter session set container=root;
+</pre>
+<p>you always get:</p>
+<pre>
+ORA-65090: operation only allowed in a container database
+</pre>
+<p>Note that in a non-CDB database you get this error message even if the specified PDB does not exist and even if you don't have the SET CONTAINER privilege.
+</li>
+<p>
+When running SQL scripts apex.oracle.com is using load balancing between the 2 database instances: I have noted after running 5 times in a row my script because INSTANCE_NAME has changed and archived log backups traces only exist on instance 1.</p>
+<p>Note that apex.oracle.com is using Resource Manager to limit query resource usage: if you try to use too much resource you will likely error "ORA-00040: active time limit exceeded - call aborted". J. Kallmann has documented this configuration on his <a href="http://joelkallman.blogspot.fr/2009/08/oracle-database-resource-manager-and.html">blog</a>. Practically this makes querying some dictionary views like ALL_OBJECTS and ALL_TABLES difficult.</p>
+<p>You can check my apex.oracle.com script output (edited to be displayed on this blog) <a href="https://pierreforstmanndotcom.wordpress.com/apex-script-output/" />here</a>.</p>
+<p>I find quite surprising that on one hand Oracle Corp. has announced that <a href="https://blogs.oracle.com/UPGRADE/entry/non_cdb_architecture_of_oracle">starting from 12.1.0.2 release non-CDB architecture is deprecated</a> and that on the other hand the only "public" Oracle database running 12.1.0.2 release is a non-CDB database.</p>
