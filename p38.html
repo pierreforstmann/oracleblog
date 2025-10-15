@@ -1,0 +1,405 @@
+<p>This blog post details database switchover in the following configuration created in <a href="http://pierreforstmanndotcom.wordpress.com/2015/07/20/create-rac-physical-standby-database-with-oracle-rac-12-1-0-2-and-rman-active-duplication/">my previous blog post</a>:</p>
+<table border="2">
+<tbody>
+<tr>
+<td></td>
+<td>primary node 1</td>
+<td>primary node 2</td>
+<td>standby node 1</td>
+<td>standby node 2</td>
+</tr>
+<tr>
+<td>hostname</td>
+<td>ol7tocn1</td>
+<td>ol7tocn2</td>
+<td>ol7tocn3</td>
+<td>ol7tocn4</td>
+</tr>
+<tr>
+<td>DB_NAME</td>
+<td>DOT</td>
+<td>DOT</td>
+<td>DOT</td>
+<td>DOT</td>
+</tr>
+<tr>
+<td>INSTANCE_NAME</td>
+<td>DOT1</td>
+<td>DOT2</td>
+<td>DTF1</td>
+<td>DTF2</td>
+</tr>
+<tr>
+<td>DB_UNIQUE_NAME</td>
+<td>DOT</td>
+<td>DOT</td>
+<td>DTF</td>
+<td>DTF</td>
+</tr>
+<tr>
+<td>SCAN listener name</td>
+<td>ol7toc-scan</td>
+<td>ol7toc-scan</td>
+<td>ol7toc2-scan</td>
+<td>ol7toc2-scan</td>
+</tr>
+<tr>
+<td>datafile disk group name</td>
+<td>+DATA</td>
+<td>+DATA</td>
+<td>+DATA</td>
+<td>+DATA</td>
+</tr>
+<tr>
+<td>fast recovery area disk group name</td>
+<td>+FRA</td>
+<td>+FRA</td>
+<td>+FRA</td>
+<td>+FRA</td>
+</tr>
+</tbody>
+</table>
+<h3>What is switchover</h3>
+<p><a href="http://docs.oracle.com/database/121/SBYDB/role_management.htm#i1027411">Data Guard Concepts and Administration</a> says that switchover<br />
+<i>allows the primary database to switch roles with one of its standby databases. There is no data loss during a switchover. After a switchover, each database continues to participate in the Oracle Data Guard configuration with its new role.<br />
+</i></p>
+<p><a href="http://www.mhprofessional.com/product.php?isbn=0071621113">Oracle Data Guard 11g Handbook</a> page 20 (written by several Oracle Corp. employees implementing the Data Guard product) describes switchover process the following way:</p>
+<ul>
+<li>notifies the primary database that a switchover is about to occur.</li>
+<li>disconnects all users from the primary.</li>
+<li>generates a special redo record the signals the End Of Redo (EOR).</li>
+<li>converts the primary database into a standby database.</li>
+<li>once the standby database applies the final EOR record, guaranteeing that no data has been lost, converts the standby to the primary role.</li>
+</ul>
+<p>No data loss with switchover means that no transaction committed on the primary before the EOR is lost: it must be applied on the standby otherwise switchover cannot successfully complete.</p>
+<p>I have used the <a href="http://docs.oracle.com/database/121/SBYDB/role_management.htm#SBYDB5170">new 12.1 statements for switchover</a>.</p>
+<h3>STEP 1 Verify that the target standby database is ready for switchover.</h3>
+<p>I have connected to primary database instance DOT1 with OPS$ORACLE (to whom DBA role has been granted) and I have run:</p>
+<pre>OPS$ORACLE@DOT1&gt;alter database switchover to dtf verify;
+
+Database altered.
+
+OPS$ORACLE@DOT1&gt;
+</pre>
+<p>DOT1 alert log says:</p>
+<pre>Thu Aug 13 20:01:40 2015
+alter database switchover to dtf verify
+Thu Aug 13 20:01:43 2015
+SWITCHOVER VERIFY: Send VERIFY request to switchover target DTF
+SWITCHOVER VERIFY COMPLETE
+Completed: alter database switchover to dtf verify
+</pre>
+<p>DTF1 alert log says:</p>
+<pre>Thu Aug 13 20:01:59 2015
+SWITCHOVER VERIFY BEGIN
+SWITCHOVER VERIFY COMPLETE
+</pre>
+<h3>STEP 2 Initiate the switchover on the primary database.</h3>
+<p>From same SQL*Plus session on primary database DOT1 I have run:</p>
+<pre>OPS$ORACLE@DOT1&gt;alter database switchover to dtf;
+alter database switchover to dtf
+*
+ERROR at line 1:
+ORA-03113: end-of-file on communication channel
+Process ID: 16298
+Session ID: 74 Serial number: 48624
+</pre>
+<p>I have been disconnected because switchover has shutdown both primary database instances:</p>
+<p>DOT1 alert log is <a href="http://pierreforstmanndotcom.wordpress.com/switch-s2-DOT1-13082015.log">here</a>.</p>
+<p>DOT2 alert log only says:</p>
+<pre>Thu Aug 13 20:05:36 2015
+Switchover in progress in another database instance - Database is shutdown automatically
+LGWR (ospid: 10324): terminating the instance due to error 16456
+Thu Aug 13 20:05:37 2015
+Instance terminated by LGWR, pid = 10324
+</pre>
+<p>DTF1 alert log is <a href="http://pierreforstmanndotcom.wordpress.com/switch-s2-DTF1-13082015.log">here</a>.</p>
+<p>DTF2 alert log is <a href="https://pierreforstmanndotcom.wordpress.com/switch-s2-DTF2-13082015.log">here</a>.</p>
+<p>At this step, new primary (former standby) instances are still in MOUNT mode:</p>
+<pre>[oracle@ol7tocn3 ~]$ crsctl stat res -t
+--------------------------------------------------------------------------------
+Name           Target  State        Server                   State details
+--------------------------------------------------------------------------------
+Local Resources
+--------------------------------------------------------------------------------
+ora.DATA.dg
+               ONLINE  ONLINE       ol7tocn3                 STABLE
+               ONLINE  ONLINE       ol7tocn4                 STABLE
+ora.FRA.dg
+               ONLINE  ONLINE       ol7tocn3                 STABLE
+               ONLINE  ONLINE       ol7tocn4                 STABLE
+ora.LISTENER.lsnr
+               ONLINE  ONLINE       ol7tocn3                 STABLE
+               ONLINE  ONLINE       ol7tocn4                 STABLE
+ora.OCRVD.dg
+               ONLINE  ONLINE       ol7tocn3                 STABLE
+               ONLINE  ONLINE       ol7tocn4                 STABLE
+ora.asm
+               ONLINE  ONLINE       ol7tocn3                 Started,STABLE
+               ONLINE  ONLINE       ol7tocn4                 Started,STABLE
+ora.net1.network
+               ONLINE  ONLINE       ol7tocn3                 STABLE
+               ONLINE  ONLINE       ol7tocn4                 STABLE
+ora.ons
+               ONLINE  ONLINE       ol7tocn3                 STABLE
+               ONLINE  ONLINE       ol7tocn4                 STABLE
+--------------------------------------------------------------------------------
+Cluster Resources
+--------------------------------------------------------------------------------
+ora.LISTENER_SCAN1.lsnr
+      1        ONLINE  ONLINE       ol7tocn4                 STABLE
+ora.LISTENER_SCAN2.lsnr
+      1        ONLINE  ONLINE       ol7tocn3                 STABLE
+ora.LISTENER_SCAN3.lsnr
+      1        ONLINE  ONLINE       ol7tocn3                 STABLE
+ora.MGMTLSNR
+      1        ONLINE  ONLINE       ol7tocn3                 169.254.197.48 192.1
+                                                             68.43.213,STABLE
+ora.cvu
+      1        ONLINE  ONLINE       ol7tocn3                 STABLE
+ora.dtf.db
+      1        ONLINE  INTERMEDIATE ol7tocn3                 Mounted (Closed),STA
+                                                             BLE
+      2        ONLINE  INTERMEDIATE ol7tocn4                 Mounted (Closed),STA
+                                                             BLE
+ora.mgmtdb
+      1        ONLINE  ONLINE       ol7tocn3                 Open,STABLE
+ora.oc4j
+      1        ONLINE  ONLINE       ol7tocn3                 STABLE
+ora.ol7tocn3.vip
+      1        ONLINE  ONLINE       ol7tocn3                 STABLE
+ora.ol7tocn4.vip
+      1        ONLINE  ONLINE       ol7tocn4                 STABLE
+ora.scan1.vip
+      1        ONLINE  ONLINE       ol7tocn4                 STABLE
+ora.scan2.vip
+      1        ONLINE  ONLINE       ol7tocn3                 STABLE
+ora.scan3.vip
+      1        ONLINE  ONLINE       ol7tocn3                 STABLE
+--------------------------------------------------------------------------------
+[oracle@ol7tocn3 ~]$
+</pre>
+<h3>STEP 3 Open the new primary database</h3>
+<p>I have connected with SYSDBA on DTF1 database instance and run:</p>
+<pre>[oracle@ol7tocn3 ~]$ sqlplus / as sysdba
+
+SQL*Plus: Release 12.1.0.2.0 Production on Thu Aug 13 20:10:28 2015
+
+Copyright (c) 1982, 2014, Oracle.  All rights reserved.
+
+
+Connected to:
+Oracle Database 12c Enterprise Edition Release 12.1.0.2.0 - 64bit Production
+With the Partitioning, Real Application Clusters, Automatic Storage Management, OLAP,
+Advanced Analytics and Real Application Testing options
+
+SYS@DTF1&gt;select name, db_unique_name, database_role from v$database;
+
+NAME      DB_UNIQUE_NAME                 DATABASE_ROLE
+--------- ------------------------------ ----------------
+DOT       DTF                            PRIMARY
+
+SYS@DTF1&gt;alter database open;
+
+Database altered.
+
+SYS@DTF1&gt;
+</pre>
+<p>DTF1 alert log is <a href="https://pierreforstmanndotcom.wordpress.com/switch-s3-DTF1-13082015.log">here</a>.</p>
+<p>DTF2 alert log only says:</p>
+<pre>Thu Aug 13 20:10:50 2015
+
+* instance 1 validates domain 0
+</pre>
+<p>At this step, DTF2 instance is still in MOUNTED mode and must be switched to OPEN mode.</p>
+<p>I have connected to DTF2 instance with SYSDBA privilege and run:</p>
+<pre>[oracle@ol7tocn4 ~]$ sqlplus / as sysdba
+
+SQL*Plus: Release 12.1.0.2.0 Production on Thu Aug 13 20:14:23 2015
+
+Copyright (c) 1982, 2014, Oracle.  All rights reserved.
+
+
+Connected to:
+Oracle Database 12c Enterprise Edition Release 12.1.0.2.0 - 64bit Production
+With the Partitioning, Real Application Clusters, Automatic Storage Management, OLAP,
+Advanced Analytics and Real Application Testing options
+
+SYS@DTF2&gt;select name, db_unique_name, database_role from v$database;
+
+NAME      DB_UNIQUE_NAME                 DATABASE_ROLE
+--------- ------------------------------ ----------------
+DOT       DTF                            PRIMARY
+
+SYS@DTF2&gt;select inst_id, open_mode from gv$database;
+
+   INST_ID OPEN_MODE
+---------- --------------------
+         2 MOUNTED
+         1 READ WRITE
+
+SYS@DTF2&gt;alter database open;
+
+Database altered.
+
+SYS@DTF12&gt;
+</pre>
+<p>DTF2 alert log is <a href="https://pierreforstmanndotcom.wordpress.com/switch-s3-DTF2-13082015.log">here</a>.</p>
+<p>At this step both new primary database instances are now in OPEN mode:</p>
+<pre>SYS@DTF1&gt;select inst_id, open_mode from gv$database;
+
+   INST_ID OPEN_MODE
+---------- --------------------
+         1 READ WRITE
+         2 READ WRITE
+
+SYS@DTF1&gt;
+</pre>
+<h3>STEP 4 Mount the new physical standby database.</h3>
+<p>I have run on primary instance node:</p>
+<pre>[oracle@ol7tocn1 ~]$ srvctl start database -d DOT -o mount
+[oracle@ol7tocn1 ~]$ srvctl status database -d DOT
+Instance DOT1 is running on node ol7tocn1
+Instance DOT2 is running on node ol7tocn2
+[oracle@ol7tocn1 ~]$
+</pre>
+<p>DOT1 alert log is <a href="https://pierreforstmanndotcom.wordpress.com/switch-s4-DOT1-13082015.log">here</a>.</p>
+<p>DOT2 alert log is <a href="https://pierreforstmanndotcom.wordpress.com/switch-s4-DOT2-13082015.log">here</a>.</p>
+<h3>STEP 5 Start Redo Apply on the new physical standby database.</h3>
+<p>I have connected with SYSDBA privileges to DOT1 and run (note NODELAY clause replacing USING CURRENT LOGFILE clause):</p>
+<pre>SYS@DOT1&gt;alter database recover managed standby database nodelay disconnect;
+
+Database altered.
+
+SYS@DOT1&gt;
+</pre>
+<p>DOT1 alert log <a href="https://pierreforstmanndotcom.wordpress.com/switch-s5-DOT1-13082015.log">is here</a>.</p>
+<p>DOT2 alert log only says:</p>
+<pre>Thu Aug 13 20:31:03 2015
+Managed Standby Recovery starting Real Time Apply
+</pre>
+<h3>STEP 6 update Oracle Cluster Registry (OCR).</h3>
+<p>Note that OCR has <u>not</u> been updated:</p>
+<p>- new standby database has still former primary role:</p>
+<pre>[oracle@ol7tocn1 ~]$ srvctl config database -d DOT
+Database unique name: DOT
+Database name: DOT
+Oracle home: /u01/app/12.1.0.2/db
+Oracle user: oracle
+Spfile: +DATA/DOT/PARAMETERFILE/spfile.289.887485975
+Password file: +DATA/DOT/PASSWORD/pwddot.274.887484967
+Domain:
+Start options: open
+Stop options: immediate
+Database role: PRIMARY
+Management policy: AUTOMATIC
+Server pools:
+Disk Groups: FRA,DATA
+Mount point paths:
+Services:
+Type: RAC
+Start concurrency:
+Stop concurrency:
+OSDBA group: dba
+OSOPER group: dba
+Database instances: DOT1,DOT2
+Configured nodes: ol7tocn1,ol7tocn2
+Database is administrator managed
+[oracle@ol7tocn1 ~]$
+</pre>
+<p>- new primary database has still former standby role:</p>
+<pre>[oracle@ol7tocn3 ~]$ srvctl config database -d DTF
+Database unique name: DTF
+Database name:
+Oracle home: /u01/app/12.1.0.2/db
+Oracle user: oracle
+Spfile: +DATA/DTF/spfileDTF.ora
+Password file:
+Domain:
+Start options: mount
+Stop options: immediate
+Database role: PHYSICAL_STANDBY
+Management policy: AUTOMATIC
+Server pools:
+Disk Groups: DATA,FRA
+Mount point paths:
+Services:
+Type: RAC
+Start concurrency:
+Stop concurrency:
+OSDBA group: dba
+OSOPER group: dba
+Database instances: DTF1,DTF2
+Configured nodes: ol7tocn3,ol7tocn4
+Database is administrator managed
+[oracle@ol7tocn3 ~]$
+</pre>
+<p>This means that if cluster nodes are rebooted database instances will start with OCR start option and will not give the expected results.</p>
+<p>To fix this I have run on primary cluster:</p>
+<pre>[oracle@ol7tocn3 ~]$ srvctl modify database -d DTF -r PRIMARY -s open
+[oracle@ol7tocn3 ~]$ srvctl config database -d DTF
+Database unique name: DTF
+Database name:
+Oracle home: /u01/app/12.1.0.2/db
+Oracle user: oracle
+Spfile: +DATA/DTF/spfileDTF.ora
+Password file:
+Domain:
+Start options: open
+Stop options: immediate
+Database role: PRIMARY
+Management policy: AUTOMATIC
+Server pools:
+Disk Groups: DATA,FRA
+Mount point paths:
+Services:
+Type: RAC
+Start concurrency:
+Stop concurrency:
+OSDBA group: dba
+OSOPER group: dba
+Database instances: DTF1,DTF2
+Configured nodes: ol7tocn3,ol7tocn4
+Database is administrator managed
+</pre>
+<p>And I have run on standy cluster:</p>
+<pre>[oracle@ol7tocn1 ~]$ srvctl modify database -d DOT -r PHYSICAL_STANDBY -s mount
+[oracle@ol7tocn1 ~]$ srvctl config database -d DOT
+Database unique name: DOT
+Database name: DOT
+Oracle home: /u01/app/12.1.0.2/db
+Oracle user: oracle
+Spfile: +DATA/DOT/PARAMETERFILE/spfile.289.887485975
+Password file: +DATA/DOT/PASSWORD/pwddot.274.887484967
+Domain:
+Start options: mount
+Stop options: immediate
+Database role: PHYSICAL_STANDBY
+Management policy: AUTOMATIC
+Server pools:
+Disk Groups: FRA,DATA
+Mount point paths:
+Services:
+Type: RAC
+Start concurrency:
+Stop concurrency:
+OSDBA group: dba
+OSOPER group: dba
+Database instances: DOT1,DOT2
+Configured nodes: ol7tocn1,ol7tocn2
+Database is administrator managed
+[oracle@ol7tocn1 ~]$
+</pre>
+<p>Now everything should be ready for cluster reboot except that redo apply will not start automatically on standy cluster: as far as I know this is not possible with Grid Infrastructure 12c.</p>
+<h3>Conclusion</h3>
+<p>RAC standby database switchover is very close to single instance database switchover (described <a href="http://pierreforstmanndotcom.wordpress.com/2014/11/28/create-a-physical-standby-database-with-oracle-12-1-0-2-and-rman-active-duplication/">here</a>):</p>
+<p>What has not changed in 12c:</p>
+<ul>
+<li>A RAC standby database has only one instance applying redo</li>
+<li>during switchover new standby database instances must be restarted manually</li>
+</ul>
+<p>What has changed in 12c (in addition to the new SQL statements):</p>
+<ul>
+<li>during switchover all former primary database instances are shutdown: <a href="http://docs.oracle.com/database/121/SBYDB/role_management.htm#i1027411">documentation says </a><i>:<br />
+note that as of Oracle Database 12c Release 1 (12.1), when you perform a switchover from an Oracle RAC primary database to a physical standby database, it is no longer necessary to shut down all but one primary database instance</i>.</li>
+</ul>
