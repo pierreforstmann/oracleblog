@@ -1,0 +1,104 @@
+<p>There are mainly 2 ways to install software on UNIX:<br />
+- either installation media constains the source code and the installation process will compile this source code, link it and copy the generated binaries to the right Unix directories.<br />
+- or installation media contains only the binaries and the installation process will copy these binaries to the right directories.</p>
+<h3>Overall installation process</h3>
+<p>What does the Oracle Universal Installer (OUI) do when installing Oracle Database on UNIX ? Oracle Database is a closed source software: code source is not in the installation media.  Actually OUI does more than copying binaries to Oracle Home directory. The main UNIX steps are:</p>
+<p>1. checking operating system prerequisites especially required software (RPM on Linux for example) that will be used during the linking steps<br />
+2. copying object code to Oracle Home<br />
+3. linking object code to first build libraries especially in <b>$ORACLE_HOME/lib</b> and then executables<br />
+4.updating Oracle inventory that registers all Oracle software installations on current machine<br />
+5. running some setup and configuration assistants.</p>
+<h3>The linking step</h3>
+<p>The installation media contains object code that is not ready to be run because this object code must be first linked with operating system libraries on the target machine: executables like sqlplus (SQL*Plus), lnsrctl (Oracle Net Listener Control utility), rman (Recovery Manager command line tool), tnslsnr (Oracle Net listener) and oracle (the unique executable for <a href="http://docs.oracle.com/database/121/CNCPT/process.htm#CNCPT1248">all background and dedicated or shared server processes of an Oracle instance</a>) will be created during this linking step.</p>
+<p>If you install Oracle software in graphical mode OUI will always display the corresponding step. You can find messages in the corresponding OUI log created in Oracle inventory <b>logs</b> directory. For example linking steps for 12.1.0.2 installation on Oracle Linux 6.4 can be found <a href="//pierreforstmanndotcom.wordpress.com/grep-linking-install-log/"> with grep command against installActionsXXX.log</a>. The detailed link steps are logged in <a href="http://pierreforstmanndotcom.wordpress.com/make-log/">$ORACLE_HOME/install/make.log</a>. Note that <b>orald</b> on Linux is only a wrapper script for GCC:</p>
+<pre>
+$ cat/u01/app/12.1.0.2/db/bin/orald
+#!/bin/sh
+#
+# $Header: buildtools/port/orald /linuxamd64/3 2012/10/02 19:28:56 ekarichk Exp $
+#
+# orald
+#
+# Copyright (c) 2012, Oracle and/or its affiliates. All rights reserved.
+#
+#   NAME
+#     orald - Wrapper to invoke ld
+#
+#   DESCRIPTION
+#     Invokes ld to link binaries and shared libraries against Intel
+#     runtime and runtime libraries.
+#
+#   NOTES
+#     Emulates some of the gcc command line options, in particular, -Wl,xxx
+#     can be used to pass an option to ld.
+#
+#   MODIFIED   (MM/DD/YY)
+#   ekarichk    09/28/12 - bug/14692807: pull out crt*
+#   ekarichk    09/04/12 - bug/13517928: use ld for linking
+#   ekarichk    01/18/12 - Creation
+#
+
+CC=gcc
+
+#
+# Just use CC for now
+#
+exec ${CC} "$@"
+
+exit 1
+$
+</pre>
+<h3>Statically linked and dynamically linked code</h3>
+<p>If an UNIX executable is statically linked it means that object code is incorporated in the executable file. If an UNIX executable is dynamically linked it means that object code is not incorporated in the executable but loaded in memory at executable start-up from shared libraries. For more details please read <a href="http://tldp.org/HOWTO/Program-Library-HOWTO/introduction.html">Linux Program Library HOWTO</a>.</p>
+<p>Although Oracle binaries have a lot of statically linked code they are also using shared libraries. You can used the <b>ldd</b> UNIX command to list shared libraries for any executable on UNIX. For example on Linux 6.4 x86_64  with Oracle 12.1.0.2 you can see that the oracle executable is using some Oracle shared libraries from <b>$ORACLE_HOME/lib</b> and some OS shared libraries from <b>/lib64</b>:</p>
+<pre>
+$ ldd /u01/app/12.1.0.2/db/bin/oracle
+        linux-vdso.so.1 =&gt;  (0x00007fffff159000)
+        libodm12.so =&gt; /u01/app/12.1.0.2/db/lib/libodm12.so (0x00007f687876b000)
+        libcell12.so =&gt; /u01/app/12.1.0.2/db/lib/libcell12.so (0x00007f68784b0000)
+        libskgxp12.so =&gt; /u01/app/12.1.0.2/db/lib/libskgxp12.so (0x00007f68781af000)
+        libskjcx12.so =&gt; /u01/app/12.1.0.2/db/lib/libskjcx12.so (0x00007f6877f6c000)
+        librt.so.1 =&gt; /lib64/librt.so.1 (0x000000360e400000)
+        libmql1.so =&gt; /u01/app/12.1.0.2/db/lib/libmql1.so (0x00007f6877ceb000)
+        libipc1.so =&gt; /u01/app/12.1.0.2/db/lib/libipc1.so (0x00007f687796d000)
+        libclsra12.so =&gt; /u01/app/12.1.0.2/db/lib/libclsra12.so (0x00007f6877723000)
+        libdbcfg12.so =&gt; /u01/app/12.1.0.2/db/lib/libdbcfg12.so (0x00007f68774f6000)
+        libhasgen12.so =&gt; /u01/app/12.1.0.2/db/lib/libhasgen12.so (0x00007f6876501000)
+        libskgxn2.so =&gt; /u01/app/12.1.0.2/db/lib/libskgxn2.so (0x00007f68762fe000)
+        libocr12.so =&gt; /u01/app/12.1.0.2/db/lib/libocr12.so (0x00007f6875ff3000)
+        libocrb12.so =&gt; /u01/app/12.1.0.2/db/lib/libocrb12.so (0x00007f6875d09000)
+        libocrutl12.so =&gt; /u01/app/12.1.0.2/db/lib/libocrutl12.so (0x00007f6875af3000)
+        libaio.so.1 =&gt; /lib64/libaio.so.1 (0x000000360d000000)
+        libons.so =&gt; /u01/app/12.1.0.2/db/lib/libons.so (0x00007f68758ae000)
+        libdl.so.2 =&gt; /lib64/libdl.so.2 (0x00007f68756a9000)
+        libm.so.6 =&gt; /lib64/libm.so.6 (0x000000360e000000)
+        libpthread.so.0 =&gt; /lib64/libpthread.so.0 (0x000000360d800000)
+        libnsl.so.1 =&gt; /lib64/libnsl.so.1 (0x0000003610800000)
+        libc.so.6 =&gt; /lib64/libc.so.6 (0x000000360d400000)
+        /lib64/ld-linux-x86-64.so.2 (0x000000360cc00000)
+</pre>
+<h3>Cloning Oracle software</h3>
+<p>As a consequence, you should not copy directly an Oracle Home from one machine to a new machine (even if both machines have compatible processors and operating systems) and consider that installation has been completed: you are missing the linking step, the inventory update and possibly other steps: this is not supported by Oracle Corp. You must instead clone Oracle software using <a href="http://docs.oracle.com/cd/E24628_01/em.121/e37799/ch5_cloning.htm#OUICG238">the right Oracle software cloning process</a> that will re-run the linking step among other things.<br />
+</p>
+<h3>Relinking Oracle binaries in other cases</h3>
+<p>Relinking Oracle binaries is also used to enable/disabling some database options in the binaries: for example, <a href="http://docs.oracle.com/cd/B19306_01/server.102/b15658/appf_tru.htm#CHDJBDAH">Oracle Directed Placement Optimizations on Tru64 UNIX machines</a>. As of Oracle 11 <a href="http://docs.oracle.com/cd/E11882_01/install.112/e47689/post_inst_task.htm#LADBI1274">chopt</a> tool is running the related linking steps.</p>
+<p>Relinking Oracle binaries is needed after upgrading operating system as documented in the <a href="http://docs.oracle.com/database/121/UNXAR/cnfg_prd.htm#UNXAR157">Oracle Database Administrator's Reference 12c Release 1 (12.1) for Linux and UNIX-Based Operating Systems</a>.</p>
+<h3>Oracle Client and Oracle Instant Client</h3>
+<p>Installing Oracle Client on UNIX is very similar to installing Oracle Database on Unix: linking step is also run. But<br />
+<a href="http://www.oracle.com/technetwork/database/features/instant-client/index-100365.html">Oracle Instant Client</a> installation process is very different: binaries are ready to be used (there is no linking step) and there is no Oracle inventory. However if you need to patch Oracle Instant Client you need a full Oracle Client Oracle Home<br />
+(see section Patching Instant Client Shared Libraries on Unix in <a href="http://docs.oracle.com/database/121/LNOCI/oci01int.htm#LNOCI010">Oracle Call Interface Programmer's Guide</a>).</p>
+<h3>Oracle XE</h3>
+<p><a href="http://docs.oracle.com/cd/E17781_01/install.112/e18802/toc.htm#XEINL121">Oracle XE </a>(only available on Linux for UNIX) installation process is different and very specific: you must use a RPM. This RPM has only a very small dependencies list:</p>
+<pre>
+$ rpm -q -R oracle-xe-11.2.0-1.0
+glibc &gt;= 2.3.4
+libaio &gt;= 0.3.104
+/bin/sh
+/bin/sh
+/bin/sh
+/bin/sh
+rpmlib(PayloadFilesHavePrefix) &lt;= 4.0-1
+rpmlib(CompressedFileNames) &lt;= 3.0.4-1
+$
+</pre>
+<p>The scripts run when installing the RPM <a href="http://pierreforstmanndotcom.wordpress.com/rpm-xe-scritplets-log/">do not contain any command or script to run some linking step</a>. To this respect Oracle XE on Linux is similar to Oracle (XE and non-XE) on Windows because installing Oracle on Windows does not have any linking step.</p>
