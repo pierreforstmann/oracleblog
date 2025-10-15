@@ -1,0 +1,271 @@
+<p>If you want to rename Oracle Home you usually need to:<br />
+<br />
+1. uninstall existing Oracle Home<br />
+<br />
+2. reinstall Oracle software to the right directory that will be the new Oracle Home.</p>
+<p>You cannot just move Oracle Home because installing Oracle Home is not just copying executable files. However uninstalling and installing again Oracle software takes some time.<br />
+</p>
+<p>If you want to do it quickly there is another way to do it using Oracle software cloning:<br />
+<br />
+1. Move Oracle Home using OS command<br />
+<br />
+2. Clone the new Oracle Home using Oracle Universal Installer (OUI)<br />
+<br />
+3. Remove the old Oracle Home from Oracle inventory with OUI.</p>
+<p>Here is a full example with Oracle Database 12.1.0.1 Entreprise Edition on Oracle Linux 6.4 64bit. All steps have been with run oracle account unless otherwise stated.</p>
+<h3>Step 1: move Oracle Home</h3>
+<p>First connect as Oracle software owner:</p>
+<pre>
+$ id oracle
+uid=54231(oracle) gid=54321(oinstall) groups=54321(oinstall),54322(dba),54323(oper)
+</pre>
+<p>Check that no executable is currently running from this Oracle Home (you should stop any Oracle database instance, listener, RMAN or SQL*Plus sessions):</p>
+<pre>
+$ ps -fu oracle
+UID        PID  PPID  C STIME TTY          TIME CMD
+oracle    2692  2691  0 18:01 pts/0    00:00:00 -bash
+oracle    3277  2692  0 18:09 pts/0    00:00:00 ps -fu oracle
+</pre>
+<p>Current Oracle Home is <b>/u01/app/oracle/product/12.1.0/db_1</b> and I will rename it to <b>/u01/app/oracle/product/12.1.0.1/db_1</b> so that directory name has the full 4 digit version number:</p>
+<pre>
+$ $ORACLE_HOME/OPatch/opatch lsinv -all
+Oracle Interim Patch Installer version 12.1.0.1.0
+Copyright (c) 2012, Oracle Corporation.  All rights reserved.
+
+
+Oracle Home       : /u01/app/oracle/product/12.1.0/db_1
+Central Inventory : /u01/app/oraInventory
+   from           : /u01/app/oracle/product/12.1.0/db_1/oraInst.loc
+OPatch version    : 12.1.0.1.0
+OUI version       : 12.1.0.1.0
+Log file location : /u01/app/oracle/product/12.1.0/db_1/cfgtoollogs/opatch/opatch2014-09-30_18-08-14PM_1.log
+
+Lsinventory Output file location : /u01/app/oracle/product/12.1.0/db_1/cfgtoollogs/opatch/lsinv/lsinventory2014-09-30_18-08-14PM.txt
+
+--------------------------------------------------------------------------------
+List of Oracle Homes:
+  Name          Location
+   OraDB12Home1         /u01/app/oracle/product/12.1.0/db_1
+
+Installed Top-level Products (1):
+
+Oracle Database 12c                                                  12.1.0.1.0
+There are 1 products installed in this Oracle Home.
+
+
+There are no Interim patches installed in this Oracle Home.
+
+
+--------------------------------------------------------------------------------
+
+OPatch succeeded.
+$
+</pre>
+<p>Move the directory with the mv command:</p>
+<pre>
+$ pwd
+/u01/app/oracle/product
+$ mv 12.1.0 12.1.0.1
+</pre>
+<h3>Step 2: clone the Oracle Home</h3>
+<p>Of course you must use new Oracle Home path for runInstaller and you must also specify new Oracle Home directory as ORACLE_HOME parameter and set ORACLE_BASE parameter (I have also added silent mode (-silent) because graphical mode is not needed and -waitForCompletion so that OUI command is not started in the background):</p>
+<pre>
+$ /u01/app/oracle/product/12.1.0.1/db_1/oui/bin/runInstaller \
+-clone \
+-silent \
+-defaultHomeName 
+ORACLE_HOME=/u01/app/oracle/product/12.1.0.1/db_1 \
+ORACLE_BASE=/u01/app/oracle \
+-waitForCompletion
+Starting Oracle Universal Installer...
+
+Checking swap space: must be greater than 500 MB.   Actual 4031 MB    Passed
+Preparing to launch Oracle Universal Installer from /tmp/OraInstall2014-09-30_06-35-53PM. Please wait ...Oracle Universal Installer, Version 12.1.0.1.0 Production
+Copyright (C) 1999, 2013, Oracle. All rights reserved.
+
+You can find the log of this install session at:
+ /u01/app/oraInventory/logs/cloneActions2014-09-30_06-35-53PM.log
+.................................................................................................... 100% Done.
+
+
+Installation in progress (Tuesday, September 30, 2014 6:36:03 PM CEST)
+.................................................................................  81% Done.
+Install successful
+
+Linking in progress (Tuesday, September 30, 2014 6:36:08 PM CEST)
+.                                                                82% Done.
+Link successful
+
+Setup in progress (Tuesday, September 30, 2014 6:36:47 PM CEST)
+..........                                                      100% Done.
+Setup successful
+
+Saving inventory (Tuesday, September 30, 2014 6:36:48 PM CEST)
+Saving inventory complete
+
+Configuration in progress (Tuesday, September 30, 2014 6:37:08 PM CEST)
+Configuration complete
+
+End of install phases.(Tuesday, September 30, 2014 6:37:09 PM CEST)
+WARNING:
+The following configuration scripts need to be executed as the "root" user.
+/u01/app/oracle/product/12.1.0.1/db_1/root.sh
+To execute the configuration scripts:
+    1. Open a terminal window
+    2. Log in as "root"
+    3. Run the scripts
+
+The cloning of OraHome1 was successful.
+Please check '/u01/app/oraInventory/logs/cloneActions2014-09-30_06-35-53PM.log' for more details.
+</pre>
+<p>You can see that OUI has linked again the binaries and executables and run some configuration steps.<br />
+You need to run root.sh:</p>
+<pre>
+# id
+uid=0(root) gid=0(root) groups=0(root)
+# /u01/app/oracle/product/12.1.0.1/db_1/root.sh
+Check /u01/app/oracle/product/12.1.0.1/db_1/install/root_ol6twsf_2014-09-30_18-38-46.log for the output of root script
+# cat /u01/app/oracle/product/12.1.0.1/db_1/install/root_ol6twsf_2014-09-30_18-38-46.log
+Performing root user operation for Oracle 12c
+
+The following environment variables are set as:
+    ORACLE_OWNER= oracle
+    ORACLE_HOME=  /u01/app/oracle/product/12.1.0.1/db_1
+   Copying dbhome to /usr/local/bin ...
+   Copying oraenv to /usr/local/bin ...
+   Copying coraenv to /usr/local/bin ...
+
+Entries will be added to the /etc/oratab file as needed by
+Database Configuration Assistant when a database is created
+Finished running generic part of root script.
+Now product-specific root actions will be performed.
+</pre>
+<p>Modify <b>/etc/oratab</b> for existing database that is using the Oracle Home that has been moved (because this has not been done by OUI):</p>
+<pre>
+$ tail -1 /etc/oratab
+CDB12C:/u01/app/oracle/product/12.1.0.1/db_1:N
+$
+</pre>
+<p>Reset current environment:</p>
+<pre>
+$ . oraenv
+ORACLE_SID = [CDB12C] ?
+The Oracle base remains unchanged with value /u01/app/oracle
+$
+</pre>
+<p>Check Oracle inventory:</p>
+<pre>
+$ $ORACLE_HOME/OPatch/opatch lsinv -all
+Oracle Interim Patch Installer version 12.1.0.1.0
+Copyright (c) 2012, Oracle Corporation.  All rights reserved.
+
+
+Oracle Home       : /u01/app/oracle/product/12.1.0.1/db_1
+Central Inventory : /u01/app/oraInventory
+   from           : /u01/app/oracle/product/12.1.0.1/db_1/oraInst.loc
+OPatch version    : 12.1.0.1.0
+OUI version       : 12.1.0.1.0
+Log file location : /u01/app/oracle/product/12.1.0.1/db_1/cfgtoollogs/opatch/opatch2014-09-30_18-40-48PM_1.log
+
+Lsinventory Output file location : /u01/app/oracle/product/12.1.0.1/db_1/cfgtoollogs/opatch/lsinv/lsinventory2014-09-30_18-40-48PM.txt
+
+--------------------------------------------------------------------------------
+List of Oracle Homes:
+  Name          Location
+   OraDB12Home1         /u01/app/oracle/product/12.1.0/db_1
+   OraHome1         /u01/app/oracle/product/12.1.0.1/db_1
+
+Installed Top-level Products (1):
+
+Oracle Database 12c                                                  12.1.0.1.0
+There are 1 products installed in this Oracle Home.
+
+
+There are no Interim patches installed in this Oracle Home.
+
+
+--------------------------------------------------------------------------------
+
+OPatch succeeded.
+$
+</pre>
+<p>Noe that the old Oracle Home is still registered and that the new Oracle Home has been added by the cloning step.</p>
+<h3>Step 3: remove the old Oracle Home from Oracle Inventory</h3>
+<p>You need to use OUI and give old Oracle Home name as ORACLE_HOME parameter with -detachHome option:</p>
+<pre>
+$ $ORACLE_HOME/oui/bin/runInstaller \
+-silent \
+-detachHome \
+ORACLE_HOME=/u01/app/oracle/product/12.1.0/db_1 \
+-waitForCompletion
+Starting Oracle Universal Installer...
+
+Checking swap space: must be greater than 500 MB.   Actual 4027 MB    Passed
+The inventory pointer is located at /etc/oraInst.loc
+'DetachHome' was successful.
+$
+</pre>
+<p>Check that old Oracle Home has been removed from Oracle Inventory:</p>
+<pre>
+$ $ORACLE_HOME/OPatch/opatch lsinv -all
+Oracle Interim Patch Installer version 12.1.0.1.0
+Copyright (c) 2012, Oracle Corporation.  All rights reserved.
+
+
+Oracle Home       : /u01/app/oracle/product/12.1.0.1/db_1
+Central Inventory : /u01/app/oraInventory
+   from           : /u01/app/oracle/product/12.1.0.1/db_1/oraInst.loc
+OPatch version    : 12.1.0.1.0
+OUI version       : 12.1.0.1.0
+Log file location : /u01/app/oracle/product/12.1.0.1/db_1/cfgtoollogs/opatch/opatch2014-09-30_18-44-19PM_1.log
+
+Lsinventory Output file location : /u01/app/oracle/product/12.1.0.1/db_1/cfgtoollogs/opatch/lsinv/lsinventory2014-09-30_18-44-19PM.txt
+
+--------------------------------------------------------------------------------
+List of Oracle Homes:
+  Name          Location
+   OraHome1         /u01/app/oracle/product/12.1.0.1/db_1
+
+Installed Top-level Products (1):
+
+Oracle Database 12c                                                  12.1.0.1.0
+There are 1 products installed in this Oracle Home.
+
+
+There are no Interim patches installed in this Oracle Home.
+
+
+--------------------------------------------------------------------------------
+
+OPatch succeeded.
+$
+</pre>
+<p>At this step the Oracle Home renaming has been completed and you need to restart database instance(s) and Oracle Net listener(s) and to check that everything is OK:</p>
+<pre>
+$ sqlplus / as sysdba
+
+SQL*Plus: Release 12.1.0.1.0 Production on Tue Sep 30 18:44:40 2014
+
+Copyright (c) 1982, 2013, Oracle.  All rights reserved.
+
+Connected to an idle instance.
+
+SYS@CDB12C&gt;startup
+ORACLE instance started.
+
+Total System Global Area 1035534336 bytes
+Fixed Size                  2296184 bytes
+Variable Size             402654856 bytes
+Database Buffers          624951296 bytes
+Redo Buffers                5632000 bytes
+Database mounted.
+Database opened.
+SYS@CDB12C&gt;show parameter spfile
+
+NAME                                 TYPE        VALUE
+------------------------------------ ----------- ------------------------------
+spfile                               string      /u01/app/oracle/product/12.1.0
+                                                 .1/db_1/dbs/spfileCDB12C.ora
+</pre>
+<p>You also need to check the scripts run at boot time to start automatically database instance(s) and Oracle Net listener(s) and to modify them if they are using hard-coded Oracle Home directory name.</p>
+<p>About OUI documentation: I have not been able to find Oracle Universal Installer and OPatch User's Guide in  <a href="http://docs.oracle.com/database/121/nav/portal_booklist.htm">12.1 database documentation</a> but you can find OUI User's Guide <a href="http://docs.oracle.com/cd/E24628_01/em.121/e37799/toc.htm">there</a>.</p>
