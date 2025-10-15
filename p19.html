@@ -1,0 +1,336 @@
+<p>I wanted to create an 12.1.0.2 database with Oracle Restart 12.1.0.1 but I needed first to upgrade Grid Infrastructure (GI) because trying to install Oracle Database 12.1.0.2 with GI 12.1.0.1 says:</p>
+<pre>[FATAL] [INS-35351] Inconsistent versions detected.
+CAUSE: The active version of Oracle Clusterware detected on the system (12.1.0.1.0) was lower than the version of Oracle Database that you were attempting to install(12.1.0.2.0). This is not supported.
+ACTION: Upgrade Oracle Clusterware to version 12.1.0.2.0 or later.
+</pre>
+<p>So I upgraded first GI from 12.1.0.1 to 12.1.0.2 and I will detail the steps I have run in this blog post.</p>
+<p>The system configuration used is Oracle Linux 6.4 64-bit with Virtual Box 4.3.6. On this machine Oracle Grid Infrastrucutre 12.1.0.1 has been installed so there is no need to install or configure system for Oracle GI 12.1.0.2.<br />
+The GI software owner is oracle and Unix group for GI OSDBA, OSOPER and OSASM groups is set to dba.</p>
+<p>The documentation I have used is <a href="http://docs.oracle.com/database/121/CWLIN/procstop.htm#BABEHGJG">How to Upgrade to Oracle Grid Infrastructure 12c Release 1</a></p>
+<p>Upload GI media from OTN to Linux box in a staging directory and unzip with oracle account (here <b>/home/oracle/stage</b>):</p>
+<pre>$ unzip linuxamd64_12102_grid_1of2.zip
+$ unzip linuxamd64_12102_grid_2of2.zip
+</pre>
+<p>Copy <b>grid/response/grid_install.rsp</b> to <b>/home/oracle/stage/ug.rsp</b> and modify following variables in this new response file (note that ORACLE_HOME must be set to new GI Oracle Home because GI upgrade are always out-of-place upgrades):</p>
+<pre>ORACLE_HOSTNAME=ol6twsa
+oracle.install.option=UPGRADE
+ORACLE_BASE=/u01/app/oracle
+ORACLE_HOME=/u01/app/12.1.0.2/grid
+oracle.install.asm.OSDBA=dba
+oracle.install.asm.OSOPER=dba
+oracle.install.asm.OSASM=dba
+</pre>
+<p>Start runInstaller in silent mode:</p>
+<pre>$ . oraenv
+ORACLE_SID = [+ASM] ? +ASM
+The Oracle base remains unchanged with value /u01/app/oracle
+$ cd grid
+$ ./runInstaller -silent -responseFile /home/oracle/stage/ug.rsp
+</pre>
+<p>Wait until you get following output including "Successfully Setup Software." message:</p>
+<pre>Starting Oracle Universal Installer...
+
+Checking Temp space: must be greater than 415 MB.   Actual 12931 MB    Passed
+Checking swap space: must be greater than 150 MB.   Actual 3947 MB    Passed
+Preparing to launch Oracle Universal Installer from /tmp/OraInstall2014-07-24_08-51-03PM. Please wait ...[oracle@ol6twsa stage]$ [WARNING] [INS-41808] Possible invalid choice for OSASM Group.
+   CAUSE: The name of the group you selected for the OSASM group is commonly used to grant other system privileges (For example: asmdba, asmoper, dba, oper).
+   ACTION: Oracle recommends that you designate asmadmin as the OSASM group.
+[WARNING] [INS-41809] Possible invalid choice for OSDBA Group.
+   CAUSE: The group name you selected as the OSDBA for ASM group is commonly used for Oracle Database administrator privileges.
+   ACTION: Oracle recommends that you designate asmdba as the OSDBA for ASM group, and that the group should not be the same group as an Oracle Database OSDBA group.
+[WARNING] [INS-41810] Possible invalid choice for OSOPER Group.
+   CAUSE: The group name you selected as the OSOPER for ASM group is commonly used for Oracle Database administrator privileges.
+   ACTION: Oracle recommends that you designate asmoper as the OSOPER for ASM group, and that the group should not be the same group as an Oracle Database OSOPER group.
+[WARNING] [INS-41813] OSDBA for ASM, OSOPER for ASM, and OSASM are the same OS group.
+   CAUSE: The group you selected for granting the OSDBA for ASM group for database access, and the OSOPER for ASM group for startup and shutdown of Oracle ASM, is the same group as the OSASM group, whose members have SYSASM privileges on Oracle ASM.
+   ACTION: Choose different groups as the OSASM, OSDBA for ASM, and OSOPER for ASM groups.
+[WARNING] [INS-32018] The selected Oracle home is outside of Oracle base.
+   ACTION: Oracle recommends installing Oracle software within the Oracle base directory. Adjust the Oracle home or Oracle base accordingly.
+[WARNING] [INS-13014] Target environment does not meet some optional requirements.
+   CAUSE: Some of the optional prerequisites are not met. See logs for details. /u01/app/oracle/oraInventory/logs/installActions2014-07-24_08-51-03PM.log
+   ACTION: Identify the list of failed prerequisite checks from the log: /u01/app/oracle/oraInventory/logs/installActions2014-07-24_08-51-03PM.log. Then either from the log file or from installation manual find the appropriate configuration to meet the prerequisites and fix it manually.
+You can find the log of this install session at:
+ /u01/app/oracle/oraInventory/logs/installActions2014-07-24_08-51-03PM.log
+The installation of Oracle Grid Infrastructure 12c was successful.
+Please check '/u01/app/oracle/oraInventory/logs/silentInstall2014-07-24_08-51-03PM.log' for more details.
+
+As a root user, execute the following script(s):
+        1. /u01/app/12.1.0.2/grid/rootupgrade.sh
+
+
+Run the script on the local node.
+
+Successfully Setup Software.
+As install user, execute the following script to complete the configuration.
+        1. /u01/app/12.1.0.2/grid/cfgtoollogs/configToolAllCommands RESPONSE_FILE=
+
+        Note:
+        1. This script must be run on the same host from where installer was run.
+        2. This script needs a small password properties file for configuration assistants that require passwords (refer to install guide documentation).
+
+
+
+</pre>
+<p>Warnings for optional prerequisites (INS-13014) that I have ignored are:</p>
+<pre>INFO: ------------------List of failed Tasks------------------
+INFO: *********************************************
+INFO: Physical Memory: This is a prerequisite condition to test whether the system has at least 4GB (4194304.0KB) of total physical memory.
+INFO: Severity:IGNORABLE
+INFO: OverallStatus:VERIFICATION_FAILED
+INFO: *********************************************
+INFO: OS Kernel Parameter: panic_on_oops: This is a prerequisite condition to test whether the OS kernel parameter "panic_on_oops" is properly set.
+INFO: Severity:IGNORABLE
+INFO: OverallStatus:WARNING
+INFO: *********************************************
+INFO: Package: cvuqdisk-1.0.9-1: This is a prerequisite condition to test whether the package "cvuqdisk-1.0.9-1" is available on the system.
+INFO: Severity:IGNORABLE
+INFO: OverallStatus:VERIFICATION_FAILED
+INFO: -----------------End of failed Tasks List----------------
+WARNING: [WARNING] [INS-13014] Target environment does not meet some optional requirements.
+   CAUSE: Some of the optional prerequisites are not met. See logs for details. /u01/app/oracle/oraInventory/logs/installActions2014-07-24_08-51-03PM.log
+   ACTION: Identify the list of failed prerequisite checks from the log: /u01/app/oracle/oraInventory/logs/installActions2014-07-24_08-51-03PM.log. Then either from the log file or from installation manual find the appropriate configuration to meet the prerequisites and fix it manually.
+INFO: Advice is CONTINUE
+</pre>
+<p>At this stage Oracle GI 12.1.0.1 is still running:</p>
+<pre>$ crsctl stat res -t
+--------------------------------------------------------------------------------
+Name           Target  State        Server                   State details
+--------------------------------------------------------------------------------
+Local Resources
+--------------------------------------------------------------------------------
+ora.DATA.dg
+               ONLINE  ONLINE       ol6twsa                  STABLE
+ora.FRA.dg
+               ONLINE  ONLINE       ol6twsa                  STABLE
+ora.LISTENER.lsnr
+               ONLINE  ONLINE       ol6twsa                  STABLE
+ora.asm
+               ONLINE  ONLINE       ol6twsa                  Started,STABLE
+ora.ons
+               OFFLINE OFFLINE      ol6twsa                  STABLE
+--------------------------------------------------------------------------------
+Cluster Resources
+--------------------------------------------------------------------------------
+ora.cdb.db
+      1        ONLINE  ONLINE       ol6twsa                  Open,STABLE
+ora.cssd
+      1        ONLINE  ONLINE       ol6twsa                  STABLE
+ora.diskmon
+      1        OFFLINE OFFLINE                               STABLE
+ora.evmd
+      1        ONLINE  ONLINE       ol6twsa                  STABLE
+--------------------------------------------------------------------------------
+</pre>
+<p>Connect as root to run <b>rootupgrage.sh</b>:</p>
+<pre># /u01/app/12.1.0.2/grid/rootupgrade.sh
+Check /u01/app/12.1.0.2/grid/install/root_ol6twsa.localdomain_2014-07-24_20-59-52.log for the output of root script
+</pre>
+<p>Check that you have no error in this log file and that you have the end message "CLSRSC-327: Successfully configured Oracle Restart for a standalone server":</p>
+<pre># cat /u01/app/12.1.0.2/grid/install/root_ol6twsa.localdomain_2014-07-24_20-59-52.log
+Performing root user operation.
+
+The following environment variables are set as:
+    ORACLE_OWNER= oracle
+    ORACLE_HOME=  /u01/app/12.1.0.2/grid
+   Copying dbhome to /usr/local/bin ...
+   Copying oraenv to /usr/local/bin ...
+   Copying coraenv to /usr/local/bin ...
+
+Entries will be added to the /etc/oratab file as needed by
+Database Configuration Assistant when a database is created
+Finished running generic part of root script.
+Now product-specific root actions will be performed.
+Using configuration parameter file: /u01/app/12.1.0.2/grid/crs/install/crsconfig_params
+
+ASM Configuration upgraded successfully.
+
+Creating OCR keys for user 'oracle', privgrp 'oinstall'..
+Operation successful.
+LOCAL ONLY MODE
+Successfully accumulated necessary OCR keys.
+Creating OCR keys for user 'root', privgrp 'root'..
+Operation successful.
+CRS-4664: Node ol6twsa successfully pinned.
+CRS-4123: Oracle High Availability Services has been started.
+
+2014/07/24 21:03:16 CLSRSC-329: Replacing Clusterware entries in file 'oracle-ohasd.conf'
+
+2014/07/24 21:04:02 CLSRSC-482: Running command: 'upgrade model  -s 12.1.0.1.0 -d 12.1.0.2.0 -p first'
+
+2014/07/24 21:04:09 CLSRSC-482: Running command: 'upgrade model  -s 12.1.0.1.0 -d 12.1.0.2.0 -p last'
+
+
+ol6twsa     2014/07/24 21:04:10     /u01/app/12.1.0.2/grid/cdata/ol6twsa/backup_20140724_210410.olr     0
+
+ol6twsa     2013/07/11 07:03:26     /u01/app/12.1.0/grid/cdata/ol6twsa/backup_20130711_070326.olr     -
+CRS-2791: Starting shutdown of Oracle High Availability Services-managed resources on 'ol6twsa'
+CRS-2673: Attempting to stop 'ora.FRA.dg' on 'ol6twsa'
+CRS-2677: Stop of 'ora.FRA.dg' on 'ol6twsa' succeeded
+CRS-2673: Attempting to stop 'ora.cdb.db' on 'ol6twsa'
+CRS-2673: Attempting to stop 'ora.LISTENER.lsnr' on 'ol6twsa'
+CRS-2677: Stop of 'ora.LISTENER.lsnr' on 'ol6twsa' succeeded
+CRS-2677: Stop of 'ora.cdb.db' on 'ol6twsa' succeeded
+CRS-2673: Attempting to stop 'ora.DATA.dg' on 'ol6twsa'
+CRS-2677: Stop of 'ora.DATA.dg' on 'ol6twsa' succeeded
+CRS-2673: Attempting to stop 'ora.asm' on 'ol6twsa'
+CRS-2677: Stop of 'ora.asm' on 'ol6twsa' succeeded
+CRS-2673: Attempting to stop 'ora.evmd' on 'ol6twsa'
+CRS-2677: Stop of 'ora.evmd' on 'ol6twsa' succeeded
+CRS-2673: Attempting to stop 'ora.cssd' on 'ol6twsa'
+CRS-2677: Stop of 'ora.cssd' on 'ol6twsa' succeeded
+CRS-2793: Shutdown of Oracle High Availability Services-managed resources on 'ol6twsa' has completed
+CRS-4133: Oracle High Availability Services has been stopped.
+CRS-4123: Oracle High Availability Services has been started.
+2014/07/24 21:06:39 CLSRSC-327: Successfully configured Oracle Restart for a standalone server
+</pre>
+<p>Note that GI has been stopped and restarted.</p>
+<p>Check CRS version:</p>
+<pre>$ crsctl query has softwareversion
+Oracle High Availability Services version on the local node is [12.1.0.2.0]
+</pre>
+<p>ASM instance and listener Oracle homes have been modified in Oracle local registry (OLR):</p>
+<pre>$ srvctl config asm
+ASM home: /u01/app/12.1.0.2/grid
+Password file: +DATA/orapwasm
+ASM listener: LISTENER
+Spfile: +DATA/ASM/ASMPARAMETERFILE/registry.253.820480171
+ASM diskgroup discovery string: /dev/asm*
+$ srvctl config listener
+Name: LISTENER
+Home: /u01/app/12.1.0.2/grid
+End points: TCP:1521
+</pre>
+<p>Check Oracle inventory:</p>
+<pre>
+$ $ORACLE_HOME/OPatch/opatch lsinv
+Oracle Interim Patch Installer version 12.1.0.1.3
+Copyright (c) 2014, Oracle Corporation.  All rights reserved.
+
+
+Oracle Home       : /u01/app/12.1.0.2/grid
+Central Inventory : /u01/app/oracle/oraInventory
+   from           : /u01/app/12.1.0.2/grid/oraInst.loc
+OPatch version    : 12.1.0.1.3
+OUI version       : 12.1.0.2.0
+Log file location : /u01/app/12.1.0.2/grid/cfgtoollogs/opatch/opatch2014-07-24_21-17-58PM_1.log
+
+Lsinventory Output file location : /u01/app/12.1.0.2/grid/cfgtoollogs/opatch/lsinv/lsinventory2014-07-24_21-17-58PM.txt
+
+--------------------------------------------------------------------------------
+Installed Top-level Products (1):
+
+Oracle Grid Infrastructure 12c                                       12.1.0.2.0
+There are 1 products installed in this Oracle Home.
+
+
+There are no Interim patches installed in this Oracle Home.
+
+
+--------------------------------------------------------------------------------
+
+OPatch succeeded.
+$
+</pre>
+<p>Prepare <b>ConfigToolAllCommands</b> properties file to give ASM instance SYS password (S_ASMPASSWORD) and ASMSNMP password (S_ASMMONITORPASSWORD):</p>
+<pre>$ cat p.r
+oracle.assistants.asm|S_ASMPASSWORD=oracle12c
+oracle.assistants.asm|S_ASMMONITORPASSWORD=oracle12c
+</pre>
+<p>Run as oracle user:</p>
+<pre>$ /u01/app/12.1.0.2/grid/cfgtoollogs/configToolAllCommands RESPONSE_FILE=/home/oracle/stage/p.r
+</pre>
+<p>Output should be similar to:</p>
+<pre>Setting the invPtrLoc to /u01/app/12.1.0.2/grid/oraInst.loc
+
+perform - mode is starting for action: configure
+
+Jul 24, 2014 9:41:28 PM oracle.install.driver.oui.UpdateNodelistJob call
+INFO: UpdateNodelist data:
+Jul 24, 2014 9:41:28 PM oracle.install.driver.oui.UpdateNodelistJob call
+INFO: oracle.installer.oui_loc:/u01/app/12.1.0.2/grid/oui
+Jul 24, 2014 9:41:28 PM oracle.install.driver.oui.UpdateNodelistJob call
+INFO: oracle.installer.jre_loc:/u01/app/12.1.0.2/grid/jdk/jre
+Jul 24, 2014 9:41:28 PM oracle.install.driver.oui.UpdateNodelistJob call
+INFO: oracle.installer.doNotUpdateNodeList:true
+Jul 24, 2014 9:41:28 PM oracle.install.driver.oui.UpdateNodelistJob call
+INFO: oracle.installer.rootOwnedHome:true
+Jul 24, 2014 9:41:28 PM oracle.install.driver.oui.UpdateNodelistJob call
+INFO: OracleHomeToUpdate:/u01/app/12.1.0/grid;isCRS:false;isCFS:false;isLocal:false
+Jul 24, 2014 9:41:28 PM oracle.install.driver.oui.UpdateNodelistJob call
+INFO: From map: Hosts:[ol6twsa] =&gt; Nodelist:null
+Jul 24, 2014 9:41:28 PM oracle.install.driver.oui.UpdateNodelistJob call
+INFO: Before calling api: Hosts:[ol6twsa] =&gt; Nodelist:null, update localnode? true
+Jul 24, 2014 9:41:56 PM oracle.install.driver.oui.UpdateNodelistJob call
+INFO: UpdateNodelist data:
+Jul 24, 2014 9:41:56 PM oracle.install.driver.oui.UpdateNodelistJob call
+INFO: oracle.installer.oui_loc:/u01/app/12.1.0.2/grid/oui
+Jul 24, 2014 9:41:56 PM oracle.install.driver.oui.UpdateNodelistJob call
+INFO: oracle.installer.jre_loc:/u01/app/12.1.0.2/grid/jdk/jre
+Jul 24, 2014 9:41:56 PM oracle.install.driver.oui.UpdateNodelistJob call
+INFO: oracle.installer.doNotUpdateNodeList:true
+Jul 24, 2014 9:41:56 PM oracle.install.driver.oui.UpdateNodelistJob call
+INFO: oracle.installer.rootOwnedHome:
+Jul 24, 2014 9:41:56 PM oracle.install.driver.oui.UpdateNodelistJob call
+INFO: OracleHomeToUpdate:/u01/app/12.1.0.2/grid;isCRS:true;isCFS:false;isLocal:false
+Jul 24, 2014 9:41:56 PM oracle.install.driver.oui.UpdateNodelistJob call
+INFO: From map: Hosts:[ol6twsa] =&gt; Nodelist:null
+Jul 24, 2014 9:41:56 PM oracle.install.driver.oui.UpdateNodelistJob call
+INFO: Before calling api: Hosts:[ol6twsa] =&gt; Nodelist:null, update localnode? true
+
+perform - mode finished for action: configure
+
+You can see the log file: /u01/app/12.1.0.2/grid/cfgtoollogs/oui/configActions2014-07-24_09-41-27-PM.log
+</pre>
+<p>Check in the new log file that plug-ins "CRS flag in inventory" and "Cluster Verification Utility" have succeeded:</p>
+<pre>$ cat /u01/app/12.1.0.2/grid/cfgtoollogs/oui/configActions2014-07-24_09-41-27-PM.log
+###################################################
+The action configuration is performing
+------------------------------------------------------
+The plug-in Update CRS flag in Inventory is running
+
+
+The plug-in Update CRS flag in Inventory has successfully been performed
+------------------------------------------------------
+------------------------------------------------------
+The plug-in Oracle Cluster Verification Utility is running
+
+
+Performing post-checks for Oracle Restart configuration
+
+Checking Oracle Restart integrity...
+
+Oracle Restart integrity check passed
+
+Checking OLR integrity...
+Check of existence of OLR configuration file "/etc/oracle/olr.loc" passed
+Check of attributes of OLR configuration file "/etc/oracle/olr.loc" passed
+
+WARNING:
+This check does not verify the integrity of the OLR contents. Execute 'ocrcheck -local' as a privileged user to verify the contents of OLR.
+
+OLR integrity check passed
+
+Post-check for Oracle Restart configuration was successful.
+
+The plug-in Oracle Cluster Verification Utility has successfully been performed
+------------------------------------------------------
+The action configuration has successfully completed
+###################################################
+</pre>
+<p>Connect as root to check OLR:</p>
+<pre># ocrcheck -local
+Status of Oracle Local Registry is as follows :
+         Version                  :          4
+         Total space (kbytes)     :     409568
+         Used space (kbytes)      :       1020
+         Available space (kbytes) :     408548
+         ID                       : 1578688321
+         Device/File Name         : /u01/app/12.1.0.2/grid/cdata/localhost/ol6twsa.olr
+                                    Device/File integrity check succeeded
+
+         Local registry integrity check succeeded
+
+         Logical corruption check succeeded
+</pre>
+<p>Do not forget to update your login files (.bash_profile/.profile/.bashrc) or any script to make sure to use GI 12.1.0.2 instead of GI 12.1.0.1.</p>
+<p>Now I can create a 12.1.0.2 database or upgrade the existing database from 12.1.0.1 to 12.1.0.2 with Oracle Restart 12.1.0.2.</p>
