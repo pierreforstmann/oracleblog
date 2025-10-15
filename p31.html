@@ -1,0 +1,454 @@
+<p>If you need to rename an Oracle database schema and search for this on the web you will note that:</p>
+<li>
+there is no SQL statement to rename an schema
+</li>
+<li>
+some people say that it is possible to update directly the database dictionary tables with some SQL statement. But this is not recommended and not supported by Oracle Corp. because <i>these base tables and views are critical for the operation of Oracle Database. To maintain the integrity of the data dictionary, tables in the SYS schema are manipulated only by the database. They should never be modified by any user or database administrator, and no one should create any tables in the schema of user SYS. </i> (from <a href="http://docs.oracle.com/cd/E11882_01/server.112/e25494/dba.htm#ADMIN11042">11.2 Database Administration Guide</a>)
+</li>
+<li>
+the usual solution is to use Data Pump with REMAP_SCHEMA (or exp with FROMUSER/TOUSER parameters) but for large schemas this can imply quite long downtime.
+</li>
+<p>
+There is another solution with smaller downtime using transportable tablespaces. Tranportable tablespaces is a feature available since <a href="http://docs.oracle.com/cd/F49540_01/DOC/server.815/a67772/tspaces.htm#5757">Oracle 8.1.5</a>. Datafiles are copied at OS level and only schema objects metadata is exported and imported since data are already copied with datafiles copy. To do this tablespaces must be self-contained (i.e. they should not refer to objects stored in other tablespaces that are not transported) and tablespaces must be made read only during the transport steps.</p>
+<p>To use transportable tablespaces to rename a schema has been proposed by an <a href="https://asktom.oracle.com/pls/apex/f?p=100:11:0::::P11_QUESTION_ID:30020192108317#60812081717075">anonymous AskTom reviewer in 2006</a> but not fully documented on this forum. The purpose of this blog post is to detail this solution in two configurations:</p>
+<table border="1">
+<th>Oracle version</th>
+<th>export/import</th>
+<th>database storage</th>
+<tr>
+<td>11.2.0.3</td>
+<td>exp/imp</td>
+<td>file system</td>
+</tr>
+<tr>
+<td>12.1.0.2</td>
+<td>expdp/impdp</td>
+<td>ASM</td>
+</tr>
+</table>
+<h3>Procedure steps</h3>
+<p>1. check with DBMS_TTS.TRANSPORT_SET_CHECK that tablespace can be transported<br />
+<br />
+2. Make the tablespace read only<br />
+<br />
+3. Export tablespace metadata<br />
+<br />
+4. Drop the tablespace but keep its datafiles<br />
+<br />
+5. Create the new user account representing the renamed schema and grant needed privileges<br />
+<br />
+6. Import tablespace metadata and rename schema objects owner at the same time<br />
+<br />
+7. Make tablespce read write<br />
+<br />
+8. Set password for new user account and set default tablespace for this new account<br />
+<br />
+9. Drop old user account representing the schema before renaming.<br />
+</p>
+<h3>Using exp/imp on file system</h3>
+<p>I have created an externally identified user account in database and granted DBA role to this account:</p>
+<pre>
+SYS@FS0&gt;create user ops$oracle identified externally;
+
+User created.
+
+SYS@FS0&gt;grant dba to ops$oracle;
+
+Grant succeeded.
+
+</pre>
+<p>This allows to connect to local database instance without using password:</p>
+<pre>
+$ sqlplus /
+
+SQL*Plus: Release 11.2.0.3.0 Production on Fri Feb 24 18:41:43 2015
+
+Copyright (c) 1982, 2011, Oracle.  All rights reserved.
+
+
+Connected to:
+Oracle Database 11g Enterprise Edition Release 11.2.0.3.0 - 64bit Production
+With the Partitioning, OLAP, Data Mining and Real Application Testing options
+
+OPS$ORACLE@FS0&gt;show user;
+USER is "OPS$ORACLE"
+OPS$ORACLE@FS0&gt;
+
+</pre>
+<p>Create a very simple schema in a dedicated tablespace:</p>
+<pre>
+OPS$ORACLE@FS0&gt;create tablespace testts datafile '/u01/oradata/FS0/test01.dbf' size 100M;
+
+Tablespace created.
+
+OPS$ORACLE@FS0&gt;create user oldtest identified by oldtest;
+
+User created.
+
+OPS$ORACLE@FS0&gt;alter user oldtest default tablespace testts quota unlimited on testts;
+
+User altered.
+
+OPS$ORACLE@FS0&gt;grant create session, create table to oldtest;
+
+Grant succeeded.
+
+OPS$ORACLE@FS0&gt;--
+OPS$ORACLE@FS0&gt;connect oldtest/oldtest;
+Connected.
+OLDTEST@FS0&gt;create table t as select * from all_objects;
+
+Table created.
+
+OLDTEST@FS0&gt;select count(*) from t;
+
+  COUNT(*)
+----------
+     56281
+
+</pre>
+<p>Only with SYSDBA privileges check if the tablespace can be transported:</p>
+<pre>
+OPS$ORACLE@FS0&gt;connect / as sysdba
+Connected.
+SYS@FS0&gt;execute dbms_tts.transport_set_check('testts');
+
+PL/SQL procedure successfully completed.
+
+SYS@FS0&gt;select * from transport_set_violations;
+
+no rows selected
+</pre>
+<p>Make the schema tablespace read only:</p>
+<pre>
+OPS$ORACLE@FS0&gt;alter tablespace testts read only;
+
+Tablespace altered.
+
+OPS$ORACLE@FS0&gt;
+</pre>
+<p>Run exp command using SYSDBA privilege to export tablespace metadata:</p>
+<pre>
+$ exp userid=\'/ as sysdba\' transport_tablespace=y tablespaces=testts file=tts.exp
+
+Export: Release 11.2.0.3.0 - Production on Tue Feb 24 18:55:23 2015
+
+Copyright (c) 1982, 2011, Oracle and/or its affiliates.  All rights reserved.
+
+
+Connected to: Oracle Database 11g Enterprise Edition Release 11.2.0.3.0 - 64bit Production
+With the Partitioning, OLAP, Data Mining and Real Application Testing options
+Export done in US7ASCII character set and AL16UTF16 NCHAR character set
+server uses WE8MSWIN1252 character set (possible charset conversion)
+Note: table data (rows) will not be exported
+About to export transportable tablespace metadata...
+For tablespace TESTTS ...
+. exporting cluster definitions
+. exporting table definitions
+. . exporting table                              T
+. exporting referential integrity constraints
+. exporting triggers
+. end transportable tablespace metadata export
+Export terminated successfully without warnings.
+</pre>
+<p>Drop the tablespace:</p>
+<pre>
+OPS$ORACLE@FS0&gt;drop tablespace testts including contents;
+
+Tablespace dropped.
+</pre>
+<p>Note that related datafile has not been removed:</p>
+<pre>
+$ ls -al /u01/oradata/FS0/test01.dbf
+-rw-r----- 1 oracle sysasm   104865792 Feb 24 18:51 test01.dbf
+</pre>
+<p>Connect with DBA account to create the new user account representing the renamed schema:</p>
+<pre>
+OPS$ORACLE@FS0&gt;create user newtest identified by newtest;
+
+User created.
+
+OPS$ORACLE@FS0&gt;grant create session, create table to newtest;
+
+Grant succeeded.
+</pre>
+<p>Run with SYSDBA imp command to import the tablespace metadata and to link it with the new schema:</p>
+<pre>
+$ imp userid=\'/ as sysdba\' transport_tablespace=y tablespaces=testts datafiles=/u01/oradata/FS0/test01.dbf fromuser=oldtest touser=newtest file=tts.exp
+
+Import: Release 11.2.0.3.0 - Production on Tue Feb 24 19:03:24 2015
+
+Copyright (c) 1982, 2011, Oracle and/or its affiliates.  All rights reserved.
+
+
+Connected to: Oracle Database 11g Enterprise Edition Release 11.2.0.3.0 - 64bit Production
+With the Partitioning, OLAP, Data Mining and Real Application Testing options
+
+Export file created by EXPORT:V11.02.00 via conventional path
+About to import transportable tablespace(s) metadata...
+import done in US7ASCII character set and AL16UTF16 NCHAR character set
+import server uses WE8MSWIN1252 character set (possible charset conversion)
+. importing OLDTEST's objects into NEWTEST
+. . importing table                            "T"
+Import terminated successfully without warnings.
+</pre>
+<p>Make imported tablespace read write, assign password to new account and new default tablespace:</p>
+<pre>
+OPS$ORACLE@FS0&gt;alter tablespace testts read write;
+
+Tablespace altered.
+
+OPS$ORACLE@FS0&gt;alter user newtest identified by newtest;
+
+User altered.
+
+OPS$ORACLE@FS0&gt;alter user newtest default tablespace testts quota unlimited on testts;
+
+User altered.
+
+</pre>
+<p>Old user account (that does not own any object) can now be removed:</p>
+<pre>
+OPS$ORACLE@FS0&gt;drop user oldtest;
+
+User dropped
+</pre>
+<h3>Using expdp/impdp and ASM</h3>
+<p>The database is a pluggable database named PDB1 that belongs to a container database named cdb. First I have created a local account with DBA privileges:</p>
+<pre>
+$ sqlplus / as sysdba
+
+SQL*Plus: Release 12.1.0.2.0 Production on Wed Feb 25 20:14:58 2015
+
+Copyright (c) 1982, 2014, Oracle.  All rights reserved.
+
+
+Connected to:
+Oracle Database 12c Enterprise Edition Release 12.1.0.2.0 - 64bit Production
+With the Partitioning, Automatic Storage Management, OLAP, Advanced Analytics
+and Real Application Testing options
+
+SQL&gt; alter session set container=pdb1;
+
+Session altered.
+
+SQL&gt; create user pdba1 identified by pdba1;
+
+User created.
+
+SQL&gt; grant dba to pdba1;
+
+Grant succeeded.
+
+SQL&gt;
+</pre>
+<p>Create simple schema in a dedicated tablespace:</p>
+<pre>
+SQL&gt; connect pdba1/pdba1@ol6twsa:1521/pdb1
+Connected.
+
+SQL&gt; create tablespace testts;
+
+Tablespace created.
+
+SQL&gt; create user oldtest identified by oldtest;
+
+User created.
+
+SQL&gt; alter user oldtest default tablespace testts quota unlimited on testts;
+
+User altered.
+
+SQL&gt; grant create session, create table to oldtest;
+
+Grant succeeded.
+
+SQL&gt; --
+SQL&gt; connect oldtest/oldtest@ol6twsa:1521/pdb1;
+Connected.
+SQL&gt; create table t as select * from all_objects;
+
+Table created.
+
+SQL&gt; select count(*) from t;
+
+  COUNT(*)
+----------
+     75256
+
+</pre>
+<p>Connect as SYSDBA to root container to check  if the tablespace can be transported:</p>
+<pre>
+SQL&gt; connect / as sysdba
+Connected.
+SQL&gt; alter session set container=pdb1;
+
+Session altered.
+
+SQL&gt; execute dbms_tts.transport_set_check('testts');
+
+PL/SQL procedure successfully completed.
+
+SQL&gt; select * from transport_set_violations;
+
+no rows selected
+
+</pre>
+<p>Make the schema tablespace read only:</p>
+<pre>
+SQL&gt; alter tablespace testts read only;
+
+Tablespace altered.
+</pre>
+<p>Create the Data Pump database directory:</p>
+<pre>
+SQL&gt; create directory dp as '/backup/';
+
+Directory created.
+
+</pre>
+<p>Run expdp command to export tablespace metadata:</p>
+<pre>
+$ expdp userid=pdba1/pdba1@ol6twsa:1521/pdb1 transport_tablespaces=testts directory=dp dumpfile=etts.exp logfile=etts.log
+
+Export: Release 12.1.0.2.0 - Production on Wed Feb 25 21:09:39 2015
+
+Copyright (c) 1982, 2014, Oracle and/or its affiliates.  All rights reserved.
+
+Connected to: Oracle Database 12c Enterprise Edition Release 12.1.0.2.0 - 64bit Production
+With the Partitioning, Automatic Storage Management, OLAP, Advanced Analytics
+and Real Application Testing options
+Starting "PDBA1"."SYS_EXPORT_TRANSPORTABLE_01":  userid=pdba1/********@ol6twsa:1521/pdb1 transport_tablespaces=testts directory=dp dumpfile=etts.exp logfile=etts.log
+Processing object type TRANSPORTABLE_EXPORT/PLUGTS_BLK
+Processing object type TRANSPORTABLE_EXPORT/TABLE
+Processing object type TRANSPORTABLE_EXPORT/TABLE_STATISTICS
+Processing object type TRANSPORTABLE_EXPORT/STATISTICS/MARKER
+Processing object type TRANSPORTABLE_EXPORT/POST_INSTANCE/PLUGTS_BLK
+Master table "PDBA1"."SYS_EXPORT_TRANSPORTABLE_01" successfully loaded/unloaded
+******************************************************************************
+Dump file set for PDBA1.SYS_EXPORT_TRANSPORTABLE_01 is:
+  /backup/etts.exp
+******************************************************************************
+Datafiles required for transportable tablespace TESTTS:
+  +DATA/CDB/FEF58133BBAA216EE0434738A8C01995/DATAFILE/testts.283.872782157
+Job "PDBA1"."SYS_EXPORT_TRANSPORTABLE_01" successfully completed at Wed Feb 25 21:10:05 2015 elapsed 0 00:00:25
+</pre>
+<p>Drop tablespace but keep datafiles;</p>
+<pre>
+$ sqlplus pdba1/pdba1@ol6twsa:1521/pdb1
+
+SQL*Plus: Release 12.1.0.2.0 Production on Wed Feb 25 21:11:39 2015
+
+Copyright (c) 1982, 2014, Oracle.  All rights reserved.
+
+Last Successful login time: Wed Feb 25 2015 20:33:00 +01:00
+
+Connected to:
+Oracle Database 12c Enterprise Edition Release 12.1.0.2.0 - 64bit Production
+With the Partitioning, Automatic Storage Management, OLAP, Advanced Analytics
+and Real Application Testing options
+
+SQL&gt; drop tablespace testts including contents keep datafiles;
+
+Tablespace dropped.
+
+</pre>
+<p>Create the new user local account representing the renamed schema in PDB1:</p>
+<pre>
+SQL&gt; create user newtest identified by newtest;
+
+User created.
+
+SQL&gt; grant create session, create table to newtest;
+
+Grant succeeded.
+
+</pre>
+<p>Run impdp command to import the tablespace metadata and to link it with the new schema:</p>
+<pre>
+$ impdp userid=pdba1/pdba1@ol6twsa:1521/pdb1 \
+remap_schema=oldtest:newtest \
+transport_datafiles=+DATA/CDB/FEF58133BBAA216EE0434738A8C01995/DATAFILE/testts.283.872782157   \
+directory=dp \
+dumpfile=etts.exp \
+logfile=itts.log
+
+Import: Release 12.1.0.2.0 - Production on Wed Feb 25 21:12:20 2015
+
+Copyright (c) 1982, 2014, Oracle and/or its affiliates.  All rights reserved.
+
+Connected to: Oracle Database 12c Enterprise Edition Release 12.1.0.2.0 - 64bit Production
+With the Partitioning, Automatic Storage Management, OLAP, Advanced Analytics
+and Real Application Testing options
+Master table "PDBA1"."SYS_IMPORT_TRANSPORTABLE_01" successfully loaded/unloaded
+Starting "PDBA1"."SYS_IMPORT_TRANSPORTABLE_01":  userid=pdba1/********@ol6twsa:1521/pdb1 remap_schema=oldtest:newtest transport_datafiles=+DATA/CDB/FEF58133BBAA216EE0434738A8C01995/DATAFILE/testts.283.872782157  directory=dp dumpfile=etts.exp logfile=itts.log
+Processing object type TRANSPORTABLE_EXPORT/PLUGTS_BLK
+Processing object type TRANSPORTABLE_EXPORT/TABLE
+Processing object type TRANSPORTABLE_EXPORT/TABLE_STATISTICS
+Processing object type TRANSPORTABLE_EXPORT/STATISTICS/MARKER
+Processing object type TRANSPORTABLE_EXPORT/POST_INSTANCE/PLUGTS_BLK
+Job "PDBA1"."SYS_IMPORT_TRANSPORTABLE_01" successfully completed at Wed Feb 25 21:12:38 2015 elapsed 0 00:00:17
+
+</pre>
+<p>Make imported tablespace read write, assign password to new account and new default tablespace:</p>
+<pre>
+$ sqlplus newtest/newtest@ol6twsa:1521/pdb1
+
+SQL*Plus: Release 12.1.0.2.0 Production on Wed Feb 25 21:13:54 2015
+
+Copyright (c) 1982, 2014, Oracle.  All rights reserved.
+
+
+Connected to:
+Oracle Database 12c Enterprise Edition Release 12.1.0.2.0 - 64bit Production
+With the Partitioning, Automatic Storage Management, OLAP, Advanced Analytics
+and Real Application Testing options
+
+SQL&gt; alter tablespace testts read write;
+
+Tablespace altered.
+
+SQL&gt; alter user newtest identified by newtest;
+
+User altered.
+
+SQL&gt; alter user newtest default tablespace testts quota unlimited on testts;
+
+User altered.
+
+</pre>
+<p>Old user account (that does not own any object) can now be removed:</p>
+<pre>
+SQL&gt; drop user oldtest ;
+
+User dropped.
+
+</pre>
+<p>Check new schema:</p>
+<pre>
+[oracle@ol6twsa scripts]$ sqlplus newtest/newtest@ol6twsa:1521/pdb1
+
+SQL*Plus: Release 12.1.0.2.0 Production on Wed Feb 25 21:15:23 2015
+
+Copyright (c) 1982, 2014, Oracle.  All rights reserved.
+
+
+Connected to:
+Oracle Database 12c Enterprise Edition Release 12.1.0.2.0 - 64bit Production
+With the Partitioning, Automatic Storage Management, OLAP, Advanced Analytics
+and Real Application Testing options
+
+SQL&gt; select count(*) from t;
+
+  COUNT(*)
+----------
+     75256
+
+SQL&gt; Disconnected from Oracle Database 12c Enterprise Edition Release 12.1.0.2.0 - 64bit Production
+With the Partitioning, Automatic Storage Management, OLAP, Advanced Analytics
+and Real Application Testing options
+</pre>
+<h3>Conclusion</h3>
+<p>In both cases schema OLDTEST has been renamed to NEWTEST only by moving the schema object metadata and creating the new schema user account with limited downtime<br />
+(downtime is only needed to export tablespace metadata, to drop the tablespace from database dictionary - but not from file system or ASM - and to import the tablespace metadata).</p>
+<p>Transportable tablespaces is a useful feature that can also be used with RMAN backups since  <a href="http://docs.oracle.com/cd/B10501_01/server.920/a96566/rcmrecov.htm#1014753">Oracle 9.2</a> up to <a href="http://docs.oracle.com/database/121/BRADV/rcmttbsb.htm#BRADV89959">Oracle 12.1</a> and that can be much faster to use than Datap Pump export/import.</p>
