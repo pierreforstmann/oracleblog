@@ -1,0 +1,355 @@
+<p>The purpose of this blog article is to show how you can use RMAN active duplication feature to move a database on another file system on the same machine. RMAN <a href="http://docs.oracle.com/cd/E16655_01/backup.121/e17630/rcmdupdb.htm#BRADV419"> active database duplication </a> allows to create a duplicate database without using additional space on another media like disk or tape: RMAN is using only the network like a backup device.</p>
+<p>This database move requires 3 major steps:</p>
+<li>duplicating the source database to another file system with RMAN active duplication</li>
+<li>dropping the source database</li>
+<li>renaming the new database with <a href="http://docs.oracle.com/cd/E16655_01/server.121/e17639/dbnewid.htm#SUTIL014DBNEWID">DBNEWID utility (nid executable)</a> including parameter file changes.</li>
+<h3>Configuration used</h3>
+<p>I have used Oracle 12.1.0.1 Entreprise Edition on Linux. The source database is a container database having 2 pluggable databases, it is using file system as storage with a fast recovery area (FRA). The destination database is also using file system as storage with a FRA but with Oracle managed files (OMF).</p>
+<p>All Unix commands are run with Oracle software ower account named 'oracle' (unless shell prompt is '#': in this case it means 'root' account has been used). All SQL statements are with SYSDBA privileges.<br />
+</p>
+<h3>Prerequisite</h3>
+<p>Source database must be running in ARCHIVELOG mode. Check with:</p>
+<pre>
+SYS@cdb12c&gt;select log_mode from v$database;
+
+LOG_MODE
+------------
+ARCHIVELOG
+</pre>
+<p>
+The source database DB_NAME is <b>cdb12c</b> and the destination database DB_NAME is <b>DBNEW</b>.<br />
+</p>
+<h3>Setup Oracle Net configuration files</h3>
+<p>RMAN active duplication is using the network and requires Oracle Net connections: so you must make sure that there is  one Oracle Net alias for the source database and the destination database in <b>tnsnames.ora</b>:</p>
+<pre>
+cdb12c =
+  (DESCRIPTION =
+    (ADDRESS = (PROTOCOL = TCP)(HOST = ol6twsf.localdomain)(PORT = 1521))
+    (CONNECT_DATA =
+      (SERVER = DEDICATED)
+      (SERVICE_NAME = cdb12c)
+    )
+  )
+
+NEWDB =
+  (DESCRIPTION =
+    (ADDRESS = (PROTOCOL = TCP)(HOST = ol6twsf.localdomain)(PORT = 1521))
+    (CONNECT_DATA =
+      (SERVER = DEDICATED)
+      (SERVICE_NAME = newdb)
+    )
+  )
+
+</pre>
+<p>Because RMAN needs to connect to the auxiliary database started in NOMOUNT mode you need to define the destination database with a static entry in <b>listener.ora</b>:</p>
+<pre>
+LISTENER=
+  (DESCRIPTION=
+    (ADDRESS_LIST=
+      (ADDRESS=(PROTOCOL=tcp)(HOST=ol6twsf)(PORT=1521))))
+#
+SID_LIST_LISTENER=
+  (SID_LIST=
+    (SID_DESC=
+      (GLOBAL_DBNAME=NEWDB)
+      (ORACLE_HOME=/u01/app/oracle/product/12.1.0/db_1)
+      (SID_NAME=NEWDB)))
+</pre>
+<h3>Create database password files</h3>
+<p>Because RMAN active duplication requires to connect to source and destination with an Oracle Net connection (needed in case you use SPFILE feature for destination database), password file must exist to allow remote SYS connections. For the destination database that does not exist you must create it:</p>
+<pre>
+$ orapwd file=$ORACLE_HOME/dbs/orapwNEWDB password=oracle
+</pre>
+<h3>Prepare file system</h3>
+<p>Create the needed directories for the destination database:</p>
+<pre>
+# mkdir /u04/oradata
+# chown oracle:dba /u04/oradata
+$ mkdir /u04/oradata/fra
+</pre>
+<h3>Create a minimum PFILE for auxiliary instance</h3>
+<p>Create the file <b>$ORACLE_HOME/dbs/initNEWDB.ora</b> with following content:</p>
+<pre>
+db_name=NEWDB
+</pre>
+<h3>Start auxiliary instance in NOMOUNT mode</h3>
+<pre>
+$ export ORACLE_SID=NEWDB
+$ sqlplus / as sysdba
+
+SQL*Plus: Release 12.1.0.1.0 Production on Fri May 23 17:05:27 2014
+
+Copyright (c) 1982, 2013, Oracle.  All rights reserved.
+
+Connected to an idle instance.
+
+SYS@NEWDB&gt;startup nomount;
+ORACLE instance started.
+
+Total System Global Area  217157632 bytes
+Fixed Size                  2286656 bytes
+Variable Size             159386560 bytes
+Database Buffers           50331648 bytes
+Redo Buffers                5152768 bytes
+
+&gt;
+</pre>
+<h3>Write the RMAN script</h3>
+<p>In this script I have used hard coded control files names otherwise RMAN fails.<br />
+<br />
+If CONTROL_FILES parameter is not set RMAN reuses source database control file names and triggers:</p>
+<pre>
+RMAN-00571: ===========================================================
+RMAN-00569: =============== ERROR MESSAGE STACK FOLLOWS ===============
+RMAN-00571: ===========================================================
+RMAN-03002: failure of Duplicate Db command at 05/23/2014 17:06:03
+RMAN-05501: aborting duplication of target database
+RMAN-03015: error occurred in stored script Memory Script
+ORA-19849: error while reading backup piece from service cdb12c
+ORA-19504: failed to create file "/u01/oradata/cdb12c/control01.ctl"
+ORA-27086: unable to lock file - already in use
+Linux-x86_64 Error: 11: Resource temporarily unavailable
+Additional information: 8
+Additional information: 2357
+</pre>
+<p>If CONTROL_FILES is set and is referencing directories that should be created by RMAN, RMAN also fails (likely because directories are created too late in the duplication process):</p>
+<pre>
+RMAN-00571: ===========================================================
+RMAN-00569: =============== ERROR MESSAGE STACK FOLLOWS ===============
+RMAN-00571: ===========================================================
+RMAN-03002: failure of Duplicate Db command at 05/23/2014 16:56:43
+RMAN-05501: aborting duplication of target database
+RMAN-03015: error occurred in stored script Memory Script
+ORA-19849: error while reading backup piece from service cdb12c
+ORA-19504: failed to create file "/u04/oradata/NEWDB/cf1.ctl"
+ORA-27040: file create error, unable to create file
+Linux-x86_64 Error: 2: No such file or directory
+Additional information: 1
+</pre>
+<p>The script <b>dup.rman</b> I have used is:</p>
+<pre>
+duplicate target database to NEWDB from active database
+password file
+spfile
+set compatible '12.1.0.1'
+set enable_pluggable_database 'true'
+set control_files '/u04/oradata/cf1.ctl','/u04/oradata/fra/cf2.ctl'
+set db_recovery_file_dest_size '10G'
+set db_recovery_file_dest '/u04/oradata/fra'
+set db_create_file_dest '/u04/oradata'
+set db_create_online_log_dest_1 '/u04/oradata'
+set db_create_online_log_dest_2 '/u04/oradata/fra'
+nofilenamecheck;
+</pre>
+<h3>Start the database duplication</h3>
+<p>You only need to run:</p>
+<pre>
+$ rman target sys/oracle@cdb12c auxiliary sys/oracle@NEWDB cmdfile=dup.rman
+</pre>
+<p>Wait that RMAN output ends with:</p>
+<pre>
+contents of Memory Script:
+{
+   Alter clone database open resetlogs;
+}
+executing Memory Script
+
+database opened
+
+contents of Memory Script:
+{
+   sql clone "alter pluggable database all open";
+}
+executing Memory Script
+
+sql statement: alter pluggable database all open
+Finished Duplicate Db at 28-MAY-14
+
+Recovery Manager complete.
+</pre>
+<p>At this step the duplicate database is ready to be used. </p>
+<h3>Drop source database</h3>
+<pre>
+$ . oraenv
+ORACLE_SID = [NEWDB] ? cdb12c
+The Oracle base remains unchanged with value /u01/app/oracle
+$ sqlplus / as sysdba
+
+SQL*Plus: Release 12.1.0.1.0 Production on Wed May 28 09:11:49 2014
+
+Copyright (c) 1982, 2013, Oracle.  All rights reserved.
+
+
+Connected to:
+Oracle Database 12c Enterprise Edition Release 12.1.0.1.0 - 64bit Production
+With the Partitioning, OLAP, Advanced Analytics and Real Application Testing options
+
+SYS@cdb12c&gt;shutdown immediate
+Database closed.
+Database dismounted.
+ORACLE instance shut down.
+SYS@cdb12c&gt;startup mount exclusive restrict;
+ORACLE instance started.
+
+Total System Global Area 1035534336 bytes
+Fixed Size                  2296184 bytes
+Variable Size             406849160 bytes
+Database Buffers          620756992 bytes
+Redo Buffers                5632000 bytes
+Database mounted.
+SYS@cdb12c&gt;drop database;
+
+Database dropped.
+
+Disconnected from Oracle Database 12c Enterprise Edition Release 12.1.0.1.0 - 64bit Production
+With the Partitioning, OLAP, Advanced Analytics and Real Application Testing options
+SYS@cdb12c&gt;
+</pre>
+<h3>Rename new database</h3>
+<p>Because database renaming will change DB_NAME in control files but not in SPFILE you must switch database parameter file from SPFILE to PFILE (to be able to change DB_NAME manually in parameter file later) before running <b>nid</b> (DBNEWID):</p>
+<pre>
+$ export ORACLE_SID=NEWDB
+$ sqlplus / as sysdba
+
+SQL*Plus: Release 12.1.0.1.0 Production on Wed May 28 09:18:31 2014
+
+Copyright (c) 1982, 2013, Oracle.  All rights reserved.
+
+
+Connected to:
+Oracle Database 12c Enterprise Edition Release 12.1.0.1.0 - 64bit Production
+With the Partitioning, OLAP, Advanced Analytics and Real Application Testing options
+
+SYS@NEWDB&gt;create pfile from spfile;
+
+File created.
+
+SYS@NEWDB&gt;shutdown immediate;
+Database closed.
+Database dismounted.
+ORACLE instance shut down.
+SYS@NEWDB&gt;startup mount;
+ORACLE instance started.
+
+Total System Global Area 1035534336 bytes
+Fixed Size                  2296184 bytes
+Variable Size             402654856 bytes
+Database Buffers          624951296 bytes
+Redo Buffers                5632000 bytes
+Database mounted.
+SYS@NEWDB&gt;exit
+Disconnected from Oracle Database 12c Enterprise Edition Release 12.1.0.1.0 - 64bit Production
+With the Partitioning, OLAP, Advanced Analytics and Real Application Testing options
+$ nid target=sys/oracle dbname=cdb12c logfile=/tmp/nid.log
+$ cat /tmp/nid.log
+
+DBNEWID: Release 12.1.0.1.0 - Production on Wed May 28 09:31:22 2014
+
+Copyright (c) 1982, 2013, Oracle and/or its affiliates.  All rights reserved.
+
+Connected to database NEWDB (DBID=3089151096)
+
+Connected to server version 12.1.0
+
+Control Files in database:
+    /u04/oradata/cf1.ctl
+    /u04/oradata/fra/cf2.ctl
+
+Changing database ID from 3089151096 to 4047369130
+Changing database name from NEWDB to CDB12C
+    Control File /u04/oradata/cf1.ctl - modified
+    Control File /u04/oradata/fra/cf2.ctl - modified
+    Datafile /u04/oradata/NEWDB/datafile/o1_mf_system_9rc2domb_.db - dbid changed, wrote new name
+    Datafile /u04/oradata/NEWDB/datafile/o1_mf_sysaux_9rc2fgnn_.db - dbid changed, wrote new name
+    Datafile /u04/oradata/NEWDB/datafile/o1_mf_undotbs1_9rc2g7rx_.db - dbid changed, wrote new name
+    Datafile /u04/oradata/NEWDB/datafile/o1_mf_system_9rc2ggpz_.db - dbid changed, wrote new name
+    Datafile /u04/oradata/NEWDB/datafile/o1_mf_users_9rc2gxoh_.db - dbid changed, wrote new name
+    Datafile /u04/oradata/NEWDB/datafile/o1_mf_sysaux_9rc2gysw_.db - dbid changed, wrote new name
+    Datafile /u04/oradata/NEWDB/datafile/o1_mf_system_9rc2hr2k_.db - dbid changed, wrote new name
+    Datafile /u04/oradata/NEWDB/datafile/o1_mf_sysaux_9rc2j6x6_.db - dbid changed, wrote new name
+    Datafile /u04/oradata/NEWDB/datafile/o1_mf_users_9rc2jzvp_.db - dbid changed, wrote new name
+    Datafile /u04/oradata/NEWDB/datafile/o1_mf_system_9rc2k10o_.db - dbid changed, wrote new name
+    Datafile /u04/oradata/NEWDB/datafile/o1_mf_sysaux_9rc2kj2w_.db - dbid changed, wrote new name
+    Datafile /u04/oradata/NEWDB/datafile/o1_mf_users_9rc2l91b_.db - dbid changed, wrote new name
+    Datafile /u04/oradata/NEWDB/datafile/o1_mf_temp_9rc2m4vv_.tm - dbid changed, wrote new name
+    Datafile /u04/oradata/NEWDB/datafile/o1_mf_temp_9rc2md3k_.tm - dbid changed, wrote new name
+    Datafile /u04/oradata/NEWDB/datafile/o1_mf_temp_9rc2mm1l_.tm - dbid changed, wrote new name
+    Datafile /u04/oradata/NEWDB/datafile/o1_mf_temp_9rc2mvv8_.tm - dbid changed, wrote new name
+    Control File /u04/oradata/cf1.ctl - dbid changed, wrote new name
+    Control File /u04/oradata/fra/cf2.ctl - dbid changed, wrote new name
+    Instance shut down
+
+Database name changed to CDB12C.
+Modify parameter file and generate a new password file before restarting.
+Database ID for database CDB12C changed to 4047369130.
+All previous backups and archived redo logs for this database are unusable.
+Database is not aware of previous backups and archived logs in Recovery Area.
+Database has been shutdown, open database with RESETLOGS option.
+Succesfully changed database name and ID.
+</pre>
+<p>Note that database has been renamed to CDB12C (uppercase). The last steps to be done:</p>
+<li>former spfileNEWDB.ora must be removed</li>
+<li>DB_NAME parameter must be modified in new PFILE <b>initCDB12C.ora</b> </li>
+<li>ORACLE_SID must updated in <b>/etc/oratab</b></li>
+<pre>
+$ rm $ORACLE_HOME/dbs/spfileNEWDB.ora
+$ mv $ORACLE_HOME/dbs/initNEWDB.ora $ORACLE_HOME/dbs/initCDB12C.ora
+$ grep db_name $ORACLE_HOME/dbs/initCDB12C.ora
+*.db_name='CDB12C'
+$ grep CDB12C /etc/oratab
+CDB12C:/u01/app/oracle/product/12.1.0/db_1:N
+</pre>
+<p>Now database instance CDB12C can be restarted and must be opened with RESETLOGS (because DBID has also been changed):</p>
+<pre>
+$ . oraenv
+ORACLE_SID = [NEWDB] ? CDB12C
+The Oracle base remains unchanged with value /u01/app/oracle
+-bash-4.1$ sqlplus / as sysdba
+
+SQL*Plus: Release 12.1.0.1.0 Production on Wed May 28 09:46:45 2014
+
+Copyright (c) 1982, 2013, Oracle.  All rights reserved.
+
+Connected to an idle instance.
+
+SYS@CDB12C&gt;startup mount;
+ORACLE instance started.
+
+Total System Global Area 1035534336 bytes
+Fixed Size                  2296184 bytes
+Variable Size             402654856 bytes
+Database Buffers          624951296 bytes
+Redo Buffers                5632000 bytes
+Database mounted.
+SYS@CDB12C&gt;alter database open resetlogs;
+
+Database altered.
+</pre>
+<p>Very last step is to create a SPFILE and to restart database instance to make database instance use the new SPFILE:</p>
+<pre>
+SYS@CDB12C&gt;create spfile from pfile;
+
+File created.
+
+SYS@CDB12C&gt;shutdown immediate;
+Database closed.
+Database dismounted.
+ORACLE instance shut down.
+SYS@CDB12C&gt;startup;
+ORACLE instance started.
+
+Total System Global Area 1035534336 bytes
+Fixed Size                  2296184 bytes
+Variable Size             402654856 bytes
+Database Buffers          624951296 bytes
+Redo Buffers                5632000 bytes
+Database mounted.
+Database opened.
+SYS@CDB12C&gt;show parameter spfile;
+
+NAME                                 TYPE        VALUE
+------------------------------------ ----------- ------------------------------
+spfile                               string      /u01/app/oracle/product/12.1.0
+                                                 /db_1/dbs/spfileCDB12C.ora
+</pre>
+<p>Note that you should also backup the renamed database because previous backups are not usable after this DBNEWID step.</p>
