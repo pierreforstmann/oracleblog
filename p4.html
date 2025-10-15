@@ -1,0 +1,923 @@
+<p>This post documents how you can install a 2-node Oracle RAC cluster in silent mode with Oracle 12.1 on Oracle Linux 6.4 (OL6) with VirtualBox (VBOX) 4.2.14.<br />
+<br />
+Disclaimer: this is only an example that can be used to setup a lab or test system: it is not designed to be used for production purpose.<br />
+<br />
+Note that ASMLib, job role separation, Grid Infrastructure Management Repository, Grid Naming Services (GNS), Flex Clusters are not taken into account. </p>
+<p>Official Grid Infrastructure installation guide is <A HREF="http://docs.oracle.com/cd/E16655_01/install.121/e17888/toc.htm">here</A>.<br />
+<br />
+To configure OL6 virtual machines with VBOX I recommend <A HREF="http://www.oracle-base.com/articles/12c/oracle-db-12cr1-rac-installation-on-oracle-linux-6-using-virtualbox.php">ORACLE-BASE Tim Hall article </A>.<br />
+</p>
+<h3> Virtual machines and Linux configuration </h3>
+<p>I have applied following operating system prerequisites before installing Oracle RAC on each cluster node:</p>
+<li>
+Each cluster node has 4 GB of RAM
+</li>
+<li>
+Each cluster node has 1 virtual disk attached to SATA controler which is mapped to /dev/sda
+</li>
+<li>
+SELINUX is disabled
+</li>
+<li>
+Linux firewall is disabled
+</li>
+<li>
+each node has 3 network interfaces:<br />
+<br />
+- the first one in VBOX and mapped to eth0 is using NAT and is used to have Internet access (in VBOX: attached to "NAT")<br />
+<br />
+- the second one in VBOX and mapped to eth1 is for the node public IP adress (in VBOX: attached to "Host Only Adapter" and Promiscuous Mode set to "Allow VMs")<br />
+<br />
+- the third one in VBOX and mapped to eth2 is for the cluster interconnect (in VBOX: attached to "Host Only Adapter" and Promiscuous Mode set to "Allow VMs")<br />
+
+</li>
+<li>
+each node must have 3 IP adresses: one public, one VIP and one for the interconnect.<br />
+<br />
+Here is /etc/hosts section common to both cluster nodes:</p>
+<pre>
+# Public
+192.168.56.111 ol6twcn1 ol6twcn1.localdomain
+192.168.56.112 ol6twcn2 ol6twcn2.localdomain
+# Private
+192.168.43.111 ol6twcn1-priv ol6twcn1-priv.localdomain
+192.168.43.112 ol6twcn2-priv ol6twcn2-priv.localdomain
+# VIP
+192.168.56.121 ol6twcn1-vip ol6twcn1-vip.localdomain
+192.168.56.122 ol6twcn2-vip ol6twcn2-vip.localdomain
+</pre>
+</li>
+<li>
+SCAN listener IP adress must be resolved with a DNS with 3 different IP addresses:</p>
+<pre>
+# nslookup ol6twc-scan
+Server:         192.168.56.252
+Address:        192.168.56.252#53
+
+Name:   ol6twc-scan.localdomain
+Address: 192.168.56.132
+Name:   ol6twc-scan.localdomain
+Address: 192.168.56.133
+Name:   ol6twc-scan.localdomain
+Address: 192.168.56.131
+</pre>
+</li>
+<li>
+oracle 11gR2 validated package has been installed (the 12c1 package was not yet available at installation time):</p>
+<pre>
+# yum list oracle-rdbms-server-11gR2-preinstall.x86_64
+Loaded plugins: security
+Installed Packages
+oracle-rdbms-server-11gR2-preinstall.x86_64        1.0-7.el6         @ol6_latest
+</pre>
+</li>
+<li>
+Linux oracle user account must have SSH equivalence on cluster nodes
+</li>
+<li>
+I have not configured NTP to avoid an Oracle Universal Installer (OUI) issue. To disable NTP I have run on both nodes:</p>
+<pre>
+# cd /etc
+# mv ntp.conf ntp.conf.orig
+</pre>
+<p>In such configuration OUI will decide to use Cluster Time Synchronization Service (CTSS) which is part of Oracle Clusterware.
+</li>
+<h3>Shared Storage Configuration</h3>
+<p>
+Shared storage must be created with VBOX. I have created 2 10 GB shared virtual disks with:</p>
+<pre>
+vboxmanage createhd --filename asm1.vdi --size=10240 --format VDI --variant Fixe
+vboxmanage createhd --filename asm2.vdi --size=10240 --format VDI --variant Fixe
+</pre>
+<p>Attach the virtual disks to each cluster node with:</p>
+<pre>
+vboxmanage storageattach ol6twcn1 --storagectl "SATA" --port 1 --device 0 --type hdd --medium asm1.vdi --mtype shareable
+vboxmanage storageattach ol6twcn1 --storagectl "SATA" --port 2 --device 0 --type hdd --medium asm2.vdi --mtype shareable
+vboxmanage storageattach ol6twcn2 --storagectl "SATA" --port 1 --device 0 --type hdd --medium asm1.vdi --mtype shareable
+vboxmanage storageattach ol6twcn2 --storagectl "SATA" --port 2 --device 0 --type hdd --medium asm2.vdi --mtype shareable
+</pre>
+<p>Set the virtual disks to shareable type:</p>
+<pre>
+vboxmanage modifyhd asm1.vdi --type shareable 
+vboxmanage modifyhd asm2.vdi --type shareable
+</pre>
+<p>Configure shared storage at operating system level: connect to first cluster node and create partitions for both disks (type "ENTER" when asked for disk cylinders):</p>
+<pre>
+# fdisk /dev/sdb
+Device contains neither a valid DOS partition table, nor Sun, SGI or OSF disklabel
+Building a new DOS disklabel with disk identifier 0x9ce82f4a.
+Changes will remain in memory only, until you decide to write them.
+After that, of course, the previous content won't be recoverable.
+
+Warning: invalid flag 0x0000 of partition table 4 will be corrected by w(rite)
+
+WARNING: DOS-compatible mode is deprecated. It's strongly recommended to
+         switch off the mode (command 'c') and change display units to
+         sectors (command 'u').
+
+Command (m for help): n
+Command action
+   e   extended
+   p   primary partition (1-4)
+p
+Partition number (1-4): 1
+First cylinder (1-1305, default 1):
+Using default value 1
+Last cylinder, +cylinders or +size{K,M,G} (1-1305, default 1305):
+Using default value 1305
+
+Command (m for help): w
+The partition table has been altered!
+
+Calling ioctl() to re-read partition table.
+Syncing disks.
+[root@ol6twcn1 ~]# fdisk /dev/sdc
+Device contains neither a valid DOS partition table, nor Sun, SGI or OSF disklabel
+Building a new DOS disklabel with disk identifier 0xe1321235.
+Changes will remain in memory only, until you decide to write them.
+After that, of course, the previous content won't be recoverable.
+
+Warning: invalid flag 0x0000 of partition table 4 will be corrected by w(rite)
+
+WARNING: DOS-compatible mode is deprecated. It's strongly recommended to
+         switch off the mode (command 'c') and change display units to
+         sectors (command 'u').
+
+Command (m for help): n
+Command action
+   e   extended
+   p   primary partition (1-4)
+p
+Partition number (1-4): 1
+First cylinder (1-1305, default 1):
+Using default value 1
+Last cylinder, +cylinders or +size{K,M,G} (1-1305, default 1305):
+Using default value 1305
+
+Command (m for help): w
+The partition table has been altered!
+
+Calling ioctl() to re-read partition table.
+Syncing disks.
+#
+</pre>
+<p>Get SSCI identifiers for the Linux devices:</p>
+<pre>
+# /sbin/scsi_id -g -u -d /dev/sdb
+1ATA_VBOX_HARDDISK_VB78111c9d-6b7daca9
+# /sbin/scsi_id -g -u -d /dev/sdc
+1ATA_VBOX_HARDDISK_VBe981dc9b-73ff6297
+#
+</pre>
+<p>On both nodes, create UDEV script to have persitent device  names:</p>
+<pre>
+# pwd
+/etc/udev/rules.d
+# cat 99-oracle-asmdevices.rules
+KERNEL=="sd?1", BUS=="scsi", PROGRAM=="/sbin/scsi_id -g -u -d /dev/$parent", RESULT=="1ATA_VBOX_HARDDISK_VB78111c9d-6b7daca9", NAME="asm-disk1", OWNER="oracle", GROUP="dba", MODE="0660"
+KERNEL=="sd?1", BUS=="scsi", PROGRAM=="/sbin/scsi_id -g -u -d /dev/$parent", RESULT=="1ATA_VBOX_HARDDISK_VBe981dc9b-73ff6297", NAME="asm-disk2", OWNER="oracle", GROUP="dba", MODE="0660"
+#
+</pre>
+<p>Reboot both nodes and check on each node that devices have been correctly created:</p>
+<pre>
+# ls -al /dev/asm*
+brw-rw---- 1 oracle dba 8, 17 Jun 29 18:52 /dev/asm-disk1
+brw-rw---- 1 oracle dba 8, 33 Jun 29 18:52 /dev/asm-disk2
+</pre>
+<h3> Grid Infrastructure installation and configuration</h3>
+<p>Switch to 'oracle' account and upload Grid Infrastructure 12.1 installation media to cluster node and unzip it :</p>
+<pre>
+$ cd /tmp
+$ unzip linuxamd64_12c_grid_1of2.zip 
+$ unzip linuxamd64_12c_grid_2of2.zip
+</pre>
+<p>Run Cluster Verify Utility (CVU):</p>
+<pre>
+$ /tmp/grid/runcluvfy.sh stage -pre crsinst -n "ol6twcn1,ol6twcn2"
+</pre>
+<p>I have ignored following errors linked to first network interface that should not be used by Oracle:</p>
+<pre>
+ERROR:
+PRVF-7617 : Node connectivity between "ol6twcn1 : 10.0.2.15" and "ol6twcn2 : 10.0.2.15" failed
+Result: TCP connectivity check failed for subnet "10.0.2.0"
+ERROR:
+PRVG-1172 : The IP address "10.0.2.15" is on multiple interfaces "eth0,eth0" on nodes "ol6twcn2,ol6twcn1"
+</pre>
+<p>This errors trigger a CVU message failure but because there are no other errors, you can ignore it:</p>
+<pre>
+Pre-check for cluster services setup was unsuccessful on all the nodes.
+</pre>
+<p>Target installation directories have been created on both nodes:</p>
+<pre>
+# mkdir -p  /u01/app/12.1.0.1/grid
+# mkdir -p /u01/app/oracle/product/12.1.0.1/db_1
+# chown -R oracle:oinstall /u01
+# chmod -R 775 /u01/
+</pre>
+<p>Note following Grid Infrastructure (GI) OUI silent parameters:</p>
+<li>
+oracle.install.crs.config.clusterNodes must list cluster node names in the format <em>public hostname:VIP hostname</em>
+</li>
+<li>
+oracle.install.crs.config.networkInterfaceList must list network interfaces in the format <em>network interface:related subnet:flag</em><br />
+where flag=1 for public network interface and flag=2 for interconnect network interface.
+</li>
+<li>
+Same Unix group "dba" has been used for OSDBA, OSOPER and OSASM roles.
+</li>
+<p>
+Following script has been used to install GI in silent mode:</p>
+<pre>
+cd /tmp/grid
+export DISTRIB=`pwd`
+./runInstaller -silent         \
+       -responseFile $DISTRIB/response/grid_install.rsp        \
+       INVENTORY_LOCATION=/u01/app/oracle/oraInventory         \
+       SELECTED_LANGUAGES=en                                   \
+       oracle.install.option=CRS_CONFIG                        \
+       ORACLE_BASE=/u01/app/base/                              \
+       ORACLE_HOME=/u01/app/12.1.0.1/grid                      \
+       oracle.install.asm.OSDBA=dba                            \
+       oracle.install.asm.OSOPER=dba                           \
+       oracle.install.asm.OSASM=dba                            \
+       oracle.install.crs.config.gpnp.scanName=ol6twc-scan.localdomain \
+       oracle.install.crs.config.gpnp.scanPort=1521            \
+       oracle.install.crs.config.clusterName=ol6twc            \
+       oracle.install.crs.config.gpnp.configureGNS=false       \
+       oracle.install.crs.config.clusterNodes=ol6twcn1:ol6twcn1-vip,ol6twcn2:ol6twcn2-vip \
+       oracle.install.crs.config.networkInterfaceList=eth1:192.168.56.0:1,eth2:192.168.43.0:2 \
+       oracle.install.crs.config.storageOption=ASM_STORAGE     \
+       oracle.install.crs.config.useIPMI=false                 \
+       oracle.install.asm.SYSASMPassword=oracle12c              \
+       oracle.install.asm.diskGroup.diskDiscoveryString=/dev/asm* \
+       oracle.install.asm.diskGroup.name=DATA                  \
+       oracle.install.asm.diskGroup.disks=/dev/asm-disk1       \
+       oracle.install.asm.diskGroup.redundancy=EXTERNAL        \
+       oracle.install.asm.monitorPassword=oracle12c
+</pre>
+<p>Following warnings can be ignored:</p>
+<pre>
+[WARNING] [INS-41170] You have chosen not to configure the Grid Infrastructure Management Repository. Not configuring the Grid Infrastructure Management Repository will permanently disable the Cluster Health Monitor, QoS Management, Memory Guard, and Rapid Home Provisioning features. Enabling of these features will require reinstallation of the Grid Infrastructure.
+[WARNING] [INS-30011] The SYS password entered does not conform to the Oracle recommended standards.
+[WARNING] [INS-30011] The ASMSNMP password entered does not conform to the Oracle recommended standards.
+[WARNING] [INS-41808] Possible invalid choice for OSASM Group. 
+[WARNING] [INS-41809] Possible invalid choice for OSDBA Group.
+[WARNING] [INS-41810] Possible invalid choice for OSOPER Group.
+[WARNING] [WARNING] [INS-13014] Target environment does not meet some optional requirements.
+</pre>
+<p>Last warnings cause can be found in one OUI logs but can be ignored:</p>
+<pre>
+INFO: INFO: ------------------List of failed Tasks------------------
+INFO: INFO: *********************************************
+INFO: INFO: Physical Memory: This is a prerequisite condition to test whether the system has at least 4GB (4194304.0KB) of total physical memory.
+INFO: INFO: Severity:IGNORABLE
+INFO: INFO: OverallStatus:VERIFICATION_FAILED
+INFO: INFO: *********************************************
+INFO: INFO: Package: cvuqdisk-1.0.9-1: This is a prerequisite condition to test whether the package "cvuqdisk-1.0.9-1" is available on the system.
+INFO: INFO: Severity:IGNORABLE
+INFO: INFO: OverallStatus:VERIFICATION_FAILED
+INFO: INFO: *********************************************
+INFO: INFO: Device Checks for ASM: This is a pre-check to verify if the specified devices meet the requirements for configuration through the Oracle Universal Storage Manager Configuration Assistant.
+INFO: INFO: Severity:IGNORABLE
+INFO: INFO: OverallStatus:VERIFICATION_FAILED
+INFO: INFO: -----------------End of failed Tasks List----------------
+</pre>
+<p>OUI has been started in the background as a process named "java" and we must wait for the following to be displayed in the same shell session:</p>
+<pre> 
+The installation of Oracle Grid Infrastructure 12c was successful.
+Please check '/u01/app/oracle/oraInventory/logs/silentInstallXXX.log' for more details.
+
+As a root user, execute the following script(s):
+        1. /u01/app/oracle/oraInventory/orainstRoot.sh
+        2. /u01/app/12.1.0.1/grid/root.sh
+
+Execute /u01/app/oracle/oraInventory/orainstRoot.sh on the following nodes:
+[ol6twcn1, ol6twcn2]
+Execute /u01/app/12.1.0.1/grid/root.sh on the following nodes:
+[ol6twcn1, ol6twcn2]
+
+Run the script on the local node first. After successful completion, you can start the script in parallel on all other nodes.
+
+Successfully Setup Software.
+As install user, execute the following script to complete the configuration.
+        1. /u01/app/12.1.0.1/grid/cfgtoollogs/configToolAllCommands RESPONSE_FILE=
+
+        Note:
+        1. This script must be run on the same host from where installer was run.
+        2. This script needs a small password properties file for configuration assistants that require passwords (refer to install guide documentation).
+</pre>
+<p>Additional scripts must be run as root on both cluster nodes one at a time:</p>
+<pre>
+# /u01/app/oracle/oraInventory/orainstRoot.sh
+# /u01/app/12.1.0.1/grid/root.sh
+</pre>
+<p>root.sh log files must end on both nodes with:</p>
+<pre>
+CLSRSC-325: Configure Oracle Grid Infrastructure for a Cluster ... succeeded
+</pre>
+<p>ASM instance, first disk group, local listener, SCAN listener and VIP adresses have been created and configured.<br />
+This can be checked now with:</p>
+<pre>
+$ /u01/app/12.1.0.1/grid/bin/crsctl stat res -t
+--------------------------------------------------------------------------------
+Name           Target  State        Server                   State details
+--------------------------------------------------------------------------------
+Local Resources
+--------------------------------------------------------------------------------
+ora.DATA.dg
+               ONLINE  ONLINE       ol6twcn1                 STABLE
+               ONLINE  ONLINE       ol6twcn2                 STABLE
+ora.LISTENER.lsnr
+               ONLINE  ONLINE       ol6twcn1                 STABLE
+               ONLINE  ONLINE       ol6twcn2                 STABLE
+ora.asm
+               ONLINE  ONLINE       ol6twcn1                 Started,STABLE
+               ONLINE  ONLINE       ol6twcn2                 Started,STABLE
+ora.net1.network
+               ONLINE  ONLINE       ol6twcn1                 STABLE
+               ONLINE  ONLINE       ol6twcn2                 STABLE
+ora.ons
+               ONLINE  ONLINE       ol6twcn1                 STABLE
+               ONLINE  ONLINE       ol6twcn2                 STABLE
+--------------------------------------------------------------------------------
+Cluster Resources
+--------------------------------------------------------------------------------
+ora.LISTENER_SCAN1.lsnr
+      1        ONLINE  ONLINE       ol6twcn2                 STABLE
+ora.LISTENER_SCAN2.lsnr
+      1        ONLINE  ONLINE       ol6twcn1                 STABLE
+ora.LISTENER_SCAN3.lsnr
+      1        ONLINE  ONLINE       ol6twcn1                 STABLE
+ora.cvu
+      1        ONLINE  ONLINE       ol6twcn1                 STABLE
+ora.oc4j
+      1        OFFLINE OFFLINE                               STABLE
+ora.ol6twcn1.vip
+      1        ONLINE  ONLINE       ol6twcn1                 STABLE
+ora.ol6twcn2.vip
+      1        ONLINE  ONLINE       ol6twcn2                 STABLE
+ora.scan1.vip
+      1        ONLINE  ONLINE       ol6twcn2                 STABLE
+ora.scan2.vip
+      1        ONLINE  ONLINE       ol6twcn1                 STABLE
+ora.scan3.vip
+      1        ONLINE  ONLINE       ol6twcn1                 STABLE
+--------------------------------------------------------------------------------
+</pre>
+<p>Create a configuration file containing ASM passwords (parameters oracle.install.asm.SYSASMPassword, oracle.install.asm.monitorPassword) used for GI runInstaller steps :</p>
+<pre>
+$ cat home/oracle/scripts/p.r
+oracle.assistants.asm|S_ASMPASSWORD=oracle12c
+oracle.assistants.asm|S_ASMMONITORPASSWORD=oracle12c
+</pre>
+<p>Last GI configuration script to be run is:</p>
+<pre>
+/u01/app/12.1.0.1/grid/cfgtoollogs/configToolAllCommands RESPONSE_FILE=/home/oracle/scripts/p.r
+</pre>
+<p>You can ignore following messages:</p>
+<pre>
+WARNING: Skipping line:    XXX
+INFO: Exceeded the number of arguments passed to stdin. CurrentCount:3 Total args:2
+</pre>
+<p>Check that the second log file named configActionsXXX.log contains following output:</p>
+<pre>
+###################################################
+The action configuration is performing
+------------------------------------------------------
+The plug-in Update CRS flag in Inventory is running
+
+
+The plug-in Update CRS flag in Inventory has successfully been performed
+------------------------------------------------------
+------------------------------------------------------
+The plug-in Oracle Net Configuration Assistant is running
+
+
+The plug-in Oracle Net Configuration Assistant has successfully been performed
+------------------------------------------------------
+------------------------------------------------------
+The plug-in Automatic Storage Management Configuration Assistant is running
+
+
+The plug-in Automatic Storage Management Configuration Assistant has successfully been performed
+------------------------------------------------------
+------------------------------------------------------
+The plug-in Oracle Cluster Verification Utility is running
+
+
+Performing post-checks for cluster services setup
+
+Checking node reachability...
+Node reachability check passed from node "ol6twcn1"
+
+
+Checking user equivalence...
+User equivalence check passed for user "oracle"
+
+Checking node connectivity...
+
+Checking hosts config file...
+
+Verification of the hosts config file successful
+
+Check: Node connectivity using interfaces on subnet "192.168.56.0"
+Node connectivity passed for subnet "192.168.56.0" with node(s) ol6twcn1,ol6twcn2
+TCP connectivity check passed for subnet "192.168.56.0"
+
+
+Check: Node connectivity using interfaces on subnet "192.168.43.0"
+Node connectivity passed for subnet "192.168.43.0" with node(s) ol6twcn1,ol6twcn2
+TCP connectivity check passed for subnet "192.168.43.0"
+
+Checking subnet mask consistency...
+Subnet mask consistency check passed for subnet "192.168.56.0".
+Subnet mask consistency check passed for subnet "192.168.43.0".
+Subnet mask consistency check passed.
+
+Node connectivity check passed
+
+Checking multicast communication...
+
+Checking subnet "192.168.43.0" for multicast communication with multicast group "224.0.0.251"...
+Check of subnet "192.168.43.0" for multicast communication with multicast group "224.0.0.251" passed.
+
+Check of multicast communication passed.
+Time zone consistency check passed
+
+Checking Cluster manager integrity...
+
+
+Checking CSS daemon...
+Oracle Cluster Synchronization Services appear to be online.
+
+Cluster manager integrity check passed
+
+
+UDev attributes check for OCR locations started...
+UDev attributes check passed for OCR locations
+
+
+UDev attributes check for Voting Disk locations started...
+UDev attributes check passed for Voting Disk locations
+
+Default user file creation mask check passed
+
+Checking cluster integrity...
+
+
+Cluster integrity check passed
+
+
+Checking OCR integrity...
+
+Checking the absence of a non-clustered configuration...
+All nodes free of non-clustered, local-only configurations
+
+
+Checking OCR config file "/etc/oracle/ocr.loc"...
+
+OCR config file "/etc/oracle/ocr.loc" check successful
+
+
+Disk group for ocr location "+DATA" is available on all the nodes
+
+
+NOTE:
+This check does not verify the integrity of the OCR contents. Execute 'ocrcheck' as a privileged user to verify the contents of OCR.
+
+OCR integrity check passed
+
+Checking CRS integrity...
+
+Clusterware version consistency passed.
+
+CRS integrity check passed
+
+Checking node application existence...
+
+Checking existence of VIP node application (required)
+VIP node application check passed
+
+Checking existence of NETWORK node application (required)
+NETWORK node application check passed
+
+Checking existence of ONS node application (optional)
+ONS node application check passed
+
+
+Checking Single Client Access Name (SCAN)...
+
+Checking TCP connectivity to SCAN Listeners...
+TCP connectivity to SCAN Listeners exists on all cluster nodes
+
+Checking name resolution setup for "ol6twc-scan.localdomain"...
+
+Checking integrity of name service switch configuration file "/etc/nsswitch.conf" ...
+All nodes have same "hosts" entry defined in file "/etc/nsswitch.conf"
+Check for integrity of name service switch configuration file "/etc/nsswitch.conf" passed
+
+
+Checking SCAN IP addresses...
+Check of SCAN IP addresses passed
+
+Verification of SCAN VIP and Listener setup passed
+
+Checking OLR integrity...
+Check of existence of OLR configuration file "/etc/oracle/olr.loc" passed
+Check of attributes of OLR configuration file "/etc/oracle/olr.loc" passed
+
+WARNING:
+This check does not verify the integrity of the OLR contents. Execute 'ocrcheck -local' as a privileged user to verify the contents of OLR.
+
+OLR integrity check passed
+
+Checking Oracle Cluster Voting Disk configuration...
+
+Oracle Cluster Voting Disk configuration check passed
+
+User "oracle" is not part of "root" group. Check passed
+
+Checking if Clusterware is installed on all nodes...
+Check of Clusterware install passed
+
+Checking if CTSS Resource is running on all nodes...
+CTSS resource check passed
+
+
+Querying CTSS for time offset on all nodes...
+Query of CTSS for time offset passed
+
+Check CTSS state started...
+CTSS is in Active state. Proceeding with check of clock time offsets on all nodes...
+Check of clock time offsets passed
+
+
+Oracle Cluster Time Synchronization Services check passed
+Checking VIP configuration.
+Checking VIP Subnet configuration.
+Check for VIP Subnet configuration passed.
+Checking VIP reachability
+Check for VIP reachability passed.
+
+Post-check for cluster services setup was successful.
+
+The plug-in Oracle Cluster Verification Utility has successfully been performed
+------------------------------------------------------
+The action configuration has successfully completed
+###################################################
+</pre>
+<p>Oracle Clusterware Local Registry (OLR) shoud be checked on both nodes:</p>
+<pre>
+# /u01/app/12.1.0.1/grid/bin/ocrcheck -local
+Status of Oracle Local Registry is as follows :
+         Version                  :          4
+         Total space (kbytes)     :     409568
+         Used space (kbytes)      :        752
+         Available space (kbytes) :     408816
+         ID                       : 2068440940
+         Device/File Name         : /u01/app/12.1.0.1/grid/cdata/ol6twcn1.olr
+                                    Device/File integrity check succeeded
+
+         Local registry integrity check succeeded
+
+         Logical corruption check succeeded
+
+</pre>
+<p>Oracle Cluster Registry (OCR) can also be checked on both nodes with:</p>
+<pre>
+]# /u01/app/12.1.0.1/grid/bin/ocrcheck
+Status of Oracle Cluster Registry is as follows :
+         Version                  :          4
+         Total space (kbytes)     :     409568
+         Used space (kbytes)      :       1504
+         Available space (kbytes) :     408064
+         ID                       : 1028212619
+         Device/File Name         :      +DATA
+                                    Device/File integrity check succeeded
+
+                                    Device/File not configured
+
+                                    Device/File not configured
+
+                                    Device/File not configured
+
+                                    Device/File not configured
+
+         Cluster registry integrity check succeeded
+
+         Logical corruption check succeeded
+#
+</pre>
+<p>Voting disk location can also be checked:</p>
+<pre>
+/u01/app/12.1.0.1/grid/bin/crsctl query css votedisk
+##  STATE    File Universal Id                File Name Disk group
+--  -----    -----------------                --------- ---------
+ 1. ONLINE   05747caf62854f1cbfb721478c71aee7 (/dev/asm-disk1) [DATA]
+Located 1 voting disk(s)
+</pre>
+<p>Now we can install Oracle Database software.</p>
+<h3>Database software installation</h3>
+<p>Switch to 'oracle' account and unzip installation media:</p>
+<pre>
+$ cd /tmp
+$ unzip linuxamd64_12c_database_1of2.zip 
+$ unzip linuxamd64_12c_database_2of2.zip 
+</pre>
+<p>Create target installation directories on both nodes as root:</p>
+<pre>
+# mkdir -p /u01/app/oracle/product/12.1.0.1/db_1
+# chown -R dba:oinstall /u01/app/oracle/
+</pre>
+<p>Install Database software with:</p>
+<pre>
+cd /tmp/database
+export DISTRIB=`pwd`
+./runInstaller -silent \
+   -responseFile $DISTRIB/response/db_install.rsp      \
+   oracle.install.option=INSTALL_DB_SWONLY             \
+   CLUSTER_NODES=ol6twcn1,ol6twcn2                     \
+   UNIX_GROUP_NAME=oinstall                            \
+   INVENTORY_LOCATION=/u01/app/oracle/oraInventory     \
+   SELECTED_LANGUAGES=en                               \
+   ORACLE_HOME=/u01/app/oracle/product/12.1.0.1/db_1   \
+   ORACLE_BASE=/u01/app/oracle                         \
+   oracle.install.db.InstallEdition=EE                 \
+   oracle.install.db.isCustomInstall=false             \
+   oracle.install.db.DBA_GROUP=dba                     \
+   oracle.install.db.OPER_GROUP=dba                    \
+   oracle.install.db.BACKUPDBA_GROUP=dba               \
+   oracle.install.db.DGDBA_GROUP=dba                   \
+   oracle.install.db.KMDBA_GROUP=dba                   \
+   SECURITY_UPDATES_VIA_MYORACLESUPPORT=false          \
+   DECLINE_SECURITY_UPDATES=true
+</pre>
+<p>OUI has started installation process in background and does not display any warning or error.<br />
+Wait that OUI displays something like:</p>
+<pre>
+The installation of Oracle Database 12c was successful.
+Please check '/u01/app/oracle/oraInventory/logs/silentInstallXXX.log' for more details.
+
+As a root user, execute the following script(s):
+        1. /u01/app/oracle/product/12.1.0.1/db_1/root.sh
+
+Execute /u01/app/oracle/product/12.1.0.1/db_1/root.sh on the following nodes:
+[ol6twcn1, ol6twcn2]
+
+Successfully Setup Software.
+</pre>
+<p>Execute root.sh on both nodes with root:</p>
+<pre>
+# /u01/app/oracle/product/12.1.0.1/db_1/root.sh
+</pre>
+<h3> Fast Recovery Area disk group creation</h3>
+<p>Switch to oracle account to create Fast Recovery Area (FRA) disk group that will be used for database creation.<br />
+<br />
+First set current instance to ASM instance on first cluster node:</p>
+<pre>
+$ . oraenv
+ORACLE_SID = [] +ASM1
+</pre>
+<p>Connect to ASM instance and create disk group using second disk device created during OS configuration steps:</p>
+<pre>
+$ sqlplus / as sysasm
+SQL&gt; create diskgroup FRA external redundancy disk '/dev/asm-disk2';
+</pre>
+<p>Check that disk group resource ora.FRA.dg has been added to OCR:</p>
+<pre>
+$ crsctl stat res -t
+--------------------------------------------------------------------------------
+Name           Target  State        Server                   State details
+--------------------------------------------------------------------------------
+Local Resources
+--------------------------------------------------------------------------------
+ora.DATA.dg
+               ONLINE  ONLINE       ol6twcn1                 STABLE
+               ONLINE  ONLINE       ol6twcn2                 STABLE
+ora.FRA.dg
+               ONLINE  ONLINE       ol6twcn1                 STABLE
+               OFFLINE OFFLINE      ol6twcn2                 STABLE
+ora.LISTENER.lsnr
+               ONLINE  ONLINE       ol6twcn1                 STABLE
+               ONLINE  ONLINE       ol6twcn2                 STABLE
+ora.asm
+               ONLINE  ONLINE       ol6twcn1                 Started,STABLE
+               ONLINE  ONLINE       ol6twcn2                 Started,STABLE
+ora.net1.network
+               ONLINE  ONLINE       ol6twcn1                 STABLE
+               ONLINE  ONLINE       ol6twcn2                 STABLE
+ora.ons
+               ONLINE  ONLINE       ol6twcn1                 STABLE
+               ONLINE  ONLINE       ol6twcn2                 STABLE
+--------------------------------------------------------------------------------
+Cluster Resources
+--------------------------------------------------------------------------------
+ora.LISTENER_SCAN1.lsnr
+      1        ONLINE  ONLINE       ol6twcn2                 STABLE
+ora.LISTENER_SCAN2.lsnr
+      1        ONLINE  ONLINE       ol6twcn1                 STABLE
+ora.LISTENER_SCAN3.lsnr
+      1        ONLINE  ONLINE       ol6twcn1                 STABLE
+ora.cvu
+      1        ONLINE  ONLINE       ol6twcn1                 STABLE
+ora.oc4j
+      1        OFFLINE OFFLINE                               STABLE
+ora.ol6twcn1.vip
+      1        ONLINE  ONLINE       ol6twcn1                 STABLE
+ora.ol6twcn2.vip
+      1        ONLINE  ONLINE       ol6twcn2                 STABLE
+ora.scan1.vip
+      1        ONLINE  ONLINE       ol6twcn2                 STABLE
+ora.scan2.vip
+      1        ONLINE  ONLINE       ol6twcn1                 STABLE
+ora.scan3.vip
+      1        ONLINE  ONLINE       ol6twcn1                 STABLE
+--------------------------------------------------------------------------------
+</pre>
+<p>Mount FRA disk group on +ASM2 (ASM instance on node 2):</p>
+<pre>
+$ srvctl start diskgroup -diskgroup FRA
+</pre>
+<p>Check that FRA disk group is now mounted on both cluster nodes:</p>
+<pre>
+$ srvctl status diskgroup -diskgroup FRA
+Disk Group FRA is running on ol6twcn1,ol6twcn2
+</pre>
+<h3> RAC database creation </h3>
+<p>Now we can create a RAC database named cdbrac with 2 pluggable databases named pdb1 and pdb2 database using DATA and FRA disk groups with:</p>
+<pre>
+$ /u01/app/oracle/product/12.1.0.1/db_1/bin/dbca \
+ -silent \
+ -nodelist ol6twcn1,ol6twcn2 \
+ -createDatabase \
+ -templateName General_Purpose.dbc   \
+ -gdbName cdbrac \
+ -createAsContainerDatabase true \
+ -numberOfPdbs 2 \
+ -pdbName pdb \
+ -pdbadminUsername pdba \
+ -pdbadminPassword oracle12c \
+ -SysPassword oracle12c \
+ -SystemPassword oracle12c \
+ -emConfiguration NONE \
+ -storageType ASM \
+ -asmSysPassword oracle12c \
+ -diskGroupName DATA \
+ -characterSet AL32UTF8 \
+ -totalMemory 1024 \
+ -recoveryGroupName FRA
+</pre>
+<p>Output should be similar to:</p>
+<pre>
+Copying database files
+1% complete
+2% complete
+6% complete
+11% complete
+16% complete
+23% complete
+Creating and starting Oracle instance
+24% complete
+27% complete
+28% complete
+29% complete
+32% complete
+35% complete
+36% complete
+38% complete
+Creating cluster database views
+40% complete
+54% complete
+Completing Database Creation
+56% complete
+58% complete
+65% complete
+72% complete
+77% complete
+Creating Pluggable Databases
+81% complete
+86% complete
+100% complete
+Look at the log file "/u01/app/oracle/cfgtoollogs/dbca/cdbrac/cdbrac.log" for further details.
+</pre>
+<p>Fix /etc/oratab on both nodes to have right database instance name (cdbrac1 on node 1/cdbrac2 on node 2) instead of database name:</p>
+<pre>
+$ grep cdbrac /etc/oratab
+cdbrac1:/u01/app/oracle/product/12.1.0.1/db_1:N:         # line added by Agent
+</pre>
+<p>Connect to database and check database files location:</p>
+<pre>
+$ . oraenv
+ORACLE_SID = [+ASM1] ? cdbrac1
+The Oracle base remains unchanged with value /u01/app/oracle
+$ sqlplus / as sysdba
+</pre>
+<p>Check datafiles location in DATA disk group:</p>
+<pre>
+SQL&gt; set linesize 100
+SQL&gt; column name format A80
+SQL&gt; select con_id, name from v$datafile order by 1;
+
+    CON_ID NAME
+---------- --------------------------------------------------------------------------------
+         1 +DATA/CDBRAC/DATAFILE/system.259.819410937
+         1 +DATA/CDBRAC/DATAFILE/sysaux.258.819410871
+         1 +DATA/CDBRAC/DATAFILE/undotbs1.261.819410993
+         1 +DATA/CDBRAC/DATAFILE/undotbs2.269.819411629
+         1 +DATA/CDBRAC/DATAFILE/users.260.819410991
+         2 +DATA/CDBRAC/DD7C48AA5A4404A2E04325AAE80A403C/DATAFILE/sysaux.266.819411063
+         2 +DATA/CDBRAC/DD7C48AA5A4404A2E04325AAE80A403C/DATAFILE/system.267.819411063
+         3 +DATA/CDBRAC/E051D1C6E8B1514CE0436F38A8C06DBE/DATAFILE/system.274.819412031
+         3 +DATA/CDBRAC/E051D1C6E8B1514CE0436F38A8C06DBE/DATAFILE/sysaux.273.819412031
+         3 +DATA/CDBRAC/E051D1C6E8B1514CE0436F38A8C06DBE/DATAFILE/users.276.819412157
+         4 +DATA/CDBRAC/E051D983C40251D0E0436F38A8C0A494/DATAFILE/users.280.819412261
+
+    CON_ID NAME
+---------- --------------------------------------------------------------------------------
+         4 +DATA/CDBRAC/E051D983C40251D0E0436F38A8C0A494/DATAFILE/system.277.819412161
+         4 +DATA/CDBRAC/E051D983C40251D0E0436F38A8C0A494/DATAFILE/sysaux.278.819412161
+
+13 rows selected.
+
+</pre>
+<p>Check control files location in DATA and FRA disk groups:</p>
+<pre>
+SQL&gt; select con_id, name from v$controlfile order by 1;
+
+    CON_ID NAME
+---------- --------------------------------------------------------------------------------
+         0 +FRA/CDBRAC/CONTROLFILE/current.256.819411029
+         0 +DATA/CDBRAC/CONTROLFILE/current.262.819411027
+</pre>
+<p>Check online redo log files location in DATA and FRA disk groups:</p>
+<pre>
+SQL&gt; select l.con_id, l.group#, l.thread#, lf.member
+2  from v$log l, v$logfile lf
+3   where l.group# = lf.group#
+4   order by 1,2;
+    CON_ID     GROUP#    THREAD# MEMBER
+---------- ---------- ---------- --------------------------------------------------------------------------------
+         0          1          1 +FRA/CDBRAC/ONLINELOG/group_1.257.819411033
+         0          1          1 +DATA/CDBRAC/ONLINELOG/group_1.263.819411031
+         0          2          1 +FRA/CDBRAC/ONLINELOG/group_2.258.819411037
+         0          2          1 +DATA/CDBRAC/ONLINELOG/group_2.264.819411037
+         0          3          2 +DATA/CDBRAC/ONLINELOG/group_3.270.819411811
+         0          3          2 +FRA/CDBRAC/ONLINELOG/group_3.259.819411813
+         0          4          2 +DATA/CDBRAC/ONLINELOG/group_4.271.819411815
+         0          4          2 +FRA/CDBRAC/ONLINELOG/group_4.260.819411817
+
+8 rows selected.
+</pre>
+<p>Exit SQL*Plus and check database configuration in OCR:</p>
+<pre>
+$ srvctl config database -d cdbrac
+Database unique name: cdbrac
+Database name: cdbrac
+Oracle home: /u01/app/oracle/product/12.1.0.1/db_1
+Oracle user: oracle
+Spfile: +DATA/cdbrac/spfilecdbrac.ora
+Password file: +DATA/cdbrac/orapwcdbrac
+Domain:
+Start options: open
+Stop options: immediate
+Database role: PRIMARY
+Management policy: AUTOMATIC
+Server pools: cdbrac
+Database instances: cdbrac1,cdbrac2
+Disk Groups: FRA,DATA
+Mount point paths:
+Services:
+Type: RAC
+Start concurrency:
+Stop concurrency:
+Database is administrator managed
+</pre>
+<p>Note that password file is by default stored in database disk group.<br />
+<br />
+To switch database to ARCHIVELOG mode, first stop database and start one instance in mount mode:</p>
+<pre>
+$ srvctl stop database -d cdbrac
+$ srvctl start instance -d cdbrac -i cdbrac1 -o mount
+</pre>
+<p>Connect to database instance and run:</p>
+<pre>
+$ sqlplus / as sysdba
+SQL&gt; archive log list;
+Database log mode              No Archive Mode
+Automatic archival             Disabled
+Archive destination            USE_DB_RECOVERY_FILE_DEST
+Oldest online log sequence     15
+Current log sequence           16
+SQL&gt; alter database archivelog;
+
+Database altered.
+
+SQL&gt; alter database open;
+
+Database altered.
+</pre>
+<p>Start second database instance:</p>
+<pre>
+$ srvctl start instance -d cdbrac -i cdbrac2
+</pre>
+<p>One of the last check to be done is to reboot all cluster nodes and to check that all cluster resources (except ora.oc4j) are ONLINE after reboot.</p>
