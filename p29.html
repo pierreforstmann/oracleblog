@@ -1,0 +1,266 @@
+<p>Oracle Corp. has released Oracle Linux 7 <a href="http://www.oracle.com/us/corporate/press/2245947">23rd of July 2014</a>.<br />
+In the meantime Oracle Corp. is supporting Oracle Linux 7 for both <a href="http://docs.oracle.com/cd/E11882_01/install.112/e47689/pre_install.htm#LADBI1106">Oracle 11g release 2</a> and <a href="http://docs.oracle.com/database/121/LADBI/pre_install.htm#CIHHCIAB">Oracle 12c release 1</a>.</p>
+<p>I have not found detailed steps to install ASMLib for Oracle Linux 7 in the Oracle documentation. The Oracle Database Installation Guide 12c Release 1 (12.1) for Linux has <a href="http://docs.oracle.com/database/121/LADBI/app_manual.htm#LADBI8065">some documentation</a> but the example references Red Hat Entreprise Linux 5.</p>
+<h3>Linux configuration</h3>
+<p>I have used Oracle Linux 7.0 with VirtualBox 4.3.20 to install ASMLib on Oracle Linux 7. I have installed Oracle Linux with many default settings but I have configured 2 network interfaces:</p>
+<ul>
+<li>the first one is attached to NAT and is used to have Internet access from Linux virtual machine (VM).</li>
+<li>the second one is attached to Host-Only Adapter and is used by SSH to connect to Linux VM.</li>
+</ul>
+<p>All steps have been run with root user account. Default kernel used by Oracle Linux 7 is UEK:</p>
+<pre># uname -a
+Linux ol7twsa.localdomain 3.8.13-35.3.1.el7uek.x86_64 #2 SMP Wed Jun 25 15:27:43 PDT 2014 x86_64 x86_64 x86_64 GNU/Linux
+#
+</pre>
+<p>I have found easier to configure network interfaces from command line in Linux console rather than using the GUI during Linux installation especially for routing. I have used following steps (192.168.56.72 is Linux VM IP address and 192.168.1.1 is my internet box IP address).</p>
+<p>First I have modified network interface configuration files:</p>
+<pre># cat /etc/sysconfig/network-scripts/ifcfg-enp0s3
+NAME=enp0s3
+HWADDR=08:00:27:63:38:DE
+IPADDR=10.0.2.15
+TYPE=Ethernet 
+BOOTPROTO=dhcp 
+ONBOOT=yes 
+DEFROUTE=yes 
+PEERDNS=no 
+NM_CONTROLLED=no
+# cat /etc/sysconfig/network-scripts/ifcfg-enp0s8
+NAME=enp0s8 
+HWADDR=08:00:27:19:7F:A8
+IPADDR=192.168.56.72
+TYPE=Ethernet
+BOOTPROTO=static 
+ONBOOT=yes 
+GATEWAY=192.168.1.1
+DEFROUTE=no
+PEERDNS=no 
+NM_CONTROLLED=no
+#</pre>
+<p>I have brought both network interfaces up:</p>
+<pre># ifup enp0s3
+#
+# ifup enp0s8
+#
+</pre>
+<p>And I have checked IP addresses and internet connectivity:</p>
+<pre># ip addr
+1: lo:  mtu 65536 qdisc noqueue state UNKNOWN
+    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00
+    inet 127.0.0.1/8 scope host lo
+    inet6 ::1/128 scope host
+       valid_lft forever preferred_lft forever
+2: enp0s3:  mtu 1500 qdisc pfifo_fast state UP qlen 1000
+    link/ether 08:00:27:63:38:de brd ff:ff:ff:ff:ff:ff
+    inet 10.0.2.15/8 brd 10.255.255.255 scope global enp0s3
+    inet6 fe80::a00:27ff:fe63:38de/64 scope link
+       valid_lft forever preferred_lft forever
+3: enp0s8:  mtu 1500 qdisc pfifo_fast state UP qlen 1000
+    link/ether 08:00:27:19:7f:a8 brd ff:ff:ff:ff:ff:ff
+    inet 192.168.56.72/24 brd 192.168.56.255 scope global enp0s8
+    inet6 fe80::a00:27ff:fe19:7fa8/64 scope link
+       valid_lft forever preferred_lft forever
+# ip route
+default via 10.0.2.2 dev enp0s3  proto static  metric 1024
+10.0.0.0/8 dev enp0s3  proto kernel  scope link  src 10.0.2.15
+192.168.56.0/24 dev enp0s8  proto kernel  scope link  src 192.168.56.72
+# ping www.oracle.com
+PING e7075.x.akamaiedge.net (23.212.230.140) 56(84) bytes of data.
+64 bytes from a23-212-230-140.deploy.static.akamaitechnologies.com (23.212.230.140): icmp_seq=1 ttl=50 time=53.8 ms
+64 bytes from a23-212-230-140.deploy.static.akamaitechnologies.com (23.212.230.140): icmp_seq=2 ttl=50 time=52.6 ms
+--- e7075.x.akamaiedge.net ping statistics ---
+2 packets transmitted, 2 received, 0% packet loss, time 1000ms
+rtt min/avg/max/mdev = 52.611/53.216/53.821/0.605 ms
+</pre>
+<p>I have also disabled SELinux otherwise ASMLib may not restart after rebooting and you may find following strange messages in /var/log/oracleasm:</p>
+<pre>Creating /dev/oracleasm mount point: mkdir: cannot create directory '/dev/oraclesm': Permission denied
+failed
+Unable to create mount point /dev/oracleasm
+</pre>
+<p>I have disabled SELinux with following <b>/etc/selinux/config</b>:</p>
+<pre># This file controls the state of SELinux on the system.
+# SELINUX= can take one of these three values:
+#     enforcing - SELinux security policy is enforced.
+#     permissive - SELinux prints warnings instead of enforcing.
+#     disabled - No SELinux policy is loaded.
+SELINUX=disabled
+# SELINUXTYPE= can take one of these two values:
+#     targeted - Targeted processes are protected,
+#     minimum - Modification of targeted policy. Only selected processes are protected.
+#     mls - Multi Level Security protection.
+SELINUXTYPE=targeted
+</pre>
+<p>and I have rebooted Linux VM.</p>
+<h3>ASM device configuration</h3>
+<p>My host system is my Windows 8.1 PC: I have created a 10 GB VirtualBox disk for the ASM device:</p>
+<pre>&gt;vboxmanage createhd --filename ol7twsa.sata.1.vdi --size=10240 --format VDI --variant fixe
+0%...10%...20%...30%...40%...50%...60%...70%...80%...90%...100%
+Disk image created. UUID: 9ba8edeb-eeb3-4871-91cc-b6379c1ca754
+</pre>
+<p>I tried to attach this disk to the VirtualBox machine with the command line interface but it failed:</p>
+<pre>&gt;vboxmanage storageattach ol7twsa --storagectl "SATA" --port 1 --device 0 --type hdd --medium ol7twsa.sata.1.vdi
+VBoxManage.exe: error: Code E_FAIL (0x80004005) - Unspecified error (extended info not available)
+VBoxManage.exe: error: Context: "AttachDevice(Bstr(pszCtl).raw(), port, device, DeviceType_HardDisk, pMedium2Mount)" at
+line 744 of file VBoxManageStorageController.cpp
+</pre>
+<p>VirtualBox shows that the disk is attached to Linux VM but I had to detach the disk, attach it again with GUI and to reboot the Linux VM to see the corresponding Linux device:</p>
+<pre># ls -al /dev/sdb*
+brw-rw----. 1 root disk 8, 16 Jan 17 19:43 /dev/sdb
+</pre>
+<p>I have created a disk partition with fdisk:</p>
+<pre># fdisk /dev/sdb
+Welcome to fdisk (util-linux 2.23.2).
+
+Changes will remain in memory only, until you decide to write them.
+Be careful before using the write command.
+
+Device does not contain a recognized partition table
+Building a new DOS disklabel with disk identifier 0x74577cf0.
+
+Command (m for help): n
+Partition type:
+   p   primary (0 primary, 0 extended, 4 free)
+   e   extended
+Select (default p): p
+Partition number (1-4, default 1):
+First sector (2048-20971519, default 2048):
+Using default value 2048
+Last sector, +sectors or +size{K,M,G} (2048-20971519, default 20971519):
+Using default value 20971519
+Partition 1 of type Linux and of size 10 GiB is set
+
+Command (m for help): w
+The partition table has been altered!
+
+Calling ioctl() to re-read partition table.
+Syncing disks.
+
+# ls -al /dev/sd*
+brw-rw----. 1 root disk 8,  0 Jan 17 19:43 /dev/sda
+brw-rw----. 1 root disk 8,  1 Jan 17 19:43 /dev/sda1
+brw-rw----. 1 root disk 8,  2 Jan 17 19:43 /dev/sda2
+brw-rw----. 1 root disk 8, 16 Jan 17 19:44 /dev/sdb
+brw-rw----. 1 root disk 8, 17 Jan 17 19:44 /dev/sdb1
+</pre>
+<h3>ASMLib packages installation</h3>
+<p>The default Oracle Linux 7 setup has the right configuration for YUM repository. Next step was to install oracleasm-support package:</p>
+<pre># yum install oracleasm-support
+ol7_UEKR3                                                | 1.2 kB     00:00
+ol7_latest                                               | 1.4 kB     00:00
+(1/5): ol7_UEKR3/x86_64/updateinfo                         |  22 kB   00:00
+(2/5): ol7_latest/x86_64/updateinfo                        |  89 kB   00:00
+(3/5): ol7_latest/x86_64/group                             | 652 kB   00:01
+(4/5): ol7_UEKR3/x86_64/primary                                                   | 5.0 MB  00:00:07
+(5/5): ol7_latest/x86_64/primary                                                  | 6.9 MB  00:00:08
+ol7_UEKR3                                                                                        122/122
+ol7_latest                                                                                     7417/7417
+Resolving Dependencies
+--&gt; Running transaction check
+---&gt; Package oracleasm-support.x86_64 0:2.1.8-3.el7 will be installed
+--&gt; Finished Dependency Resolution
+
+Dependencies Resolved
+
+=========================================================================================================
+ Package                       Arch               Version                   Repository              Size
+=========================================================================================================
+Installing:
+ oracleasm-support             x86_64             2.1.8-3.el7               ol7_latest              79 k
+
+Transaction Summary
+=========================================================================================================
+Install  1 Package
+
+Total download size: 79 k
+Installed size: 242 k
+Is this ok [y/d/N]: y
+Downloading packages:
+warning: /var/cache/yum/x86_64/7Server/ol7_latest/packages/oracleasm-support-2.1.8-3.el7.x86_64.rpm: Header V3 RSA/SHA256 Signature, key ID ec551f03: NOKEY
+Public key for oracleasm-support-2.1.8-3.el7.x86_64.rpm is not installed
+oracleasm-support-2.1.8-3.el7.x86_64.rpm                                          |  79 kB  00:00:01
+Retrieving key from file:///etc/pki/rpm-gpg/RPM-GPG-KEY-oracle
+Importing GPG key 0xEC551F03:
+ Userid     : "Oracle OSS group (Open Source Software group) "
+ Fingerprint: 4214 4123 fecf c55b 9086 313d 72f9 7b74 ec55 1f03
+ Package    : 7:oraclelinux-release-7.0-1.0.3.el7.x86_64 (@anaconda/7.0)
+ From       : /etc/pki/rpm-gpg/RPM-GPG-KEY-oracle
+Is this ok [y/N]: y
+Running transaction check
+Running transaction test
+Transaction test succeeded
+Running transaction
+  Installing : oracleasm-support-2.1.8-3.el7.x86_64                                                  1/1
+Note: Forwarding request to 'systemctl enable oracleasm.service'.
+ln -s '/usr/lib/systemd/system/oracleasm.service' '/etc/systemd/system/multi-user.target.wants/oracleasm.service'
+  Verifying  : oracleasm-support-2.1.8-3.el7.x86_64                                                  1/1
+
+Installed:
+  oracleasm-support.x86_64 0:2.1.8-3.el7
+
+Complete!
+</pre>
+<p>Note that a Linux service named oracleasm has been created by yum:</p>
+<pre># systemctl is-enabled oracleasm.service
+enabled
+</pre>
+<p>However there is no oracleasm module in Linux kernel:</p>
+<pre># lsmod | grep oracleasm
+#
+</pre>
+<p>But oracleasm module is on disk for UEK kernel and does not need to be installed or downloaded:</p>
+<pre># modinfo oracleasm
+filename:       /lib/modules/3.8.13-35.3.1.el7uek.x86_64/kernel/drivers/block/oracleasm/oracleasm.ko
+description:    Kernel driver backing the Generic Linux ASM Library.
+author:         Joel Becker 
+version:        2.0.8
+license:        GPL
+srcversion:     A311C50149C77E13C360349
+depends:
+intree:         Y
+vermagic:       3.8.13-35.3.1.el7uek.x86_64 SMP mod_unload modversions
+signer:         Oracle CA Server
+sig_key:        C8:F6:00:04:DB:C9:C1:D4:E9:DD:B8:57:24:12:44:BA:7D:A9:55:6C
+sig_hashalgo:   sha256
+parm:           use_logical_block_size:Prefer logical block size over physical (Y=logical, N=physical [default]) (bool)
+</pre>
+<h3>ASMLib configuration</h3>
+<p>I have created dba group and oracle user account:</p>
+<pre># groupadd dba
+# useradd -G dba oracle
+</pre>
+<p>I have loaded ASMLib driver:</p>
+<pre># /usr/sbin/oracleasm init
+Creating /dev/oracleasm mount point: /dev/oracleasm
+Loading module "oracleasm": oracleasm
+Configuring "oracleasm" to use device physical block size
+Mounting ASMlib driver filesystem: /dev/oracleasm
+</pre>
+<p>oracleasm module now has been loaded into Linux kernel:</p>
+<pre># lsmod | grep oracleasm
+oracleasm              53453  1
+</pre>
+<p>and I have configured ASMLib:</p>
+<pre># /usr/sbin/oracleasm configure -i
+Configuring the Oracle ASM library driver.
+
+This will configure the on-boot properties of the Oracle ASM library
+driver.  The following questions will determine whether the driver is
+loaded on boot and what permissions it will have.  The current values
+will be shown in brackets ('[]').  Hitting  without typing an
+answer will keep that current value.  Ctrl-C will abort.
+
+Default user to own the driver interface []: oracle
+Default group to own the driver interface []: dba
+Scan for Oracle ASM disks on boot (y/n) [y]:
+Writing Oracle ASM library driver configuration: done
+</pre>
+<h3>Testing ASMLib</h3>
+<p>I have created an ASM disk:</p>
+<pre># oracleasm createdisk ASM1 /dev/sdb1
+Writing disk header: done
+Instantiating disk: done
+# oracleasm querydisk ASM1
+Disk "ASM1" is a valid ASM disk
+# oracleasm listdisks
+ASM1
+</pre>
+<p>ASMLib has now been successfully installed and configured.</p>
