@@ -1,0 +1,81 @@
+<p>If you need to test if a datafile is empty you usually need to query <b>DBA_EXTENTS</b> view to check that the related datafile has no extents. This works well but can be slow for several reasons; see My Oracle Support for Oracle Database release 11.2.0.3 <i>Query against DBA_EXTENTS slow after upgrade to 11.2.0.3 (Doc ID 1453425.1)</i>.</p>
+<p>On an empty database (i.e. a database just created with DBCA with no application schemas) a simple query using DBA_EXTENTS takes about 4 seconds:</p>
+<pre>
+SQL&gt; select * from v$version;
+
+BANNER
+--------------------------------------------------------------------------------
+Oracle Database 11g Enterprise Edition Release 11.2.0.3.0 - 64bit Production
+PL/SQL Release 11.2.0.3.0 - Production
+CORE    11.2.0.3.0      Production
+TNS for Linux: Version 11.2.0.3.0 - Production
+NLSRTL Version 11.2.0.3.0 - Production
+
+SQL&gt; --
+SQL&gt; set timing on
+SQL&gt; --
+SQL&gt; create tablespace test;
+
+Tablespace created.
+
+Elapsed: 00:00:05.00
+SQL&gt; --
+SQL&gt; column empty format a5
+SQL&gt; select file_id,
+  2    'yes' as empty
+  3  from dba_data_files df
+  4  where not exists
+  5   (select null
+  6    from dba_extents e
+  7    where e.tablespace_name = df.tablespace_name
+  8      and e.file_id = df.file_id);
+
+   FILE_ID EMPTY
+---------- -----
+         5 yes
+
+Elapsed: 00:00:03.96
+SQL&gt;
+</pre>
+<p>On a non-empty database this query may takes a couple of minutes depending on the number of extents among other factors.<br />
+<br />
+Another way to test if a datafile empty is to check if the datafile free space size is the same as <b>DBA_DATA_FILES.USER_BYTES</b> which is <a href="http://docs.oracle.com/cd/E11882_01/server.112/e40402/statviews_3143.htm#REFRN23049">the size of the file available for user data</a>:</p>
+<pre>
+SQL&gt; --
+SQL&gt; select file_id, bytes, user_bytes
+  2  from dba_data_files
+  3  where tablespace_name='TEST';
+
+   FILE_ID      BYTES USER_BYTES
+---------- ---------- ----------
+         5  104857600  103809024
+
+Elapsed: 00:00:00.00
+SQL&gt; --
+SQL&gt; select sum(bytes)
+  2  from dba_free_space
+  3  where tablespace_name='TEST';
+
+SUM(BYTES)
+----------
+ 103809024
+
+Elapsed: 00:00:00.00
+SQL&gt; --
+SQL&gt; column empty format a5
+SQL&gt; select file_id,
+  2    'yes' as empty
+  3  from dba_data_files df
+  4  where user_bytes =
+  5   (select sum(bytes)
+  6    from dba_free_space fs
+  7    where fs.tablespace_name = df.tablespace_name
+  8    and      fs.file_id = df.file_id);
+
+   FILE_ID EMPTY
+---------- -----
+         5 yes
+
+Elapsed: 00:00:00.05
+</pre>
+<p>Compared to DBA_EXTENTS, DBA_FREE_SPACE is likely faster especially for an empty datafile because the number of free extents should be small.</p>
