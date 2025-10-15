@@ -1,0 +1,946 @@
+<p>The system configuration used is Oracle Linux 6.4 64-bit with Virtual Box 4.3.6 where I have just upgraded Oracle Grid Infrastructure (GI) from 12.1.0.1 to 12.1.0.2. However in order to make upgrade faster I have modified the virtual machine to use 3 virtual processors instead of 1.</p>
+<p>The database to be upgraded is a multitenant container database named <b>cdb</b> with 2 pluggable databases (PDB) <b>pdb1</b> and <b>pdb2</b> and is a single instance database running with Grid Infrastructure.</p>
+<p>The documentation I have used is <a href="http://docs.oracle.com/database/121/UPGRD/upgrade.htm#UPGRD12408">Upgrade Guide section 3.5  Manually Upgrading a Multitenant Container Oracle Database (CDB)</a>.<br />
+Note that I have run this upgrade before Mike Dietrich published his <a href="https://blogs.oracle.com/UPGRADE/entry/upgrade_pdbs_everything_at_once1">Upgrade PDBs - Everything At Once (Full CDB Upgrade) blog post </a> but I have followed similar steps. I strongly recommend that you first read Mike blog post because it is more accurate than the Upgrade Grade section at the time of writing.</p>
+<p>All shell script steps have been run with oracle account which is Oracle database software owner and all SQL statements have been run with SYSDBA privilege.<br />
+</p>
+<h3>Backup the database</h3>
+<p>This database is running in NOARCHIVELOG mode so it has to be mounted in order to be backed up:</p>
+<pre>
+$ srvctl stop database -d cdb
+$ srvctl start database -d cdb -o mount
+$ sqlplus / as sysdba
+
+SQL*Plus: Release 12.1.0.1.0 Production on Mon Aug 4 21:23:37 2014
+
+Copyright (c) 1982, 2013, Oracle.  All rights reserved.
+
+
+Connected to:
+Oracle Database 12c Enterprise Edition Release 12.1.0.1.0 - 64bit Production
+With the Partitioning, Automatic Storage Management, OLAP, Advanced Analytics
+and Real Application Testing options
+
+SQL&gt; select open_mode from v$database;
+
+OPEN_MODE
+--------------------
+MOUNTED
+
+SQL&gt; show pdbs;
+
+    CON_ID CON_NAME                       OPEN MODE  RESTRICTED
+---------- ------------------------------ ---------- ----------
+         2 PDB$SEED                       MOUNTED
+         3 PDB1                           MOUNTED
+         4 PDB2                           MOUNTED
+</pre>
+<p>Backup the database with <a href="http://pierreforstmanndotcom.wordpress.com/backup.log">RMAN in fast recovery area (FRA)</a>.</p>
+<p>Open the CDB$ROOT database and the pluggable databases (by default PDBs stay mounted):</p>
+<pre>
+$ sqlplus / as sysdba
+
+SQL*Plus: Release 12.1.0.1.0 Production on Mon Aug 4 21:44:28 2014
+
+Copyright (c) 1982, 2013, Oracle.  All rights reserved.
+
+
+Connected to:
+Oracle Database 12c Enterprise Edition Release 12.1.0.1.0 - 64bit Production
+With the Partitioning, Automatic Storage Management, OLAP, Advanced Analytics
+and Real Application Testing options
+
+SQL&gt; alter database open;
+
+Database altered.
+
+SQL&gt; show pdbs;
+
+    CON_ID CON_NAME                       OPEN MODE  RESTRICTED
+---------- ------------------------------ ---------- ----------
+         2 PDB$SEED                       READ ONLY  NO
+         3 PDB1                           MOUNTED
+         4 PDB2                           MOUNTED
+SQL&gt; alter pluggable database pdb1 open;
+
+Pluggable database altered.
+
+SQL&gt; alter pluggable database pdb2 open;
+
+Pluggable database altered.
+</pre>
+<h3> Create a working directory for upgrade logs </h3>
+<p>Running a multitenant upgrade will generate a lot of log files and you should avoid to store this logs in Oracle Home rdbms/admin directory:</p>
+<pre>
+$ mkdir upgrade
+$ cd upgrade
+</pre>
+<h3>Save SPFILE </h3>
+<pre>
+SQL&gt; create pfile='/home/oracle/upgrade/initcdb.before_upgrade' from spfile;
+
+File created.
+</pre>
+<h3>Copy 12.1.0.2 pre-upgrade scripts to upgrade directory</h3>
+<pre>
+$ cp /u01/app/12.1.0.2/db/rdbms/admin/preupgrd.sql .
+$ cp /u01/app/12.1.0.2/db/rdbms/admin/utluppkg.sql .
+</pre>
+<h3> Run preupgrade.sql</h3>
+<p>I have created a file named <b>pu.ksh</b> containing PERRLIB setting to avoid error "Can't locate catcon.pm in @INC":</p>
+<pre>
+set -x
+export PERLLIB=/u01/app/12.1.0/db/rdbms/admin
+/u01/app/12.1.0/db/perl/bin/perl /u01/app/12.1.0/db/rdbms/admin/catcon.pl -n 1 -d . -l . -b preupgrd preupgrd.sql
+</pre>
+<p>-n defines how many parallel workers run the upgrade<br />
+<br />
+-b sets for the base name for log and spool file names<br />
+<br />
+-d sets for the directory containing the file to be run<br />
+<br />
+-l sets for the directory to use for spool log files<br />
+<br />
+See <a href="http://docs.oracle.com/database/121/ADMIN/cdb_admin.htm#ADMIN14073">Running Oracle-Supplied SQL Scripts in a CDB</a> for more information.</p>
+<pre>
+$ chmod u+x pu.ksh
+$ ./pu.ksh
+++ export PERLLIB=/u01/app/12.1.0/db/rdbms/admin
+++ PERLLIB=/u01/app/12.1.0/db/rdbms/admin
+++ /u01/app/12.1.0/db/perl/bin/perl /u01/app/12.1.0/db/rdbms/admin/catcon.pl -n 1 -d . -l . -b preupgrd preupgrd.sql
+</pre>
+<p>In the current directory the main log file <a href="http://pierreforstmanndotcom.wordpress.com/preupgrd0.log">preupgrd0.log</a> contains mainly checks for CDS$ROOT, PDB$SEED, PDB1 and PDB2 referenced in other logs.<br />
+<br />
+Detailed results of pre-upgrade checks are in <a href="http://pierreforstmanndotcom.wordpress.com/preupgrade.log">/u01/app/oracle/cfgtoollogs/cdb/preupgrade/preupgrade.log</a>.</p>
+<p> To summarize I have:<br />
+<br />
+- no errors despite headers "ERRORS found for ..."<br />
+<br />
+- to upgrade manually APEX (but not done here because not used)<br />
+<br />
+- to run "EXECUTE dbms_stats.gather_dictionary_stats;"<br />
+<br />
+I have not run <a href="http://pierreforstmanndotcom.wordpress.com/preupgrade_fixups-sql">/u01/app/oracle/cfgtoollogs/cdb/preupgrade/preupgrade_fixups.sql</a> because it contains only echo statements.</p>
+<h3> Run catupgrd.sql </h3>
+<p>First shutdown database instance:</p>
+<pre>
+$ srvctl stop database -d cdb
+</pre>
+<p>Modify <b>/etc/oratab</b> to set new Oracle home for database to be upgraded:</p>
+<pre>
+$ grep cdb /etc/oratab
+cdb:/u01/app/12.1.0.2/db:N              # line added by Agent
+</pre>
+<p>Copy PFILE to new Oracle home:</p>
+<pre>
+$ cp /u01/app/12.1.0/db/dbs/initcdb.ora /u01/app/12.1.0.2/db/dbs/initcdb.ora
+</pre>
+<p>Set environment to new Oracle Home, start database instance and also PDBs in upgrade mode:</p>
+<pre>
+$ . oraenv
+ORACLE_SID = [cdb] ?
+The Oracle base remains unchanged with value /u01/app/oracle
+$ sqlplus / as sysdba
+
+SQL*Plus: Release 12.1.0.2.0 Production on Mon Aug 4 22:17:45 2014
+
+Copyright (c) 1982, 2014, Oracle.  All rights reserved.
+
+Connected to an idle instance.
+
+SQL&gt; startup upgrade;
+ORACLE instance started.
+
+Total System Global Area 1258291200 bytes
+Fixed Size                  2923920 bytes
+Variable Size             452985456 bytes
+Database Buffers          788529152 bytes
+Redo Buffers               13852672 bytes
+Database mounted.
+
+Database opened.
+SQL&gt; alter pluggable database all open upgrade;
+
+Pluggable database altered.
+
+SQL&gt;
+</pre>
+<p>Run <b>catupgrd.sql</b> with <b>catctl.pl</b>:<br />
+<br />
+-b sets $ORACLE_HOME/rdbms/admin for catupgrd.sql<br />
+<br />
+-l sets /home/oracle/upgrade as directory for spool and log files<br />
+<br />
+-n 4 sets the number of processes to use for parallel operation.<br />
+<br />
+See <a href="http://docs.oracle.com/database/121/UPGRD/upgrade.htm#UPGRD52867">Parallel Upgrade Utility (catctl.pl) Parameters</a> for more information.<br />
+<br />
+Here is the full output:</p>
+<pre>
+$ $ORACLE_HOME/perl/bin/perl $ORACLE_HOME/rdbms/admin/catctl.pl -d $ORACLE_HOME/rdbms/admin -l /home/oracle/upgrade -n 4 catupgrd.sql
+
+Argument list for [/u01/app/12.1.0.2/db/rdbms/admin/catctl.pl]
+SQL Process Count     n = 4
+SQL PDB Process Count N = 0
+Input Directory       d = /u01/app/12.1.0.2/db/rdbms/admin
+Phase Logging Table   t = 0
+Log Dir               l = /home/oracle/upgrade
+Script                s = 0
+Serial Run            S = 0
+Upgrade Mode active   M = 0
+Start Phase           p = 0
+End Phase             P = 0
+Log Id                i = 0
+Run in                c = 0
+Do not run in         C = 0
+Echo OFF              e = 1
+No Post Upgrade       x = 0
+Reverse Order         r = 0
+Open Mode Normal      o = 0
+Debug catcon.pm       z = 0
+Debug catctl.pl       Z = 0
+Display Phases        y = 0
+Child Process         I = 0
+
+catctl.pl version: 12.1.0.2.0
+Oracle Base           = /u01/app/oracle
+
+Analyzing file /u01/app/12.1.0.2/db/rdbms/admin/catupgrd.sql
+Log files in /home/oracle/upgrade
+catcon: ALL catcon-related output will be written to /home/oracle/upgrade/catupgrd_catcon_9411.lst
+catcon: See /home/oracle/upgrade/catupgrd*.log files for output generated by scripts
+catcon: See /home/oracle/upgrade/catupgrd_*.lst files for spool files, if any
+Number of Cpus        = 3
+Parallel PDB Upgrades = 2
+SQL PDB Process Count = 2
+SQL Process Count     = 4
+
+[CONTAINER NAMES]
+
+CDB$ROOT
+PDB$SEED
+PDB1
+PDB2
+PDB Inclusion:[PDB$SEED PDB1 PDB2] Exclusion:[]
+
+------------------------------------------------------
+Phases [0-73]
+Container Lists Inclusion:[CDB$ROOT] Exclusion:[]
+Serial   Phase #: 0 Files: 1     Time: 26s   CDB$ROOT
+Serial   Phase #: 1 Files: 5     Time: 66s   CDB$ROOT
+Restart  Phase #: 2 Files: 1     Time: 0s    CDB$ROOT
+Parallel Phase #: 3 Files: 18    Time: 17s   CDB$ROOT
+Restart  Phase #: 4 Files: 1     Time: 1s    CDB$ROOT
+Serial   Phase #: 5 Files: 5     Time: 24s   CDB$ROOT
+Serial   Phase #: 6 Files: 1     Time: 15s   CDB$ROOT
+Serial   Phase #: 7 Files: 4     Time: 13s   CDB$ROOT
+Restart  Phase #: 8 Files: 1     Time: 0s    CDB$ROOT
+Parallel Phase #: 9 Files: 62    Time: 73s   CDB$ROOT
+Restart  Phase #:10 Files: 1     Time: 0s    CDB$ROOT
+Serial   Phase #:11 Files: 1     Time: 21s   CDB$ROOT
+Restart  Phase #:12 Files: 1     Time: 0s    CDB$ROOT
+Parallel Phase #:13 Files: 91    Time: 12s   CDB$ROOT
+Restart  Phase #:14 Files: 1     Time: 0s    CDB$ROOT
+Parallel Phase #:15 Files: 111   Time: 36s   CDB$ROOT
+Restart  Phase #:16 Files: 1     Time: 0s    CDB$ROOT
+Serial   Phase #:17 Files: 3     Time: 2s    CDB$ROOT
+Restart  Phase #:18 Files: 1     Time: 1s    CDB$ROOT
+Parallel Phase #:19 Files: 32    Time: 44s   CDB$ROOT
+Restart  Phase #:20 Files: 1     Time: 0s    CDB$ROOT
+Serial   Phase #:21 Files: 3     Time: 8s    CDB$ROOT
+Restart  Phase #:22 Files: 1     Time: 0s    CDB$ROOT
+Parallel Phase #:23 Files: 23    Time: 76s   CDB$ROOT
+Restart  Phase #:24 Files: 1     Time: 0s    CDB$ROOT
+Parallel Phase #:25 Files: 11    Time: 38s   CDB$ROOT
+Restart  Phase #:26 Files: 1     Time: 0s    CDB$ROOT
+Serial   Phase #:27 Files: 1     Time: 0s    CDB$ROOT
+Restart  Phase #:28 Files: 1     Time: 0s    CDB$ROOT
+Serial   Phase #:30 Files: 1     Time: 0s    CDB$ROOT
+Serial   Phase #:31 Files: 257   Time: 31s   CDB$ROOT
+Serial   Phase #:32 Files: 1     Time: 0s    CDB$ROOT
+Restart  Phase #:33 Files: 1     Time: 0s    CDB$ROOT
+Serial   Phase #:34 Files: 1     Time: 4s    CDB$ROOT
+Restart  Phase #:35 Files: 1     Time: 0s    CDB$ROOT
+Restart  Phase #:36 Files: 1     Time: 0s    CDB$ROOT
+Serial   Phase #:37 Files: 4     Time: 57s   CDB$ROOT
+Restart  Phase #:38 Files: 1     Time: 0s    CDB$ROOT
+Parallel Phase #:39 Files: 13    Time: 67s   CDB$ROOT
+Restart  Phase #:40 Files: 1     Time: 0s    CDB$ROOT
+Parallel Phase #:41 Files: 10    Time: 11s   CDB$ROOT
+Restart  Phase #:42 Files: 1     Time: 0s    CDB$ROOT
+Serial   Phase #:43 Files: 1     Time: 9s    CDB$ROOT
+Restart  Phase #:44 Files: 1     Time: 0s    CDB$ROOT
+Serial   Phase #:45 Files: 1     Time: 4s    CDB$ROOT
+Serial   Phase #:46 Files: 1     Time: 0s    CDB$ROOT
+Restart  Phase #:47 Files: 1     Time: 0s    CDB$ROOT
+Serial   Phase #:48 Files: 1     Time: 300s  CDB$ROOT
+Restart  Phase #:49 Files: 1     Time: 0s    CDB$ROOT
+Serial   Phase #:50 Files: 1     Time: 54s   CDB$ROOT
+Restart  Phase #:51 Files: 1     Time: 0s    CDB$ROOT
+Serial   Phase #:52 Files: 1     Time: 66s   CDB$ROOT
+Restart  Phase #:53 Files: 1     Time: 0s    CDB$ROOT
+Serial   Phase #:54 Files: 1     Time: 88s   CDB$ROOT
+Restart  Phase #:55 Files: 1     Time: 0s    CDB$ROOT
+Serial   Phase #:56 Files: 1     Time: 95s   CDB$ROOT
+Restart  Phase #:57 Files: 1     Time: 0s    CDB$ROOT
+Serial   Phase #:58 Files: 1     Time: 137s  CDB$ROOT
+Restart  Phase #:59 Files: 1     Time: 0s    CDB$ROOT
+Serial   Phase #:60 Files: 1     Time: 122s  CDB$ROOT
+Restart  Phase #:61 Files: 1     Time: 0s    CDB$ROOT
+Serial   Phase #:62 Files: 1     Time: 231s  CDB$ROOT
+Restart  Phase #:63 Files: 1     Time: 0s    CDB$ROOT
+Serial   Phase #:64 Files: 1     Time: 0s    CDB$ROOT
+Serial   Phase #:65 Files: 1 Calling sqlpatch with LD_LIBRARY_PATH=/u01/app/12.1.0.2/db/lib; export LD_LIBRARY_PATH;/u01/app/12.1.0.2/db/perl/bin/perl -I /u01/app/12.1.0.2/db/rdbms/admin -I /u01/app/12.1.0.2/db/rdbms/admin/../../sqlpatch /u01/app/12.1.0.2/db/rdbms/admin/../../sqlpatch/sqlpatch.pl -verbose -upgrade_mode_only -pdbs CDB\$ROOT &gt; /home/oracle/upgrade/catupgrd_datapatch_upgrade.log 2&gt; /home/oracle/upgrade/catupgrd_datapatch_upgrade.err
+returned from sqlpatch
+    Time: 13s   CDB$ROOT
+Serial   Phase #:66 Files: 1     Time: 3s    CDB$ROOT
+Serial   Phase #:68 Files: 1     Time: 0s    CDB$ROOT
+Serial   Phase #:69 Files: 1 Calling sqlpatch with LD_LIBRARY_PATH=/u01/app/12.1.0.2/db/lib; export LD_LIBRARY_PATH;/u01/app/12.1.0.2/db/perl/bin/perl -I /u01/app/12.1.0.2/db/rdbms/admin -I /u01/app/12.1.0.2/db/rdbms/admin/../../sqlpatch /u01/app/12.1.0.2/db/rdbms/admin/../../sqlpatch/sqlpatch.pl -verbose -pdbs CDB\$ROOT &gt; /home/oracle/upgrade/catupgrd_datapatch_normal.log 2&gt; /home/oracle/upgrade/catupgrd_datapatch_normal.err
+returned from sqlpatch
+    Time: 103s  CDB$ROOT
+Serial   Phase #:70 Files: 1     Time: 13s   CDB$ROOT
+Serial   Phase #:71 Files: 1     Time: 1s    CDB$ROOT
+Serial   Phase #:72 Files: 1     Time: 0s    CDB$ROOT
+Serial   Phase #:73 Files: 1     Time: 0s    CDB$ROOT
+
+Starting
+[/u01/app/12.1.0.2/db/perl/bin/perl /u01/app/12.1.0.2/db/rdbms/admin/catctl.pl -d /u01/app/12.1.0.2/db/rdbms/admin -l /home/oracle/upgrade -n 2 -I -i pdb_seed -c 'PDB$SEED' catupgrd.sql]
+
+Starting
+[/u01/app/12.1.0.2/db/perl/bin/perl /u01/app/12.1.0.2/db/rdbms/admin/catctl.pl -d /u01/app/12.1.0.2/db/rdbms/admin -l /home/oracle/upgrade -n 2 -I -i pdb1 -c 'PDB1' catupgrd.sql]
+
+Argument list for [/u01/app/12.1.0.2/db/rdbms/admin/catctl.pl]
+SQL Process Count     n = 2
+SQL PDB Process Count N = 0
+Input Directory       d = /u01/app/12.1.0.2/db/rdbms/admin
+Phase Logging Table   t = 0
+Log Dir               l = /home/oracle/upgrade
+Script                s = 0
+Serial Run            S = 0
+Upgrade Mode active   M = 0
+Start Phase           p = 0
+End Phase             P = 0
+Log Id                i = pdb_seed
+Run in                c = PDB$SEED
+Do not run in         C = 0
+Echo OFF              e = 1
+No Post Upgrade       x = 0
+Reverse Order         r = 0
+Open Mode Normal      o = 0
+Debug catcon.pm       z = 0
+Debug catctl.pl       Z = 0
+Display Phases        y = 0
+Child Process         I = 1
+
+catctl.pl version: 12.1.0.2.0
+Oracle Base           = /u01/app/oracle
+
+Analyzing file /u01/app/12.1.0.2/db/rdbms/admin/catupgrd.sql
+Log files in /home/oracle/upgrade
+catcon: ALL catcon-related output will be written to /home/oracle/upgrade/catupgrdpdb_seed_catcon_13408.lst
+catcon: See /home/oracle/upgrade/catupgrdpdb_seed*.log files for output generated by scripts
+catcon: See /home/oracle/upgrade/catupgrdpdb_seed_*.lst files for spool files, if any
+
+Argument list for [/u01/app/12.1.0.2/db/rdbms/admin/catctl.pl]
+SQL Process Count     n = 2
+SQL PDB Process Count N = 0
+Input Directory       d = /u01/app/12.1.0.2/db/rdbms/admin
+Phase Logging Table   t = 0
+Log Dir               l = /home/oracle/upgrade
+Script                s = 0
+Serial Run            S = 0
+Upgrade Mode active   M = 0
+Start Phase           p = 0
+End Phase             P = 0
+Log Id                i = pdb1
+Run in                c = PDB1
+Do not run in         C = 0
+Echo OFF              e = 1
+No Post Upgrade       x = 0
+Reverse Order         r = 0
+Open Mode Normal      o = 0
+Debug catcon.pm       z = 0
+Debug catctl.pl       Z = 0
+Display Phases        y = 0
+Child Process         I = 1
+
+catctl.pl version: 12.1.0.2.0
+Oracle Base           = /u01/app/oracle
+
+Analyzing file /u01/app/12.1.0.2/db/rdbms/admin/catupgrd.sql
+Log files in /home/oracle/upgrade
+catcon: ALL catcon-related output will be written to /home/oracle/upgrade/catupgrdpdb1_catcon_13410.lst
+catcon: See /home/oracle/upgrade/catupgrdpdb1*.log files for output generated by scripts
+catcon: See /home/oracle/upgrade/catupgrdpdb1_*.lst files for spool files, if any
+Number of Cpus        = 3
+SQL PDB Process Count = 2
+SQL Process Count     = 2
+
+[CONTAINER NAMES]
+
+CDB$ROOT
+PDB$SEED
+PDB1
+PDB2
+Number of Cpus        = 3
+SQL PDB Process Count = 2
+SQL Process Count     = 2
+
+[CONTAINER NAMES]
+
+CDB$ROOT
+PDB$SEED
+PDB1
+PDB2
+PDB Inclusion:[PDB1] Exclusion:[]
+PDB Inclusion:[PDB$SEED] Exclusion:[]
+
+------------------------------------------------------
+Phases [0-73]
+Container Lists Inclusion:[PDB$SEED] Exclusion:[]
+Serial   Phase #: 0 Files: 1
+------------------------------------------------------
+Phases [0-73]
+Container Lists Inclusion:[PDB1] Exclusion:[]
+Serial   Phase #: 0 Files: 1     Time: 49s   PDB1
+    Time: 49s   PDB$SEED
+Serial   Phase #: 1 Files: 5 Serial   Phase #: 1 Files: 5     Time: 85s   PDB1
+Restart  Phase #: 2 Files: 1     Time: 85s   PDB$SEED
+Restart  Phase #: 2 Files: 1     Time: 0s    PDB$SEED
+Parallel Phase #: 3 Files: 18     Time: 0s    PDB1
+Parallel Phase #: 3 Files: 18    Time: 45s   PDB1
+Restart  Phase #: 4 Files: 1    Time: 45s   PDB$SEED
+Restart  Phase #: 4 Files: 1     Time: 0s    PDB1
+Serial   Phase #: 5 Files: 5     Time: 0s    PDB$SEED
+Serial   Phase #: 5 Files: 5     Time: 28s   PDB$SEED
+Serial   Phase #: 6 Files: 1     Time: 28s   PDB1
+Serial   Phase #: 6 Files: 1     Time: 15s   PDB$SEED
+Serial   Phase #: 7 Files: 4     Time: 15s   PDB1
+Serial   Phase #: 7 Files: 4     Time: 15s   PDB1
+Restart  Phase #: 8 Files: 1     Time: 15s   PDB$SEED
+Restart  Phase #: 8 Files: 1     Time: 0s    PDB$SEED
+Parallel Phase #: 9 Files: 62     Time: 0s    PDB1
+Parallel Phase #: 9 Files: 62    Time: 147s  PDB1
+Restart  Phase #:10 Files: 1    Time: 147s  PDB$SEED
+Restart  Phase #:10 Files: 1     Time: 0s    PDB1
+Serial   Phase #:11 Files: 1     Time: 0s    PDB$SEED
+Serial   Phase #:11 Files: 1     Time: 36s   PDB$SEED
+Restart  Phase #:12 Files: 1     Time: 36s   PDB1
+Restart  Phase #:12 Files: 1     Time: 0s    PDB$SEED
+Parallel Phase #:13 Files: 91     Time: 0s    PDB1
+Parallel Phase #:13 Files: 91    Time: 11s   PDB1
+Restart  Phase #:14 Files: 1    Time: 11s   PDB$SEED
+Restart  Phase #:14 Files: 1     Time: 0s    PDB1
+Parallel Phase #:15 Files: 111     Time: 0s    PDB$SEED
+Parallel Phase #:15 Files: 111   Time: 21s   PDB$SEED
+  Time: 21s   PDB1
+Restart  Phase #:16 Files: 1 Restart  Phase #:16 Files: 1     Time: 0s    PDB1
+Serial   Phase #:17 Files: 3     Time: 0s    PDB$SEED
+Serial   Phase #:17 Files: 3     Time: 3s    PDB$SEED
+Restart  Phase #:18 Files: 1     Time: 3s    PDB1
+Restart  Phase #:18 Files: 1     Time: 0s    PDB$SEED
+Parallel Phase #:19 Files: 32     Time: 0s    PDB1
+Parallel Phase #:19 Files: 32    Time: 80s   PDB1
+Restart  Phase #:20 Files: 1    Time: 80s   PDB$SEED
+Restart  Phase #:20 Files: 1     Time: 0s    PDB1
+Serial   Phase #:21 Files: 3     Time: 0s    PDB$SEED
+Serial   Phase #:21 Files: 3     Time: 17s   PDB1
+Restart  Phase #:22 Files: 1     Time: 17s   PDB$SEED
+Restart  Phase #:22 Files: 1     Time: 0s    PDB$SEED
+Parallel Phase #:23 Files: 23     Time: 0s    PDB1
+Parallel Phase #:23 Files: 23    Time: 226s  PDB$SEED
+Restart  Phase #:24 Files: 1    Time: 226s  PDB1
+Restart  Phase #:24 Files: 1     Time: 0s    PDB$SEED
+Parallel Phase #:25 Files: 11     Time: 0s    PDB1
+Parallel Phase #:25 Files: 11    Time: 40s   PDB1
+Restart  Phase #:26 Files: 1     Time: 0s    PDB1
+Serial   Phase #:27 Files: 1     Time: 0s    PDB1
+Restart  Phase #:28 Files: 1     Time: 0s    PDB1
+Serial   Phase #:30 Files: 1     Time: 0s    PDB1
+Serial   Phase #:31 Files: 257    Time: 42s   PDB$SEED
+Restart  Phase #:26 Files: 1     Time: 0s    PDB$SEED
+Serial   Phase #:27 Files: 1     Time: 0s    PDB$SEED
+Restart  Phase #:28 Files: 1     Time: 0s    PDB$SEED
+Serial   Phase #:30 Files: 1     Time: 0s    PDB$SEED
+Serial   Phase #:31 Files: 257   Time: 94s   PDB$SEED
+Serial   Phase #:32 Files: 1     Time: 0s    PDB$SEED
+Restart  Phase #:33 Files: 1   Time: 96s   PDB1
+Serial   Phase #:32 Files: 1     Time: 0s    PDB1
+Restart  Phase #:33 Files: 1     Time: 0s    PDB$SEED
+Serial   Phase #:34 Files: 1     Time: 0s    PDB1
+Serial   Phase #:34 Files: 1     Time: 3s    PDB1
+Restart  Phase #:35 Files: 1     Time: 3s    PDB$SEED
+Restart  Phase #:35 Files: 1     Time: 0s    PDB$SEED
+Restart  Phase #:36 Files: 1     Time: 0s    PDB1
+Restart  Phase #:36 Files: 1     Time: 0s    PDB$SEED
+Serial   Phase #:37 Files: 4     Time: 0s    PDB1
+Serial   Phase #:37 Files: 4     Time: 71s   PDB$SEED
+Restart  Phase #:38 Files: 1     Time: 0s    PDB$SEED
+Parallel Phase #:39 Files: 13     Time: 77s   PDB1
+Restart  Phase #:38 Files: 1     Time: 0s    PDB1
+Parallel Phase #:39 Files: 13    Time: 57s   PDB$SEED
+Restart  Phase #:40 Files: 1     Time: 0s    PDB$SEED
+Parallel Phase #:41 Files: 10    Time: 9s    PDB$SEED
+Restart  Phase #:42 Files: 1     Time: 0s    PDB$SEED
+Serial   Phase #:43 Files: 1    Time: 62s   PDB1
+Restart  Phase #:40 Files: 1     Time: 0s    PDB1
+Parallel Phase #:41 Files: 10     Time: 11s   PDB$SEED
+Restart  Phase #:44 Files: 1     Time: 0s    PDB$SEED
+Serial   Phase #:45 Files: 1    Time: 9s    PDB1
+Restart  Phase #:42 Files: 1     Time: 0s    PDB1
+Serial   Phase #:43 Files: 1     Time: 2s    PDB$SEED
+Serial   Phase #:46 Files: 1     Time: 0s    PDB$SEED
+Restart  Phase #:47 Files: 1     Time: 0s    PDB$SEED
+Serial   Phase #:48 Files: 1     Time: 8s    PDB1
+Restart  Phase #:44 Files: 1     Time: 0s    PDB1
+Serial   Phase #:45 Files: 1     Time: 2s    PDB1
+Serial   Phase #:46 Files: 1     Time: 0s    PDB1
+Restart  Phase #:47 Files: 1     Time: 0s    PDB1
+Serial   Phase #:48 Files: 1     Time: 374s  PDB$SEED
+Restart  Phase #:49 Files: 1     Time: 366s  PDB1
+Restart  Phase #:49 Files: 1     Time: 0s    PDB$SEED
+Serial   Phase #:50 Files: 1     Time: 0s    PDB1
+Serial   Phase #:50 Files: 1     Time: 64s   PDB$SEED
+Restart  Phase #:51 Files: 1     Time: 0s    PDB$SEED
+Serial   Phase #:52 Files: 1     Time: 68s   PDB1
+Restart  Phase #:51 Files: 1     Time: 0s    PDB1
+Serial   Phase #:52 Files: 1     Time: 97s   PDB$SEED
+Restart  Phase #:53 Files: 1     Time: 0s    PDB$SEED
+Serial   Phase #:54 Files: 1     Time: 93s   PDB1
+Restart  Phase #:53 Files: 1     Time: 0s    PDB1
+Serial   Phase #:54 Files: 1     Time: 96s   PDB1
+    Time: 96s   PDB$SEED
+Restart  Phase #:55 Files: 1 Restart  Phase #:55 Files: 1     Time: 0s    PDB1
+Serial   Phase #:56 Files: 1     Time: 0s    PDB$SEED
+Serial   Phase #:56 Files: 1     Time: 98s   PDB1
+Restart  Phase #:57 Files: 1     Time: 98s   PDB$SEED
+Restart  Phase #:57 Files: 1     Time: 0s    PDB$SEED
+    Time: 0s    PDB1
+Serial   Phase #:58 Files: 1 Serial   Phase #:58 Files: 1     Time: 134s  PDB1
+Restart  Phase #:59 Files: 1     Time: 134s  PDB$SEED
+Restart  Phase #:59 Files: 1     Time: 0s    PDB1
+Serial   Phase #:60 Files: 1     Time: 0s    PDB$SEED
+Serial   Phase #:60 Files: 1     Time: 188s  PDB$SEED
+Restart  Phase #:61 Files: 1     Time: 188s  PDB1
+Restart  Phase #:61 Files: 1     Time: 0s    PDB1
+Serial   Phase #:62 Files: 1     Time: 0s    PDB$SEED
+Serial   Phase #:62 Files: 1     Time: 266s  PDB$SEED
+Restart  Phase #:63 Files: 1     Time: 266s  PDB1
+Restart  Phase #:63 Files: 1     Time: 0s    PDB$SEED
+Serial   Phase #:64 Files: 1     Time: 0s    PDB1
+Serial   Phase #:64 Files: 1     Time: 1s    PDB1
+Serial   Phase #:65 Files: 1 Calling sqlpatch with LD_LIBRARY_PATH=/u01/app/12.1.0.2/db/lib; export LD_LIBRARY_PATH;/u01/app/12.1.0.2/db/perl/bin/perl -I /u01/app/12.1.0.2/db/rdbms/admin -I /u01/app/12.1.0.2/db/rdbms/admin/../../sqlpatch /u01/app/12.1.0.2/db/rdbms/admin/../../sqlpatch/sqlpatch.pl -verbose -upgrade_mode_only -pdbs PDB1 &gt; /home/oracle/upgrade/catupgrdpdb1_datapatch_upgrade.log 2&gt; /home/oracle/upgrade/catupgrdpdb1_datapatch_upgrade.err
+    Time: 1s    PDB$SEED
+Serial   Phase #:65 Files: 1 Calling sqlpatch with LD_LIBRARY_PATH=/u01/app/12.1.0.2/db/lib; export LD_LIBRARY_PATH;/u01/app/12.1.0.2/db/perl/bin/perl -I /u01/app/12.1.0.2/db/rdbms/admin -I /u01/app/12.1.0.2/db/rdbms/admin/../../sqlpatch /u01/app/12.1.0.2/db/rdbms/admin/../../sqlpatch/sqlpatch.pl -verbose -upgrade_mode_only -pdbs PDB\$SEED &gt; /home/oracle/upgrade/catupgrdpdb_seed_datapatch_upgrade.log 2&gt; /home/oracle/upgrade/catupgrdpdb_seed_datapatch_upgrade.err
+returned from sqlpatch
+returned from sqlpatch
+    Time: 17s   PDB1
+Serial   Phase #:66 Files: 1     Time: 19s   PDB$SEED
+Serial   Phase #:66 Files: 1     Time: 3s    PDB1
+Serial   Phase #:68 Files: 1     Time: 3s    PDB$SEED
+Serial   Phase #:68 Files: 1     Time: 29s   PDB1
+Serial   Phase #:69 Files: 1     Time: 28s   PDB$SEED
+Serial   Phase #:69 Files: 1 Calling sqlpatch with LD_LIBRARY_PATH=/u01/app/12.1.0.2/db/lib; export LD_LIBRARY_PATH;/u01/app/12.1.0.2/db/perl/bin/perl -I /u01/app/12.1.0.2/db/rdbms/admin -I /u01/app/12.1.0.2/db/rdbms/admin/../../sqlpatch /u01/app/12.1.0.2/db/rdbms/admin/../../sqlpatch/sqlpatch.pl -verbose -pdbs PDB\$SEED &gt; /home/oracle/upgrade/catupgrdpdb_seed_datapatch_normal.log 2&gt; /home/oracle/upgrade/catupgrdpdb_seed_datapatch_normal.err
+Calling sqlpatch with LD_LIBRARY_PATH=/u01/app/12.1.0.2/db/lib; export LD_LIBRARY_PATH;/u01/app/12.1.0.2/db/perl/bin/perl -I /u01/app/12.1.0.2/db/rdbms/admin -I /u01/app/12.1.0.2/db/rdbms/admin/../../sqlpatch /u01/app/12.1.0.2/db/rdbms/admin/../../sqlpatch/sqlpatch.pl -verbose -pdbs PDB1 &gt; /home/oracle/upgrade/catupgrdpdb1_datapatch_normal.log 2&gt; /home/oracle/upgrade/catupgrdpdb1_datapatch_normal.err
+returned from sqlpatch
+    Time: 19s   PDB$SEED
+Serial   Phase #:70 Files: 1 returned from sqlpatch
+    Time: 22s   PDB1
+Serial   Phase #:70 Files: 1     Time: 89s   PDB1
+Serial   Phase #:71 Files: 1     Time: 1s    PDB1
+Serial   Phase #:72 Files: 1     Time: 3s    PDB1
+Serial   Phase #:73 Files: 1     Time: 0s    PDB1
+
+Grand Total Time: 2551s PDB1
+
+LOG FILES: (catupgrdpdb1*.log)
+
+Upgrade Summary Report Located in:
+/u01/app/12.1.0.2/db/cfgtoollogs/cdb/upgrade/upg_summary.log
+
+Total Upgrade Time:          [0d:0h:42m:31s]
+
+Starting
+[/u01/app/12.1.0.2/db/perl/bin/perl /u01/app/12.1.0.2/db/rdbms/admin/catctl.pl -d /u01/app/12.1.0.2/db/rdbms/admin -l /home/oracle/upgrade -n 2 -I -i pdb2 -c 'PDB2' catupgrd.sql]
+
+Argument list for [/u01/app/12.1.0.2/db/rdbms/admin/catctl.pl]
+SQL Process Count     n = 2
+SQL PDB Process Count N = 0
+Input Directory       d = /u01/app/12.1.0.2/db/rdbms/admin
+Phase Logging Table   t = 0
+Log Dir               l = /home/oracle/upgrade
+Script                s = 0
+Serial Run            S = 0
+Upgrade Mode active   M = 0
+Start Phase           p = 0
+End Phase             P = 0
+Log Id                i = pdb2
+Run in                c = PDB2
+Do not run in         C = 0
+Echo OFF              e = 1
+No Post Upgrade       x = 0
+Reverse Order         r = 0
+Open Mode Normal      o = 0
+Debug catcon.pm       z = 0
+Debug catctl.pl       Z = 0
+Display Phases        y = 0
+Child Process         I = 1
+
+catctl.pl version: 12.1.0.2.0
+Oracle Base           = /u01/app/oracle
+
+Analyzing file /u01/app/12.1.0.2/db/rdbms/admin/catupgrd.sql
+Log files in /home/oracle/upgrade
+catcon: ALL catcon-related output will be written to /home/oracle/upgrade/catupgrdpdb2_catcon_19371.lst
+catcon: See /home/oracle/upgrade/catupgrdpdb2*.log files for output generated by scripts
+catcon: See /home/oracle/upgrade/catupgrdpdb2_*.lst files for spool files, if any
+Number of Cpus        = 3
+SQL PDB Process Count = 2
+SQL Process Count     = 2
+
+[CONTAINER NAMES]
+
+CDB$ROOT
+PDB$SEED
+PDB1
+PDB2
+PDB Inclusion:[PDB2] Exclusion:[]
+
+------------------------------------------------------
+Phases [0-73]
+Container Lists Inclusion:[PDB2] Exclusion:[]
+Serial   Phase #: 0 Files: 1     Time: 65s   PDB2
+Serial   Phase #: 1 Files: 5     Time: 244s  PDB$SEED
+Serial   Phase #:71 Files: 1     Time: 1s    PDB$SEED
+Serial   Phase #:72 Files: 1     Time: 13s   PDB$SEED
+Serial   Phase #:73 Files: 1     Time: 0s    PDB$SEED
+
+Grand Total Time: 2720s PDB$SEED
+
+LOG FILES: (catupgrdpdb_seed*.log)
+
+Upgrade Summary Report Located in:
+/u01/app/12.1.0.2/db/cfgtoollogs/cdb/upgrade/upg_summary.log
+
+Total Upgrade Time:          [0d:0h:45m:20s]
+    Time: 111s  PDB2
+Restart  Phase #: 2 Files: 1     Time: 0s    PDB2
+Parallel Phase #: 3 Files: 18    Time: 25s   PDB2
+Restart  Phase #: 4 Files: 1     Time: 0s    PDB2
+Serial   Phase #: 5 Files: 5     Time: 24s   PDB2
+Serial   Phase #: 6 Files: 1     Time: 12s   PDB2
+Serial   Phase #: 7 Files: 4     Time: 7s    PDB2
+Restart  Phase #: 8 Files: 1     Time: 0s    PDB2
+Parallel Phase #: 9 Files: 62    Time: 74s   PDB2
+Restart  Phase #:10 Files: 1     Time: 0s    PDB2
+Serial   Phase #:11 Files: 1     Time: 21s   PDB2
+Restart  Phase #:12 Files: 1     Time: 0s    PDB2
+Parallel Phase #:13 Files: 91    Time: 6s    PDB2
+Restart  Phase #:14 Files: 1     Time: 0s    PDB2
+Parallel Phase #:15 Files: 111   Time: 15s   PDB2
+Restart  Phase #:16 Files: 1     Time: 0s    PDB2
+Serial   Phase #:17 Files: 3     Time: 1s    PDB2
+Restart  Phase #:18 Files: 1     Time: 0s    PDB2
+Parallel Phase #:19 Files: 32    Time: 39s   PDB2
+Restart  Phase #:20 Files: 1     Time: 0s    PDB2
+Serial   Phase #:21 Files: 3     Time: 9s    PDB2
+Restart  Phase #:22 Files: 1     Time: 0s    PDB2
+Parallel Phase #:23 Files: 23    Time: 74s   PDB2
+Restart  Phase #:24 Files: 1     Time: 0s    PDB2
+Parallel Phase #:25 Files: 11    Time: 29s   PDB2
+Restart  Phase #:26 Files: 1     Time: 0s    PDB2
+Serial   Phase #:27 Files: 1     Time: 0s    PDB2
+Restart  Phase #:28 Files: 1     Time: 0s    PDB2
+Serial   Phase #:30 Files: 1     Time: 0s    PDB2
+Serial   Phase #:31 Files: 257   Time: 25s   PDB2
+Serial   Phase #:32 Files: 1     Time: 0s    PDB2
+Restart  Phase #:33 Files: 1     Time: 0s    PDB2
+Serial   Phase #:34 Files: 1     Time: 2s    PDB2
+Restart  Phase #:35 Files: 1     Time: 0s    PDB2
+Restart  Phase #:36 Files: 1     Time: 0s    PDB2
+Serial   Phase #:37 Files: 4     Time: 41s   PDB2
+Restart  Phase #:38 Files: 1     Time: 0s    PDB2
+Parallel Phase #:39 Files: 13    Time: 40s   PDB2
+Restart  Phase #:40 Files: 1     Time: 0s    PDB2
+Parallel Phase #:41 Files: 10    Time: 7s    PDB2
+Restart  Phase #:42 Files: 1     Time: 0s    PDB2
+Serial   Phase #:43 Files: 1     Time: 5s    PDB2
+Restart  Phase #:44 Files: 1     Time: 0s    PDB2
+Serial   Phase #:45 Files: 1     Time: 3s    PDB2
+Serial   Phase #:46 Files: 1     Time: 0s    PDB2
+Restart  Phase #:47 Files: 1     Time: 0s    PDB2
+Serial   Phase #:48 Files: 1     Time: 248s  PDB2
+Restart  Phase #:49 Files: 1     Time: 0s    PDB2
+Serial   Phase #:50 Files: 1     Time: 51s   PDB2
+Restart  Phase #:51 Files: 1     Time: 0s    PDB2
+Serial   Phase #:52 Files: 1     Time: 53s   PDB2
+Restart  Phase #:53 Files: 1     Time: 0s    PDB2
+Serial   Phase #:54 Files: 1     Time: 62s   PDB2
+Restart  Phase #:55 Files: 1     Time: 0s    PDB2
+Serial   Phase #:56 Files: 1     Time: 70s   PDB2
+Restart  Phase #:57 Files: 1     Time: 0s    PDB2
+Serial   Phase #:58 Files: 1     Time: 108s  PDB2
+Restart  Phase #:59 Files: 1     Time: 1s    PDB2
+Serial   Phase #:60 Files: 1     Time: 119s  PDB2
+Restart  Phase #:61 Files: 1     Time: 0s    PDB2
+Serial   Phase #:62 Files: 1     Time: 158s  PDB2
+Restart  Phase #:63 Files: 1     Time: 0s    PDB2
+Serial   Phase #:64 Files: 1     Time: 0s    PDB2
+Serial   Phase #:65 Files: 1 Calling sqlpatch with LD_LIBRARY_PATH=/u01/app/12.1.0.2/db/lib; export LD_LIBRARY_PATH;/u01/app/12.1.0.2/db/perl/bin/perl -I /u01/app/12.1.0.2/db/rdbms/admin -I /u01/app/12.1.0.2/db/rdbms/admin/../../sqlpatch /u01/app/12.1.0.2/db/rdbms/admin/../../sqlpatch/sqlpatch.pl -verbose -upgrade_mode_only -pdbs PDB2 &gt; /home/oracle/upgrade/catupgrdpdb2_datapatch_upgrade.log 2&gt; /home/oracle/upgrade/catupgrdpdb2_datapatch_upgrade.err
+returned from sqlpatch
+    Time: 11s   PDB2
+Serial   Phase #:66 Files: 1     Time: 2s    PDB2
+Serial   Phase #:68 Files: 1     Time: 30s   PDB2
+Serial   Phase #:69 Files: 1 Calling sqlpatch with LD_LIBRARY_PATH=/u01/app/12.1.0.2/db/lib; export LD_LIBRARY_PATH;/u01/app/12.1.0.2/db/perl/bin/perl -I /u01/app/12.1.0.2/db/rdbms/admin -I /u01/app/12.1.0.2/db/rdbms/admin/../../sqlpatch /u01/app/12.1.0.2/db/rdbms/admin/../../sqlpatch/sqlpatch.pl -verbose -pdbs PDB2 &gt; /home/oracle/upgrade/catupgrdpdb2_datapatch_normal.log 2&gt; /home/oracle/upgrade/catupgrdpdb2_datapatch_normal.err
+returned from sqlpatch
+    Time: 14s   PDB2
+Serial   Phase #:70 Files: 1     Time: 74s   PDB2
+Serial   Phase #:71 Files: 1     Time: 1s    PDB2
+Serial   Phase #:72 Files: 1     Time: 3s    PDB2
+Serial   Phase #:73 Files: 1     Time: 0s    PDB2
+
+Grand Total Time: 1642s PDB2
+
+LOG FILES: (catupgrdpdb2*.log)
+
+Upgrade Summary Report Located in:
+/u01/app/12.1.0.2/db/cfgtoollogs/cdb/upgrade/upg_summary.log
+
+Total Upgrade Time:          [0d:0h:27m:22s]
+
+     Time: 1882s For CDB$ROOT
+     Time: 4216s For PDB(s)
+
+Grand Total Time: 6098s
+
+LOG FILES: (catupgrd*.log)
+
+Upgrade Summary Report Located in:
+/u01/app/12.1.0.2/db/cfgtoollogs/cdb/upgrade/upg_summary.log
+
+Grand Total Upgrade Time:    [0d:1h:41m:38s]
+</pre>
+<p>We can see that catcpl.pl is running the upgrade for:</p>
+<li>
+the root container (CDB$ROOT)
+</li>
+<li>
+the seed database (PDB$SEED)
+</li>
+<li> for each PDB (PDB1 and PDB2).
+</li>
+<p>
+We can also see that even with explicit parallel setting some steps are run serially.<br />
+There is also a lot of log files generated:</p>
+<pre>
+$ ls -rtl
+total 307620
+-rw-r--r-- 1 oracle dba           966 Aug  4 21:45 initcdb.before_upgrade
+-rw-r----- 1 oracle oinstall     7680 Aug  4 21:48 orapwcdb
+-rw-r--r-- 1 oracle oinstall    14083 Aug  4 21:52 preupgrd.sql
+-rw-r--r-- 1 oracle oinstall   495482 Aug  4 21:53 utluppkg.sql
+-rwxr--r-- 1 oracle oinstall      149 Aug  4 21:58 pu.ksh
+-rw-r--r-- 1 oracle oinstall     9156 Aug  4 21:59 preupgrd0.log
+-rw-r--r-- 1 oracle oinstall      390 Aug  4 22:27 catupgrd_catcon_9411.lst
+-rw-r--r-- 1 oracle oinstall        0 Aug  4 22:56 catupgrd_datapatch_upgrade.err
+-rw-r--r-- 1 oracle oinstall      681 Aug  4 22:56 catupgrd_datapatch_upgrade.log
+-rw-r--r-- 1 oracle oinstall        0 Aug  4 22:58 catupgrd_datapatch_normal.err
+-rw-r--r-- 1 oracle oinstall      681 Aug  4 22:58 catupgrd_datapatch_normal.log
+-rw-r--r-- 1 oracle oinstall  4334421 Aug  4 22:59 catupgrd1.log
+-rw-r--r-- 1 oracle oinstall  8060824 Aug  4 22:59 catupgrd2.log
+-rw-r--r-- 1 oracle oinstall  5219067 Aug  4 22:59 catupgrd3.log
+-rw-r--r-- 1 oracle oinstall      406 Aug  4 22:59 catupgrdpdb_seed_catcon_13408.lst
+-rw-r--r-- 1 oracle oinstall      398 Aug  4 22:59 catupgrdpdb1_catcon_13410.lst
+-rw-r--r-- 1 oracle oinstall        0 Aug  4 23:39 catupgrdpdb1_datapatch_upgrade.err
+-rw-r--r-- 1 oracle oinstall        0 Aug  4 23:39 catupgrdpdb_seed_datapatch_upgrade.err
+-rw-r--r-- 1 oracle oinstall      677 Aug  4 23:39 catupgrdpdb1_datapatch_upgrade.log
+-rw-r--r-- 1 oracle oinstall      681 Aug  4 23:39 catupgrdpdb_seed_datapatch_upgrade.log
+-rw-r--r-- 1 oracle oinstall        0 Aug  4 23:40 catupgrdpdb_seed_datapatch_normal.err
+-rw-r--r-- 1 oracle oinstall        0 Aug  4 23:40 catupgrdpdb1_datapatch_normal.err
+-rw-r--r-- 1 oracle oinstall      681 Aug  4 23:40 catupgrdpdb_seed_datapatch_normal.log
+-rw-r--r-- 1 oracle oinstall      677 Aug  4 23:40 catupgrdpdb1_datapatch_normal.log
+-rw-r--r-- 1 oracle oinstall 11399865 Aug  4 23:41 catupgrdpdb11.log
+-rw-r--r-- 1 oracle oinstall 66872797 Aug  4 23:41 catupgrdpdb10.log
+-rw-r--r-- 1 oracle oinstall      398 Aug  4 23:41 catupgrdpdb2_catcon_19371.lst
+-rw-r--r-- 1 oracle oinstall 10829916 Aug  4 23:44 catupgrdpdb_seed1.log
+-rw-r--r-- 1 oracle oinstall 67477220 Aug  4 23:44 catupgrdpdb_seed0.log
+-rw-r--r-- 1 oracle oinstall        0 Aug  5 00:06 catupgrdpdb2_datapatch_upgrade.err
+-rw-r--r-- 1 oracle oinstall      677 Aug  5 00:07 catupgrdpdb2_datapatch_upgrade.log
+-rw-r--r-- 1 oracle oinstall        0 Aug  5 00:07 catupgrdpdb2_datapatch_normal.err
+-rw-r--r-- 1 oracle oinstall      677 Aug  5 00:07 catupgrdpdb2_datapatch_normal.log
+-rw-r--r-- 1 oracle oinstall 12863993 Aug  5 00:09 catupgrdpdb21.log
+-rw-r--r-- 1 oracle oinstall 65408681 Aug  5 00:09 catupgrdpdb20.log
+-rw-r--r-- 1 oracle oinstall 61885550 Aug  5 00:09 catupgrd0.log
+</pre>
+<p>I did not check each of these log files. Instead I have checked that <b>capuppst.sql</b> has been run with:</p>
+<pre>
+$ grep 'Rem catuppst.sql' *.log
+catupgrd0.log:22:58:46 SQL&gt; Rem catuppst.sql
+catupgrdpdb10.log:23:40:17 SQL&gt; Rem catuppst.sql
+catupgrdpdb20.log:00:07:54 SQL&gt; Rem catuppst.sql
+catupgrdpdb_seed0.log:23:40:14 SQL&gt; Rem catuppst.sql
+</pre>
+<p>If you check with the Upgrade Guide section instruction it fails:</p>
+<pre>
+$ grep "Started: catuppst.sql" *.log
+$
+</pre>
+<h3>Run utlrp.sql</h3>
+<p>I have used again <b>catcon.pl</b> to run it:</p>
+<pre>
+$ $ORACLE_HOME/perl/bin/perl $ORACLE_HOME/rdbms/admin/catcon.pl -d $ORACLE_HOME/rdbms/admin -l /home/oracle/upgrade -n 4  -b utlrp utlrp.sql
+catcon: ALL catcon-related output will be written to /home/oracle/upgrade/utlrp_catcon_4315.lst
+catcon: See /home/oracle/upgrade/utlrp*.log files for output generated by scripts
+catcon: See /home/oracle/upgrade/utlrp_*.lst files for spool files, if any
+catcon.pl: completed successfully
+</pre>
+<p>Following log files have been generated in current directory:</p>
+<pre>
+$ ls -rtl | tail -n 5
+-rw-r--r-- 1 oracle oinstall      384 Aug  5 21:14 utlrp_catcon_4315.lst
+-rw-r--r-- 1 oracle oinstall    10483 Aug  5 21:18 utlrp0.log
+-rw-r--r-- 1 oracle oinstall     5489 Aug  5 21:18 utlrp1.log
+-rw-r--r-- 1 oracle oinstall     5489 Aug  5 21:18 utlrp2.log
+-rw-r--r-- 1 oracle oinstall      525 Aug  5 21:18 utlrp3.log
+</pre>
+<p><a href="http://pierreforstmanndotcom.wordpress.com/utlrp0.log">ultrp0.log</a> is for CDB$ROOT and for PRD$SEED.<br />
+<br />
+<a href="http://pierreforstmanndotcom.wordpress.com/utlrp1.log">ultrp1.log</a> is for PDB1.<br />
+<br />
+<a href="http://pierreforstmanndotcom.wordpress.com/utlrp2.log">utlrp2.log</a> is for PDB2.<br />
+<br />
+But I don't know what is <b>ultrp3.log</b> for:</p>
+<pre>
+$ cat utlrp3.log
+
+SQL*Plus: Release 12.1.0.2.0 Production on Tue Aug 5 21:14:38 2014
+
+Copyright (c) 1982, 2014, Oracle.  All rights reserved.
+
+SQL&gt; Connected.
+SQL&gt;   2
+Session altered.
+
+SQL&gt;   2
+Session altered.
+
+SQL&gt;   2
+Session altered.
+
+SQL&gt;   2
+Session altered.
+
+SQL&gt; SQL&gt;
+SQL&gt; ========== PROCESS ENDED ==========
+SQL&gt; Disconnected from Oracle Database 12c Enterprise Edition Release 12.1.0.2.0 - 64bit Production
+With the Partitioning, Automatic Storage Management, OLAP, Advanced Analytics
+and Real Application Testing options
+</pre>
+<h3>Run utlu121s.sql </h3>
+<p>Now we must check that the upgrade has been successfull. I have used again <b>catcon.pl</b> to run it:</p>
+<pre>
+$ $ORACLE_HOME/perl/bin/perl $ORACLE_HOME/rdbms/admin/catcon.pl -d $ORACLE_HOME/rdbms/admin -l /home/oracle/upgrade -n 4  -b utlu121s utlu121s.sql
+catcon: ALL catcon-related output will be written to /home/oracle/upgrade/utlu121s_catcon_4700.lst
+catcon: See /home/oracle/upgrade/utlu121s*.log files for output generated by scripts
+catcon: See /home/oracle/upgrade/utlu121s_*.lst files for spool files, if any
+catcon.pl: completed successfully
+</pre>
+<p><a href="http://pierreforstmanndotcom.wordpress.com/utlu121s0.log">utlu121s0.log</a> is for CDB$ROOT and PDB$SEED.<br />
+<br />
+<a href="http://pierreforstmanndotcom.wordpress.com/utlu121s1.log">utlu121s1.log</a> is for PDB1.<br />
+<br />
+<a href="http://pierreforstmanndotcom.wordpress.com/utlu121s2.log">utlu121s2.log</a> is for PDB2.<br />
+<br />
+And I don't know  what is <b>utlu121s3.log</b> for:</p>
+<pre>
+$ cat utlu121s3.log
+
+SQL*Plus: Release 12.1.0.2.0 Production on Tue Aug 5 21:24:04 2014
+
+Copyright (c) 1982, 2014, Oracle.  All rights reserved.
+
+SQL&gt; Connected.
+SQL&gt;   2
+Session altered.
+
+SQL&gt;   2
+Session altered.
+
+SQL&gt;   2
+Session altered.
+
+SQL&gt;   2
+Session altered.
+
+SQL&gt; SQL&gt;
+SQL&gt; ========== PROCESS ENDED ==========
+SQL&gt; Disconnected from Oracle Database 12c Enterprise Edition Release 12.1.0.2.0 - 64bit Production
+With the Partitioning, Automatic Storage Management, OLAP, Advanced Analytics
+and Real Application Testing options
+$
+</pre>
+<p>Each database has all its components valid (except Real Applications Cluster which has OPTION OFF because the container database is not a cluster database).<br />
+</p>
+<h3>Run utluiobj.sql</h3>
+<p>I have used again <b>catcon.pl</b> to verify all database objects are valid with:</p>
+<pre>
+$ $ORACLE_HOME/perl/bin/perl $ORACLE_HOME/rdbms/admin/catcon.pl -d $ORACLE_HOME/rdbms/admin -l /home/oracle/upgrade -n 4  -b utluiobj utluiobj.sql
+catcon: ALL catcon-related output will be written to /home/oracle/upgrade/utluiobj_catcon_4047.lst
+catcon: See /home/oracle/upgrade/utluiobj*.log files for output generated by scripts
+catcon: See /home/oracle/upgrade/utluiobj_*.lst files for spool files, if any
+catcon.pl: completed successfully
+$
+</pre>
+<p>Following log files have been generated in current directory:</p>
+<pre>
+$ ls -rtl | tail -5
+-rw-r--r-- 1 oracle oinstall      390 Aug  5 21:28 utluiobj_catcon_4926.lst
+-rw-r--r-- 1 oracle oinstall     4119 Aug  5 21:28 utluiobj0.log
+-rw-r--r-- 1 oracle oinstall     2307 Aug  5 21:28 utluiobj1.log
+-rw-r--r-- 1 oracle oinstall     2307 Aug  5 21:28 utluiobj2.log
+-rw-r--r-- 1 oracle oinstall      525 Aug  5 21:28 utluiobj3.log
+$
+</pre>
+<p><a href="http://pierreforstmanndotcom.wordpress.com/utluiobj0.log">utluibjo0.log</a> is for CDB$ROOT and PDB$SEED.<br />
+<br />
+<a href="http://pierreforstmanndotcom.wordpress.com/utluiobj1.log">utluiobj1.log</a> is for PDB1.<br />
+<br />
+<a href="http://pierreforstmanndotcom.wordpress.com/utluiobj2.log">utluiobj2.log</a> is for PDB2.<br />
+<br />
+Summary: there is no invalid objects in any database.<br />
+</p>
+<h3>Upgrade database configuration in Oracle Local Registry(OLR)</h3>
+<p>Database configuration in OLR must also be upgraded:</p>
+<pre>
+$ which srvctl
+/u01/app/12.1.0.2/db/bin/srvctl
+$ srvctl upgrade database -d cdb -o $ORACLE_HOME
+rvctl config database -d cdb
+Database unique name: cdb
+Database name: cdb
+Oracle home: /u01/app/12.1.0.2/db
+Oracle user: oracle
+Spfile: +DATA/cdb/spfilecdb.ora
+Password file:
+Domain:
+Start options: open
+Stop options: immediate
+Database role: PRIMARY
+Management policy: AUTOMATIC
+Disk Groups: DATA
+Services:
+OSDBA group:
+OSOPER group:
+Database instance: cdb
+</pre>
+<p>Note that database home in OLR is now Oracle Database 12.1.0.2 home.</p>
+<p>Very last step is to make sure <b>/etc/oratab</b>is also using the right Oracle Home: it was not the case in my environment. So I updated it.</p>
+<pre>
+$ grep cdb /etc/oratab
+cdb:/u01/app/12.1.0.2/db:N              # line added by Agent
+</pre>
+<p>At this step the database has been successfully upgrade to 12.1.0.2.</p>
+<h3>Conclusion</h3>
+<p>To upgrade a multitenant container database takes a lot of time but we have to remember that it would also take a lot of time if each pluggable database would be a non pluggable database. The number and size of log files has also increased a lot.<br />
+<br />There are some minor errors in the Upgrade Guide (it forgets to run "startup upgrade" for the container database and it does not tell you that you also have to upgrade database configuration in OLR if database version was 12.1.0.1.<br />
+</p>
