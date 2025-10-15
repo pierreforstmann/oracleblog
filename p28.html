@@ -1,0 +1,471 @@
+<p>The purpose of this blog article is to show how to configure Data Guard Broker and to use it with some new Oracle 12c features.</p>
+<p>The configuration I have used is the following:</p>
+<li>Oracle Linux 6.5 64-bit with VirtualBox 4.3.16</li>
+<li>Oracle Grid Infrastructure (GI) 12.1.0.2: database storage is using ASM so Oracle Managed Files (OMF) are automatically used</li>
+<li>Oracle Database Entreprise Edition 12.1.0.2.</li>
+<li>Databases CDB0 and CDB1 are running in a Data Guard configuration (CDB1 has the primary role whereas CDB0 has the standby role).</li>
+<p>
+Remember that you must already have created a standby database because Data Guard Broker does not allow to create a standby database: it must done manually before<br />
+(or with Grid Control but that is outside the scope of my blog).</p>
+<h3>Create database account for SYSDG privilege</h3>
+<p>SYSDG is new 12c system privilege designed to be used instead of SYSDBA by Data Guard Broker.<br />
+<br />
+Connect on primary database instance and create an account named <b>dga</b> (like Data Guard Administrator) and grant SYSDG privilege:</p>
+<pre>
+SYS@CDB1&gt;create user dga identified by dga;
+
+User created.
+
+SYS@CDB1&gt;grant sysdg to dga;
+
+Grant succeeded.
+
+SYS@CDB1&gt;select * from v$pwfile_users;
+
+USERNAME                       SYSDB SYSOP SYSAS SYSBA SYSDG SYSKM     CON_ID
+------------------------------ ----- ----- ----- ----- ----- ----- ----------
+SYS                            TRUE  TRUE  FALSE FALSE FALSE FALSE          0
+DGA                            FALSE FALSE FALSE FALSE TRUE  FALSE          0
+
+SYS@CDB1&gt;
+</pre>
+<p>Note that the password file has been updated.</p>
+<p>If you want use this new database account instead of SYS to manage your Data Guard configuration you must make sure that this user account can be used on primary and on standby databases. The dga account has also been created by Data Guard on the standby database (because it belongs to dictionary SYS.USER$ table in SYSTEM tablespace) but the standby password file has not been updated (because Data Guard does not work on the password file that is <u>not</u> a tablespace datafile).</p>
+<p>Copy the password file from primary node to standby node:</p>
+<pre>
+$ ls -la $ORACLE_HOME/dbs/orapw*
+-rw-r----- 1 oracle oinstall 7680 Dec 24 14:15 /u01/app/12.1.0.2/db/dbs/orapwCDB0
+$ scp oracle@ol6twsa1:$ORACLE_HOME/dbs/orapwCDB1 $ORACLE_HOME/dbs/orapwCDB0
+oracle@ol6twsa1's password:
+orapwCDB1                                                                                                                   100% 7680     7.5KB/s   00:00
+
+</pre>
+<p>Connect to standby database and check that the <b>dga</b> account with SYSDG privilege is known by standby database:</p>
+<pre>
+$ sqlplus / as sysdba
+
+SQL*Plus: Release 12.1.0.2.0 Production on Mon Dec 29 21:13:38 2014
+
+Copyright (c) 1982, 2014, Oracle.  All rights reserved.
+
+Connected to:
+Oracle Database 12c Enterprise Edition Release 12.1.0.2.0 - 64bit Production
+With the Partitioning, Automatic Storage Management, OLAP, Advanced Analytics
+and Real Application Testing options
+SYS@CDB0&gt;select * from v$pwfile_users;
+
+USERNAME                       SYSDB SYSOP SYSAS SYSBA SYSDG SYSKM     CON_ID
+------------------------------ ----- ----- ----- ----- ----- ----- ----------
+SYS                            TRUE  TRUE  FALSE FALSE FALSE FALSE          0
+DGA                            FALSE FALSE FALSE FALSE TRUE  FALSE          0
+
+</pre>
+<h3>Set DG_BROKER_START instance parameter to TRUE</h3>
+<p>You must set this parameter on <u>both</u> primary and standby database (because Data Guard does not work on the SPFILE which is <u>not</u> a tablespace datafile): you can also use Data Guard Broker to run SQL statement instead of SQL*Plus. Connect first to primary instance and then use DGMGRL CONNECT statement to connect to standby instance. The SQL keyword can be used to run SQL statement on the current database instance:</p>
+<pre>
+$ dgmgrl
+DGMGRL for Linux: Version 12.1.0.2.0 - 64bit Production
+
+Copyright (c) 2000, 2013, Oracle. All rights reserved.
+
+Welcome to DGMGRL, type "help" for information.
+DGMGRL&gt; connect /
+Connected as SYSDG.
+DGMGRL&gt; sql "alter system set dg_broker_start=true";
+Succeeded.
+DGMGRL&gt; connect dga/dga@CDB0
+Connected as SYSDG.
+DGMGRL&gt; sql "alter system set dg_broker_start=true";
+Succeeded.
+DGMGRL&gt;
+</pre>
+<p>Note that DGMGRL is using SYSDG privilege by default.<br />
+</p>
+<h3>Disable LOG_ARCHIVE_DEST_n instance parameter</h3>
+<p>This is a mandatory step before creating a Data Guard Broker configuration that must be run on both primary and standby databases:</p>
+<pre>
+DGMGRL&gt; sql "alter system set log_archive_dest_2=''"
+Succeeded.
+DGMGRL&gt; connect /
+Connected as SYSDG.
+DGMGRL&gt; sql "alter system set log_archive_dest_2=''"
+Succeeded.
+</pre>
+<h3>Create the Data Guard Broker configuration</h3>
+<pre>
+DGMGRL&gt; create configuration CDB as primary database is CDB1 connect identifier is CDB1;
+Configuration "cdb" created with primary database "cdb1"
+DGMGRL&gt;  add database CDB0 as  connect identifier is CDB0;
+Database "cdb0" added
+DGMGRL&gt; show configuration;
+
+Configuration - cdb
+
+Protection Mode: MaxPerformance
+Members:
+cdb1 - Primary database
+cdb0 - Physical standby database
+
+Fast-Start Failover: DISABLED
+
+Configuration Status:
+DISABLED
+
+DGMGRL&gt;
+</pre>
+<p>Enable the configuration with:</p>
+<pre>
+DGMGRL&gt; enable configuration;
+Enabled.
+DGMGRL&gt;
+</pre>
+<p>Primary instance alert logs says:</p>
+<pre>
+Mon Dec 29 21:39:33 2014
+RSM0 started with pid=36, OS id=6478
+Mon Dec 29 21:39:37 2014
+Using STANDBY_ARCHIVE_DEST parameter default value as USE_DB_RECOVERY_FILE_DEST
+Mon Dec 29 21:39:37 2014
+ALTER SYSTEM SET log_archive_dest_2='service="cdb0"','ASYNC NOAFFIRM delay=0 optional compression=disable max_failure=0 max_connections=1 reopen=300 db_unique_name="cdb0" net_timeout=30','valid_for=(online_logfile,all_roles)' SCOPE=BOTH;
+Mon Dec 29 21:39:37 2014
+******************************************************************
+TT01: Setting 'active' archival for destination LOG_ARCHIVE_DEST_2
+Mon Dec 29 21:39:37 2014
+ALTER SYSTEM SET log_archive_dest_state_2='ENABLE' SCOPE=BOTH;
+******************************************************************
+Mon Dec 29 21:39:37 2014
+Using STANDBY_ARCHIVE_DEST parameter default value as USE_DB_RECOVERY_FILE_DEST
+Mon Dec 29 21:39:37 2014
+ALTER SYSTEM SET log_archive_dest_1='location=USE_DB_RECOVERY_FILE_DEST','valid_for=(ALL_LOGFILES, ALL_ROLES)' SCOPE=BOTH;
+Mon Dec 29 21:39:38 2014
+ALTER SYSTEM SET log_archive_trace=0 SCOPE=BOTH SID='CDB1';
+Mon Dec 29 21:39:38 2014
+ALTER SYSTEM SET log_archive_format='%t_%s_%r.dbf' SCOPE=SPFILE SID='CDB1';
+Mon Dec 29 21:39:38 2014
+ALTER SYSTEM SET standby_file_management='AUTO' SCOPE=BOTH SID='*';
+Mon Dec 29 21:39:38 2014
+ALTER SYSTEM SET archive_lag_target=0 SCOPE=BOTH SID='*';
+Mon Dec 29 21:39:38 2014
+ALTER SYSTEM SET log_archive_max_processes=4 SCOPE=BOTH SID='*';
+Mon Dec 29 21:39:38 2014
+ALTER SYSTEM SET log_archive_min_succeed_dest=1 SCOPE=BOTH SID='*';
+Mon Dec 29 21:39:38 2014
+TT01: Standby redo logfile selected for thread 1 sequence 16 for destination LOG_ARCHIVE_DEST_2
+Mon Dec 29 21:39:40 2014
+LGWR: Failed to archive log 2 thread 1 sequence 16 (3113)
+Mon Dec 29 21:39:42 2014
+Thread 1 advanced to log sequence 17 (LGWR switch)
+Current log# 3 seq# 17 mem# 0: +DATA/CDB1/ONLINELOG/group_3.260.867163077
+Current log# 3 seq# 17 mem# 1: +FRA/CDB1/ONLINELOG/group_3.262.867163079
+Mon Dec 29 21:39:45 2014
+******************************************************************
+TT01: Setting 'active' archival for destination LOG_ARCHIVE_DEST_2
+******************************************************************
+Mon Dec 29 21:39:45 2014
+Archived Log entry 13 added for thread 1 sequence 16 ID 0x35159442 dest 1:
+Mon Dec 29 21:39:48 2014
+TT01: Standby redo logfile selected for thread 1 sequence 17 for destination LOG_ARCHIVE_DEST_2
+</pre>
+<p>Standby alert log says:</p>
+<pre>
+Mon Dec 29 21:39:28 2014
+NSV0 started with pid=30, OS id=6753
+Starting background process RSM0
+Mon Dec 29 21:39:33 2014
+RSM0 started with pid=37, OS id=6759
+Mon Dec 29 21:39:37 2014
+Using STANDBY_ARCHIVE_DEST parameter default value as USE_DB_RECOVERY_FILE_DEST
+Mon Dec 29 21:39:37 2014
+ALTER SYSTEM SET log_archive_dest_1='location=USE_DB_RECOVERY_FILE_DEST','valid_for=(ALL_LOGFILES, ALL_ROLES)' SCOPE=BOTH;
+Mon Dec 29 21:39:37 2014
+ALTER SYSTEM SET log_archive_trace=0 SCOPE=BOTH SID='CDB0';
+Mon Dec 29 21:39:37 2014
+ALTER SYSTEM SET log_archive_format='%t_%s_%r.dbf' SCOPE=SPFILE SID='CDB0';
+Mon Dec 29 21:39:37 2014
+ALTER SYSTEM SET standby_file_management='AUTO' SCOPE=BOTH SID='*';
+Mon Dec 29 21:39:37 2014
+ALTER SYSTEM SET archive_lag_target=0 SCOPE=BOTH SID='*';
+Mon Dec 29 21:39:37 2014
+Network Resource Management enabled for Process  (pid 6763) for Exadata I/O
+Primary database is in MAXIMUM PERFORMANCE mode
+Mon Dec 29 21:39:38 2014
+ALTER SYSTEM SET log_archive_max_processes=4 SCOPE=BOTH SID='*';
+Mon Dec 29 21:39:38 2014
+ALTER SYSTEM SET log_archive_min_succeed_dest=1 SCOPE=BOTH SID='*';
+Mon Dec 29 21:39:38 2014
+ALTER SYSTEM SET fal_server='cdb1' SCOPE=BOTH;
+RFS[1]: Assigned to RFS process (PID:6763)
+RFS[1]: Selected log 4 for thread 1 sequence 16 dbid 890600873 branch 867160237
+Mon Dec 29 21:39:46 2014
+Network Resource Management enabled for Process  (pid 6795) for Exadata I/O
+Primary database is in MAXIMUM PERFORMANCE mode
+Re-archiving standby log 4 thread 1 sequence 16
+Mon Dec 29 21:39:47 2014
+Archived Log entry 12 added for thread 1 sequence 16 ID 0x35159442 dest 1:
+RFS[2]: Assigned to RFS process (PID:6795)
+Mon Dec 29 21:39:47 2014
+Media Recovery Waiting for thread 1 sequence 17 (in transit)
+Mon Dec 29 21:39:47 2014
+RFS[2]: Selected log 4 for thread 1 sequence 17 dbid 890600873 branch 867160237
+Mon Dec 29 21:39:49 2014
+Recovery of Online Redo Log: Thread 1 Group 4 Seq 17 Reading mem 0
+Mem# 0: +FRA/CDB0/ONLINELOG/group_4.266.867161821
+</pre>
+<h3>Check the Data Guard Broker configuration</h3>
+<pre>
+DGMGRL&gt; show configuration;
+
+Configuration - cdb
+
+Protection Mode: MaxPerformance
+Members:
+cdb1 - Primary database
+cdb0 - Physical standby database
+
+Fast-Start Failover: DISABLED
+
+Configuration Status:
+SUCCESS   (status updated 32 seconds ago)
+
+DGMGRL&gt;
+
+DGMGRL&gt; show database cdb1;
+
+Database - cdb1
+
+Role:               PRIMARY
+Intended State:     TRANSPORT-ON
+Instance(s):
+CDB1
+
+Database Status:
+SUCCESS
+
+DGMGRL&gt; show database cdb0;
+
+Database - cdb0
+
+Role:               PHYSICAL STANDBY
+Intended State:     APPLY-ON
+Transport Lag:      0 seconds (computed 0 seconds ago)
+Apply Lag:          0 seconds (computed 0 seconds ago)
+Average Apply Rate: 0 Byte/s
+Real Time Query:    OFF
+Instance(s):
+CDB0
+
+Database Status:
+SUCCESS
+
+DGMGRL&gt;
+</pre>
+<p>Note that SHOW CONFIGURATION reports the time when status has been updated, SHOW DATABASE reports also when transport lag and apply lag have been computed and that SHOW DATABASE also reports the average apply rate.<br />
+</p>
+<h3>Prepare the switchover</h3>
+<p>The new 12c VALIDATE DATABASE command allows to check switchover possibility. Run for standby database:</p>
+<pre>
+DGMGRL&gt; validate database cdb0;
+
+Database Role:     Physical standby database
+Primary Database:  cdb1
+
+Ready for Switchover:  Yes
+Ready for Failover:    Yes (Primary Running)
+
+Flashback Database Status:
+cdb1:  Off
+cdb0:  Off
+
+Current Log File Groups Configuration:
+Thread #  Online Redo Log Groups  Standby Redo Log Groups Status
+(cdb1)                  (cdb0)
+1         3                       2                       Insufficient SRLs
+
+Future Log File Groups Configuration:
+Thread #  Online Redo Log Groups  Standby Redo Log Groups Status
+(cdb0)                  (cdb1)
+1         3                       2                       Insufficient SRLs
+</pre>
+<p>Standby alert log says:</p>
+<pre>
+Mon Dec 29 21:44:17 2014
+SWITCHOVER VERIFY BEGIN
+SWITCHOVER VERIFY WARNING: no standby database is defined in LOG_ARCHIVE_DEST_n to protect this database if it is converted to a primary database
+SWITCHOVER VERIFY COMPLETE
+</pre>
+<p>Note that the broker reports an insufficient number of standby redo log (SRL) groups. But this is wrong because standby has 3 onlinre redo log groups and 4 SRLs groups:</p>
+<pre>
+SYS@CDB0&gt;select group# from v$log;
+
+GROUP#
+----------
+1
+2
+3
+
+SYS@CDB0&gt;select group# from v$standby_log;
+
+GROUP#
+----------
+4
+5
+6
+7
+</pre>
+<p>Run for primary database:</p>
+<pre>
+DGMGRL&gt; validate database cdb1;
+
+Database Role:    Primary database
+
+Ready for Switchover:  Yes
+
+Flashback Database Status:
+cdb1:  Off
+
+DGMGRL&gt;
+</pre>
+<p>Primary alert log says:</p>
+<pre>
+Mon Dec 29 21:44:18 2014
+SWITCHOVER VERIFY: Send VERIFY request to switchover target cdb0
+SWITCHOVER VERIFY COMPLETE
+SWITCHOVER VERIFY WARNING: switchover target has no standby database defined in LOG_ARCHIVE_DEST_n parameter. If the switchover target is converted to a primary database, the new primary database will not be protected.
+Data Guard Broker: Switchover processing will set LOG_ARCHIVE_DEST_n parameter. Continuing switchover
+</pre>
+<h3>Switchover</h3>
+<p>You must connect with database account and database password to standby instance:</p>
+<pre>
+DGMGRL&gt; connect dga/dga@CDB0
+Connected as SYSDG.
+DGMGRL&gt;  switchover to cdb0;
+Performing switchover NOW, please wait...
+New primary database "cdb0" is opening...
+Oracle Clusterware is restarting database "cdb1" ...
+Switchover succeeded, new primary is "cdb0"
+DGMGRL&gt;
+</pre>
+<p>Former standby (new primary) alert log is <a href="http://pierreforstmanndotcom.wordpress.com/new_primary-3012-log">here</a>.<br />
+<br />
+Former primary (new standby) alert log is <a href="http://pierreforstmanndotcom.wordpress.com/new_standby-3012-log">here</a>.</p>
+<h3>Check Data Guard Broker configuration after switchover</h3>
+<pre>
+DGMGRL&gt; show configuration;
+
+Configuration - cdb
+
+Protection Mode: MaxPerformance
+Members:
+cdb0 - Primary database
+cdb1 - Physical standby database
+
+Fast-Start Failover: DISABLED
+
+Configuration Status:
+SUCCESS   (status updated 28 seconds ago)
+
+DGMGRL&gt; show database cdb0;
+
+Database - cdb0
+
+Role:               PRIMARY
+Intended State:     TRANSPORT-ON
+Instance(s):
+CDB0
+
+Database Status:
+SUCCESS
+
+DGMGRL&gt; show database cdb1;
+
+Database - cdb1
+
+Role:               PHYSICAL STANDBY
+Intended State:     APPLY-ON
+Transport Lag:      0 seconds (computed 1 second ago)
+Apply Lag:          0 seconds (computed 1 second ago)
+Average Apply Rate: 3.00 KByte/s
+Real Time Query:    OFF
+Instance(s):
+CDB1
+
+Database Status:
+SUCCESS
+
+DGMGRL&gt;
+</pre>
+<p>Another new 12c feature that has been used is that Oracle Restart (or RAC) does not require static Oracle Net aliases XXX_DGMGRL in listener.ora.<br />
+<br />
+On standby node:</p>
+<pre>
+$ lsnrctl status
+
+LSNRCTL for Linux: Version 12.1.0.2.0 - Production on 29-DEC-2014 22:15:39
+
+Copyright (c) 1991, 2014, Oracle.  All rights reserved.
+
+Connecting to (DESCRIPTION=(ADDRESS=(PROTOCOL=TCP)(HOST=ol6twsa1)(PORT=1521)))
+STATUS of the LISTENER
+------------------------
+Alias                     LISTENER
+Version                   TNSLSNR for Linux: Version 12.1.0.2.0 - Production
+Start Date                29-DEC-2014 18:45:44
+Uptime                    0 days 3 hr. 29 min. 55 sec
+Trace Level               off
+Security                  ON: Local OS Authentication
+SNMP                      OFF
+Listener Parameter File   /u01/app/12.1.0.2/grid/network/admin/listener.ora
+Listener Log File         /u01/app/oracle/diag/tnslsnr/ol6twsa1/listener/alert/log.xml
+Listening Endpoints Summary...
+(DESCRIPTION=(ADDRESS=(PROTOCOL=tcp)(HOST=ol6twsa1)(PORT=1521)))
+(DESCRIPTION=(ADDRESS=(PROTOCOL=ipc)(KEY=EXTPROC1521)))
+Services Summary...
+Service "+ASM" has 1 instance(s).
+Instance "+ASM", status READY, has 1 handler(s) for this service...
+Service "AUX" has 1 instance(s).
+Instance "CDB1", status UNKNOWN, has 1 handler(s) for this service...
+Service "CDB1" has 1 instance(s).
+Instance "CDB1", status READY, has 1 handler(s) for this service...
+Service "CDB1_DGB" has 1 instance(s).
+Instance "CDB1", status READY, has 1 handler(s) for this service...
+The command completed successfully
+$
+
+</pre>
+<p>On primary node:</p>
+<pre>
+$ lsnrctl status
+
+LSNRCTL for Linux: Version 12.1.0.2.0 - Production on 29-DEC-2014 22:18:07
+
+Copyright (c) 1991, 2014, Oracle.  All rights reserved.
+
+Connecting to (DESCRIPTION=(ADDRESS=(PROTOCOL=TCP)(HOST=ol6twsa0)(PORT=1521)))
+STATUS of the LISTENER
+------------------------
+Alias                     LISTENER
+Version                   TNSLSNR for Linux: Version 12.1.0.2.0 - Production
+Start Date                29-DEC-2014 18:45:39
+Uptime                    0 days 3 hr. 32 min. 28 sec
+Trace Level               off
+Security                  ON: Local OS Authentication
+SNMP                      OFF
+Listener Parameter File   /u01/app/12.1.0.2/grid/network/admin/listener.ora
+Listener Log File         /u01/app/oracle/diag/tnslsnr/ol6twsa0/listener/alert/log.xml
+Listening Endpoints Summary...
+(DESCRIPTION=(ADDRESS=(PROTOCOL=tcp)(HOST=ol6twsa0)(PORT=1521)))
+(DESCRIPTION=(ADDRESS=(PROTOCOL=ipc)(KEY=EXTPROC1521)))
+Services Summary...
+Service "+ASM" has 1 instance(s).
+Instance "+ASM", status READY, has 1 handler(s) for this service...
+Service "CDB0" has 1 instance(s).
+Instance "CDB0", status READY, has 1 handler(s) for this service...
+Service "CDB0XDB" has 1 instance(s).
+Instance "CDB0", status READY, has 1 handler(s) for this service...
+Service "CDB0_DGB" has 1 instance(s).
+Instance "CDB0", status READY, has 1 handler(s) for this service...
+The command completed successfully
+$
+
+</pre>
+<p>Note that XXX_DGB services are created automatically by the Data Guard Broker.</p>
