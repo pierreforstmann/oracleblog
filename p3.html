@@ -1,0 +1,293 @@
+<p>Here are the steps I have used to install Grid Infrastructure (GI) 12.1.0.1 on Oracle Linux 6.4 with VirtualBox 4.2.14.<br />
+<br />
+Note that this installation is using the same Unix group 'dba' for all ASM groups.</p>
+<p>Install the Oracle validated package:</p>
+<pre># yum install oracle-rdbms-server-11gR2-preinstall -y</pre>
+<p>Disable SElinux:</p>
+<pre>
+# grep SELINUX=d /etc/selinux/config
+SELINUX=disabled
+</pre>
+<p>Disable Linux firewall:</p>
+<pre>
+# chkconfig iptables off
+</pre>
+<p>Create 2 devices to be used as ASM disk (type "ENTER" to use default cylinders):</p>
+<pre>
+# fdisk /dev/sdb
+Device contains neither a valid DOS partition table, nor Sun, SGI or OSF disklabel
+Building a new DOS disklabel with disk identifier 0xec6cf016.
+Changes will remain in memory only, until you decide to write them.
+After that, of course, the previous content won't be recoverable.
+
+Warning: invalid flag 0x0000 of partition table 4 will be corrected by w(rite)
+
+WARNING: DOS-compatible mode is deprecated. It's strongly recommended to
+         switch off the mode (command 'c') and change display units to
+         sectors (command 'u').
+
+Command (m for help): n
+Command action
+   e   extended
+   p   primary partition (1-4)
+p
+Partition number (1-4): 1
+First cylinder (1-1566, default 1):
+Using default value 1
+Last cylinder, +cylinders or +size{K,M,G} (1-1566, default 1566):
+Using default value 1566
+
+Command (m for help): w
+The partition table has been altered!
+
+Calling ioctl() to re-read partition table.
+Syncing disks.
+#
+# fdisk /dev/sdc
+Device contains neither a valid DOS partition table, nor Sun, SGI or OSF disklabel
+Building a new DOS disklabel with disk identifier 0xe24ea105.
+Changes will remain in memory only, until you decide to write them.
+After that, of course, the previous content won't be recoverable.
+
+Warning: invalid flag 0x0000 of partition table 4 will be corrected by w(rite)
+
+WARNING: DOS-compatible mode is deprecated. It's strongly recommended to
+         switch off the mode (command 'c') and change display units to
+         sectors (command 'u').
+
+Command (m for help): n
+Command action
+   e   extended
+   p   primary partition (1-4)
+p
+Partition number (1-4): 1
+First cylinder (1-1566, default 1):
+Using default value 1
+Last cylinder, +cylinders or +size{K,M,G} (1-1566, default 1566):
+Using default value 1566
+
+Command (m for help): w
+The partition table has been altered!
+
+Calling ioctl() to re-read partition table.
+Syncing disks.
+</pre>
+<p>Get SCSI identifiers for the 2 devices:</p>
+<pre>
+/sbin/scsi_id -g -u -d /dev/sdb
+1ATA_VBOX_HARDDISK_VB545a5f17-d360ce2b
+# /sbin/scsi_id -g -u -d /dev/sdc
+1ATA_VBOX_HARDDISK_VB323e1bda-b8cea21c
+#
+</pre>
+<p>Create UDEV script to have persitent device names:</p>
+<pre>
+# pwd
+/etc/udev/rules.d
+# cat 99-oracle-asmdevices.rules
+KERNEL=="sd?1", BUS=="scsi", PROGRAM=="/sbin/scsi_id -g -u -d /dev/$parent", RESULT=="1ATA_VBOX_HARDDISK_VB545a5f17-d360ce2b", NAME="asm-disk1", OWNER="oracle", GROUP="dba", MODE="0660"
+KERNEL=="sd?1", BUS=="scsi", PROGRAM=="/sbin/scsi_id -g -u -d /dev/$parent", RESULT=="1ATA_VBOX_HARDDISK_VB323e1bda-b8cea21c", NAME="asm-disk2", OWNER="oracle", GROUP="dba", MODE="0660"
+#
+</pre>
+<p>Reboot Linux node and check that you have expected persitent device names:</p>
+<pre>
+# ls -al /dev/asm*
+brw-rw---- 1 oracle dba 8, 17 Jun 28 14:21 /dev/asm-disk1
+brw-rw---- 1 oracle dba 8, 33 Jun 28 14:21 /dev/asm-disk2
+#
+</pre>
+<p>Add node name in /etc/hosts:</p>
+<pre>
+192.168.56.71 ol6twsa ol6twsa.localdomain
+</pre>
+<p>Create the target directories:</p>
+<pre>
+# mkdir -p /u01/app/12.1.0/grid
+# mkdir -p /u01/app/grid
+# mkdir -p /u01/app/oracle
+# chown -R oracle:oinstall /u01
+# chmod -R 775 /u01
+</pre>
+<p>Unzip installation media in /tmp:</p>
+<pre>
+$ unzip linuxamd64_12c_grid_1of2.zip 
+$ unzip linuxamd64_12c_grid_2of2.zip  
+</pre>
+<p>Install GI with:</p>
+<pre>
+cd /tmp/grid
+export DISTRIB=`pwd`
+./runInstaller -silent -responseFile $DISTRIB/response/grid_install.rsp \
+INVENTORY_LOCATION=/u01/app/oracle/oraInventory \
+SELECTED_LANGUAGES=en \
+ORACLE_BASE=/u01/app/oracle \
+ORACLE_HOME=/u01/app/12.1.0/grid \
+oracle.install.option=HA_CONFIG \
+oracle.install.asm.OSDBA=dba \
+oracle.install.asm.OSOPER=dba \
+oracle.install.asm.OSASM=dba \
+oracle.install.crs.config.autoConfigureClusterNodeVIP=false \
+oracle.install.asm.diskGroup.name=DATA \
+oracle.install.asm.diskGroup.redundancy=EXTERNAL \
+oracle.install.asm.diskGroup.diskDiscoveryString=/dev/asm* \
+oracle.install.asm.diskGroup.disks=/dev/asm-disk1 \
+oracle.install.asm.SYSASMPassword=oracle12c \
+oracle.install.asm.monitorPassword=oracle12c
+</pre>
+<p>Following warnings can be ignored:</p>
+<pre>
+INFO: WARNING: [WARNING] [INS-30011] The SYS password entered does not conform to the Oracle recommended standards.
+INFO: WARNING: [WARNING] [INS-30011] The ASMSNMP password entered does not conform to the Oracle recommended standards.
+INFO: WARNING: [WARNING] [INS-41808] Possible invalid choice for OSASM Group.
+INFO: WARNING: [WARNING] [INS-41809] Possible invalid choice for OSDBA Group.
+INFO: WARNING: [WARNING] [INS-41810] Possible invalid choice for OSOPER Group.
+INFO: WARNING: [WARNING] [INS-41813] OSDBA for ASM, OSOPER for ASM, and OSASM are the same OS group.
+INFO: WARNING: [WARNING] [INS-32018] The selected Oracle home is outside of Oracle base.
+INFO: WARNING: [WARNING] [INS-32055] The Central Inventory is located in the Oracle base.
+INFO: WARNING: [WARNING] [INS-13014] Target environment does not meet some optional requirements.
+</pre>
+<p>Note that runInstaller has started in background and wait until you get something like:</p>
+<pre>
+The installation of Oracle Grid Infrastructure 12c was successful.
+Please check '/u01/app/oracle/oraInventory/logs/silentInstallXXX.log' for more details.
+
+As a root user, execute the following script(s):
+        1. /u01/app/oracle/oraInventory/orainstRoot.sh
+        2. /u01/app/12.1.0/grid/root.sh
+
+
+Successfully Setup Software.
+As install user, execute the following script to complete the configuration.
+        1. /u01/app/12.1.0/grid/cfgtoollogs/configToolAllCommands RESPONSE_FILE=
+
+        Note:
+        1. This script must be run on the same host from where installer was run.
+        2. This script needs a small password properties file for configuration assistants that require passwords (refer to install guide documentation).
+</pre>
+<p>Run following scripts with root:</p>
+<pre>
+# /u01/app/oracle/oraInventory/orainstRoot.sh
+# /u01/app/12.1.0/grid/root.sh
+</pre>
+<p>Check that root.sh logfile ends with:</p>
+<pre>
+CLSRSC-327: Successfully configured Oracle Grid Infrastructure for a Standalone Server
+</pre>
+<p>Despiste what root.sh says Grid Insfrastructure status is not fully installed:</p>
+<pre>
+$ /u01/app/12.1.0/grid/bin/crsctl check has
+CRS-4638: Oracle High Availability Services is online
+$  /u01/app/12.1.0/grid/bin/crsctl stat res -t
+--------------------------------------------------------------------------------
+Name           Target  State        Server                   State details
+--------------------------------------------------------------------------------
+Local Resources
+--------------------------------------------------------------------------------
+ora.ons
+               OFFLINE OFFLINE      ol6twsa                  STABLE
+--------------------------------------------------------------------------------
+Cluster Resources
+--------------------------------------------------------------------------------
+ora.cssd
+      1        OFFLINE OFFLINE                               STABLE
+ora.diskmon
+      1        OFFLINE OFFLINE                               STABLE
+ora.evmd
+      1        ONLINE  ONLINE       ol6twsa                  STABLE
+--------------------------------------------------------------------------------
+$
+</pre>
+<p>The last configuration step will complete the installation.<br />
+<br />
+First you need to create a small configuration named <b>cfgrsp.properties</b> file containing 2 ASM passwords given as parameters to runInstaller:</p>
+<pre>
+oracle.assistants.asm|S_ASMPASSWORD=oracle12c
+oracle.assistants.asm|S_ASMMONITORPASSWORD=oracle12c
+</pre>
+<p>Then you need to run configToolAllCommands with full path name for this configuration file:</p>
+<pre>
+/u01/app/12.1.0/grid/cfgtoollogs/configToolAllCommands RESPONSE_FILE=/home/oracle/scripts/cfgrsp.properties
+</pre>
+<p>The first configToolAllCommands log file has a lot of messages like:</p>
+<pre>
+INFO: Exceeded the number of arguments passed to stdin. CurrentCount:3 Total args:2
+</pre>
+<p>You should ignore these messages and check the other log file <b>/u01/app/12.1.0/grid/cfgtoollogs/oui/configActionsXXX.log</b> which must have following contents:</p>
+<pre>
+###################################################
+The action configuration is performing
+------------------------------------------------------
+The plug-in Update CRS flag in Inventory is running
+
+
+The plug-in Update CRS flag in Inventory has successfully been performed
+------------------------------------------------------
+------------------------------------------------------
+The plug-in Oracle Net Configuration Assistant is running
+
+
+The plug-in Oracle Net Configuration Assistant has successfully been performed
+------------------------------------------------------
+------------------------------------------------------
+The plug-in Automatic Storage Management Configuration Assistant is running
+
+
+The plug-in Automatic Storage Management Configuration Assistant has successfully been performed
+------------------------------------------------------
+------------------------------------------------------
+The plug-in Oracle Cluster Verification Utility is running
+
+
+Performing post-checks for Oracle Restart configuration
+
+Checking Oracle Restart integrity...
+
+Oracle Restart integrity check passed
+
+Checking OLR integrity...
+Check of existence of OLR configuration file "/etc/oracle/olr.loc" passed
+Check of attributes of OLR configuration file "/etc/oracle/olr.loc" passed
+
+WARNING:
+This check does not verify the integrity of the OLR contents. Execute 'ocrcheck -local' as a privileged user to verify the contents of OLR.
+
+OLR integrity check passed
+
+Post-check for Oracle Restart configuration was successful.
+
+The plug-in Oracle Cluster Verification Utility has successfully been performed
+------------------------------------------------------
+The action configuration has successfully completed
+###################################################
+</pre>
+<p>Now you can check that GI has been completely installed with:</p>
+<pre>
+$  /u01/app/12.1.0/grid/bin/crsctl stat res -t
+--------------------------------------------------------------------------------
+Name           Target  State        Server                   State details
+--------------------------------------------------------------------------------
+Local Resources
+--------------------------------------------------------------------------------
+ora.DATA.dg
+               ONLINE  ONLINE       ol6twsa                  STABLE
+ora.LISTENER.lsnr
+               ONLINE  ONLINE       ol6twsa                  STABLE
+ora.asm
+               ONLINE  ONLINE       ol6twsa                  Started,STABLE
+ora.ons
+               OFFLINE OFFLINE      ol6twsa                  STABLE
+--------------------------------------------------------------------------------
+Cluster Resources
+--------------------------------------------------------------------------------
+ora.cssd
+      1        ONLINE  ONLINE       ol6twsa                  STABLE
+ora.diskmon
+      1        OFFLINE OFFLINE                               STABLE
+ora.evmd
+      1        ONLINE  ONLINE       ol6twsa                  STABLE
+--------------------------------------------------------------------------------
+[oracle@ol6twsa ~]$
+</pre>
+<p>This shows that ASM disk group has been created, that ASM instance is up and that the listener is also running.<br />
+(ora.ons and ora.diskmon OFFLINE status are expected).</p>
+<p>You can now install Oracle Database and create a database.</p>
