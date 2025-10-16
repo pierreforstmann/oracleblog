@@ -1,0 +1,13 @@
+<p>This is just a small blog post to take part to <a href="https://oracle-base.com/blog/2016/09/28/otn-appreciation-day/" />Tim Hall's OTN Appreciation Day</a>.</p>
+<p>My favourite Oracle Database feature is <a href="https://docs.oracle.com/database/121/TGSQL/tgsql_trace.htm#TGSQL792">SQL trace</a>: in my opinion it is still the most powerful tool to analyse Oracle database session activity because it is the most accurate way to get all details:</p>
+<li> which SQL statements have been executed
+</li>
+<li> what is the elapsed time of each SQL statement
+</li>
+<li> what is the SQL statement execution plan and the details of each execution plan steps (CPU time, logical reads, physical reads, physical writes, etc.).
+</li>
+<p>
+It simply allows to know what is <i><b>really</i></b> going on instead of guessing: this should so obvious but according to my experience it is still a problem in many IT shops<br />
+(partly because not all software stack are so well <a href="https://mwidlake.wordpress.com/2016/10/11/otn-appreciation-day-instrument-your-damned-code-please/" />instrumented</a> like Oracle kernel<br />
+and <a href="http://www.gokhanatil.com/2016/10/otn-appreciation-day-oracle-wait-interface.html">wait interface concepts</a> seems to me not widely used).</p>
+<p>Not convinced ? Please read <a href="https://www.amazon.com/Optimizing-Oracle-Performance-Cary-Millsap/dp/059600527X">Optimizing Oracle Performance</a> by Jeffrey Holt and Cary Milsap: Yes, this is 15 years old book ... Yes, it mainly deals with Oracle 8 ... BUT the basics have not fundamentally changed. Just read it: you won't waste your time and you will start to use SQL trace.</p>
