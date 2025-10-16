@@ -1,0 +1,654 @@
+<p>In this article I document Grid Infrastructure (GI) 12.2.0.1 silent installation for single instance database on Oracle Linux 7.</p>
+<p>I have used <a href="http://docs.oracle.com/database/122/CWLIN/toc.htm"> GI Installation and Upgrade Guide</a>.</p>
+<p>The configuration for this blog post is using a VirtualBox virtual machine (VM) named <b>ol7ttsa0</b> that has 5 virtual disks (2 20 Gb disks for Linux and Oracle Database software, 1 5 GB disk for swap and 2 additional disks for ASM). VM is running Oracle Linux 7.3 with a minimal installation and has 4 GB of RAM and 5 GB of swap.</p>
+<h3> Network configuration </h3>
+<p>VM has 2 network interfaces: one NAT for internet access (10.0.2.15) and one for public IP address:</p>
+<pre>
+# ip addr
+1: lo:  mtu 65536 qdisc noqueue state UNKNOWN 
+    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00
+    inet 127.0.0.1/8 scope host lo
+       valid_lft forever preferred_lft forever
+    inet6 ::1/128 scope host 
+       valid_lft forever preferred_lft forever
+2: enp0s3:  mtu 1500 qdisc pfifo_fast state UP qlen 1000
+    link/ether 08:00:27:94:20:b8 brd ff:ff:ff:ff:ff:ff
+    inet 10.0.2.15/8 brd 10.255.255.255 scope global enp0s3
+       valid_lft forever preferred_lft forever
+    inet6 fe80::643d:dc69:15dc:4287/64 scope link 
+       valid_lft forever preferred_lft forever
+3: enp0s8:  mtu 1500 qdisc pfifo_fast state UP qlen 1000
+    link/ether 08:00:27:a6:c4:20 brd ff:ff:ff:ff:ff:ff
+    inet 192.168.56.30/24 brd 192.168.56.255 scope global enp0s8
+       valid_lft forever preferred_lft forever
+    inet6 fe80::21f6:6932:93d6:6194/64 scope link 
+       valid_lft forever preferred_lft forever
+</pre>
+<h3> Storage configuration </h3>
+<p>I have created 2 virtual disks for ASM on host system with:</p>
+<pre>
+vboxmanage controlvm ol7ttsa0 poweroff
+vboxmanage storagectl ol7ttsa0 --name SATA --portcount 4
+vboxmanage createhd --filename /mnt/hitachi/vm/ol7ttsa0.sata.1.vdi --size=40960 --format=VDI --variant=fixe
+vboxmanage createhd --filename /mnt/hitachi/vm/ol7ttsa0.sata.2.vdi --size=12040 --format=VDI --variant=fixe
+vboxmanage storageattach ol7ttsa0 --storagectl SATA --port 1 --type hdd --medium /mnt/hitachi/vm/ol7ttsa0.sata.1.vdi
+vboxmanage storageattach ol7ttsa0 --storagectl SATA --port 2 --type hdd --medium /mnt/hitachi/vm/ol7ttsa0.sata.2.vdi
+vboxmanage startvm ol7ttsa0
+</pre>
+<p>For this VM I have chosen to use Linux udev instead of ASMlib or ASMFD to manage disks that will be ASM disks.</p>
+<p>I have created a single primary partition with fdisk for ASM disks:</p>
+<pre>
+# fdisk /dev/sdb
+Welcome to fdisk (util-linux 2.23.2).
+
+Changes will remain in memory only, until you decide to write them.
+Be careful before using the write command.
+
+Device does not contain a recognized partition table
+Building a new DOS disklabel with disk identifier 0x1871a908.
+
+Command (m for help): n
+Partition type:
+   p   primary (0 primary, 0 extended, 4 free)
+   e   extended
+Select (default p): p
+Partition number (1-4, default 1): 1
+First sector (2048-83886079, default 2048): 
+Using default value 2048
+Last sector, +sectors or +size{K,M,G} (2048-83886079, default 83886079): 
+Using default value 83886079
+Partition 1 of type Linux and of size 40 GiB is set
+
+Command (m for help): w
+The partition table has been altered!
+
+Calling ioctl() to re-read partition table.
+Syncing disks.
+# fdisk /dev/sdc
+Welcome to fdisk (util-linux 2.23.2).
+
+Changes will remain in memory only, until you decide to write them.
+Be careful before using the write command.
+
+Device does not contain a recognized partition table
+Building a new DOS disklabel with disk identifier 0x6f6a5b08.
+
+Command (m for help): n
+Partition type:
+   p   primary (0 primary, 0 extended, 4 free)
+   e   extended
+Select (default p): p
+Partition number (1-4, default 1): 1
+First sector (2048-24657919, default 2048): 
+Using default value 2048
+Last sector, +sectors or +size{K,M,G} (2048-24657919, default 24657919): 
+Using default value 24657919
+Partition 1 of type Linux and of size 11.8 GiB is set
+
+Command (m for help): w
+The partition table has been altered!
+
+Calling ioctl() to re-read partition table.
+Syncing disks.
+</pre>
+<p>I have used scsi_id to get SCSI disks identifiers:</p>
+<pre>
+# /lib/udev/scsi_id -g -u -d /dev/sdb
+1ATA_VBOX_HARDDISK_VB7e134365-a12c92b9
+# /lib/udev/scsi_id -g -u -d /dev/sdc
+1ATA_VBOX_HARDDISK_VB66b746fc-f74640b1
+</pre>
+<p>I have created <b>/etc/udev/rules.d/99-oracle-asmdevices.rules</b> configuration file to have persistent disk names <b>/dev/asm-disk1</b> and <b>/dev/asm-disk2</b>:</p>
+<pre>
+KERNEL=="sd?1", SUBSYSTEM=="block", PROGRAM=="/lib/udev/scsi_id -g -u -d /dev/$parent", RESULT=="1ATA_VBOX_HARDDISK_VB7e134365-a12c92b9", SYMLINK+="asm-disk1", OWNER="oracle", GROUP="dba", MODE="0660"
+KERNEL=="sd?1", SUBSYSTEM=="block", PROGRAM=="/lib/udev/scsi_id -g -u -d /dev/$parent", RESULT=="1ATA_VBOX_HARDDISK_VB66b746fc-f74640b1", SYMLINK+="asm-disk2", OWNER="oracle", GROUP="dba", MODE="0660"
+</pre>
+<p>I have rebooted Oracle Linux VM and checked that udev has created the right devices:</p>
+<pre>
+# ls -al /dev/asm-disk1
+lrwxrwxrwx. 1 root root 4 Mar  4 13:57 /dev/asm-disk1 -&gt; sdb1
+# ls -al /dev/asm-disk2
+lrwxrwxrwx. 1 root root 4 Mar  4 13:57 /dev/asm-disk2 -&gt; sdc1
+# 
+</pre>
+<h3> Operating system configuration </h3>
+<p>I have installed Oracle Database preinstallation RPM as root:</p>
+<pre>
+# yum -y install  oracle-database-server-12cR2-preinstall
+</pre>
+<p>I have changed ownership of ASM disk devices:</p>
+<pre>
+# chown oracle:dba /dev/sdb1
+# chown oracle:dba /dev/sdc1
+</pre>
+<h3> Grid Infrastructure binaries installation </h3>
+<p>GI is delivered as a zip file that must be copied to target directory: Oracle Universal Installer is no more used to install GI.<br />
+<br />
+I have first created the 3 target directories for Oracle GI Home, Oracle Inventory and Oracle Base:</p>
+<pre>
+# mkdir -p /u01/gi12201
+# mkdir /u01/orainv
+# mkdir /u01/oracle
+# chown -R oracle:dba /u01
+</pre>
+<p>I have connected as oracle user and I have unzipped GI media into <b>/u01/gi12201</b>:</p>
+<pre>
+$ cd /u01/gi12201
+$ unzip -q /tmp/linuxx64_12201_grid_home.zip
+$ du -sg /u01/gi12201
+7.0G	/u01/gi12201
+</pre>
+<p>I have created <a href="https://pierreforstmanndotcom.wordpress.com/gi-si-12201-rsp/" />a GI response file </a>for gridSetup.sh (using <b>/u01/gi12201/install/response/gridsetup.rsp</b> as template):</p>
+<pre>
+$ diff gi.rsp gridsetup.rsp 
+60c60
+ INVENTORY_LOCATION=
+74c74
+ oracle.install.option=
+79c79
+ ORACLE_BASE=
+95c95
+ oracle.install.asm.OSDBA=
+108c108
+ oracle.install.asm.OSASM=
+311c311
+ oracle.install.asm.storageOption=
+340c340
+ oracle.install.asm.SYSASMPassword=
+348c348
+ oracle.install.asm.diskGroup.name=
+360c360
+ oracle.install.asm.diskGroup.redundancy=
+407c407
+ oracle.install.asm.diskGroup.disks=
+426c426
+ oracle.install.asm.diskGroup.diskDiscoveryString=
+432c432
+ oracle.install.asm.monitorPassword=
+</pre>
+<p>I have run gridSetup.sh in silent mode:</p>
+<pre>
+$ /u01/gi12201/gridSetup.sh -silent -responseFile /home/oracle/scripts/gi.rsp 
+Launching Oracle Grid Infrastructure Setup Wizard...
+
+[WARNING] [INS-30011] The SYS password entered does not conform to the Oracle recommended standards.
+   CAUSE: Oracle recommends that the password entered should be at least 8 characters in length, contain at least 1 uppercase character, 1 lower case character and 1 digit [0-9].
+   ACTION: Provide a password that conforms to the Oracle recommended standards.
+[WARNING] [INS-30011] The ASMSNMP password entered does not conform to the Oracle recommended standards.
+   CAUSE: Oracle recommends that the password entered should be at least 8 characters in length, contain at least 1 uppercase character, 1 lower case character and 1 digit [0-9].
+   ACTION: Provide a password that conforms to the Oracle recommended standards.
+[WARNING] [INS-41808] Possible invalid choice for OSASM Group.
+   CAUSE: The name of the group you selected for the OSASM group is commonly used to grant other system privileges (For example: asmdba, asmoper, dba, oper).
+   ACTION: Oracle recommends that you designate asmadmin as the OSASM group.
+[WARNING] [INS-41809] Possible invalid choice for OSDBA Group.
+   CAUSE: The group name you selected as the OSDBA for ASM group is commonly used for Oracle Database administrator privileges.
+   ACTION: Oracle recommends that you designate asmdba as the OSDBA for ASM group, and that the group should not be the same group as an Oracle Database OSDBA group.
+[WARNING] [INS-41812] OSDBA and OSASM are the same OS group.
+   CAUSE: The chosen values for OSDBA group and the chosen value for OSASM group are the same.
+   ACTION: Select an OS group that is unique for ASM administrators. The OSASM group should not be the same as the OS groups that grant privileges for Oracle ASM access, or for database administration.
+[WARNING] [INS-32018] The selected Oracle home is outside of Oracle base.
+   ACTION: Oracle recommends installing Oracle software within the Oracle base directory. Adjust the Oracle home or Oracle base accordingly.
+[WARNING] [INS-32020] Installer has detected that the available disk space on the volume for the specified Oracle base location (/u01/base) is less than the recommended value.
+   ACTION: It is recommended that the volume for the Oracle base have at least 10,240MB of available disk space. Choose a location that has sufficient available disk space or free up space on the existing volume.
+[WARNING] [INS-30100] Insufficient disk space on the selected location (/u01/gi12201).
+   CAUSE: Specified location is on a volume without enough disk space on nodes: [ol7ttsa0].
+   ACTION: Choose a location that has enough space (minimum of 7,065MB) or free up space on the existing volume.
+[WARNING] [INS-13014] Target environment does not meet some optional requirements.
+   CAUSE: Some of the optional prerequisites are not met. See logs for details. gridSetupActions2017-03-02_08-06-09PM.log
+   ACTION: Identify the list of failed prerequisite checks from the log: gridSetupActions2017-03-02_08-06-09PM.log. Then either from the log file or from installation manual find the appropriate configuration to meet the prerequisites and fix it manually.
+You can find the log of this install session at:
+ /tmp/GridSetupActions2017-03-02_08-06-09PM/gridSetupActions2017-03-02_08-06-09PM.log
+
+As a root user, execute the following script(s):
+	1. /u01/orainv/orainstRoot.sh
+	2. /u01/gi12201/root.sh
+
+Execute /u01/gi12201/root.sh on the following nodes: 
+[ol7ttsa0]
+
+
+
+Successfully Setup Software.
+As install user, execute the following command to complete the configuration.
+	/u01/gi12201/gridSetup.sh -executeConfigTools -responseFile /home/oracle/scripts/gi.rsp [-silent]
+
+
+Moved the install session logs to:
+ /u01/orainv/logs/GridSetupActions2017-03-02_08-06-09PM
+</pre>
+<p>I have ignored all warnings and run the following scripts with root account:</p>
+<pre>
+# /u01/orainv/orainstRoot.sh
+Changing permissions of /u01/orainv.
+Adding read,write permissions for group.
+Removing read,write,execute permissions for world.
+
+Changing groupname of /u01/orainv to oinstall.
+The execution of the script is complete.
+# /u01/gi12201/root.sh
+Check /u01/gi12201/install/root_ol7ttsa0.localdomain_2017-03-02_20-08-08-581769723.log for the output of root script
+</pre>
+<p>I have checked root.sh output:</p>
+<pre>
+# cat /u01/gi12201/install/root_ol7ttsa0.localdomain_2017-03-02_20-08-08-581769723.log
+Performing root user operation.
+
+The following environment variables are set as:
+    ORACLE_OWNER= oracle
+    ORACLE_HOME=  /u01/gi12201
+   Copying dbhome to /usr/local/bin ...
+   Copying oraenv to /usr/local/bin ...
+   Copying coraenv to /usr/local/bin ...
+
+
+Creating /etc/oratab file...
+Entries will be added to the /etc/oratab file as needed by
+Database Configuration Assistant when a database is created
+Finished running generic part of root script.
+Now product-specific root actions will be performed.
+Using configuration parameter file: /u01/gi12201/crs/install/crsconfig_params
+The log of current session can be found at:
+  /u01/base/crsdata/ol7ttsa0/crsconfig/roothas_2017-03-02_08-08-09PM.log
+2017/03/02 20:08:10 CLSRSC-363: User ignored prerequisites during installation
+LOCAL ADD MODE 
+Creating OCR keys for user 'oracle', privgrp 'oinstall'..
+Operation successful.
+LOCAL ONLY MODE 
+Successfully accumulated necessary OCR keys.
+Creating OCR keys for user 'root', privgrp 'root'..
+Operation successful.
+CRS-4664: Node ol7ttsa0 successfully pinned.
+2017/03/02 20:08:16 CLSRSC-330: Adding Clusterware entries to file 'oracle-ohasd.service'
+CRS-2791: Starting shutdown of Oracle High Availability Services-managed resources on 'ol7ttsa0'
+CRS-2673: Attempting to stop 'ora.evmd' on 'ol7ttsa0'
+CRS-2677: Stop of 'ora.evmd' on 'ol7ttsa0' succeeded
+CRS-2793: Shutdown of Oracle High Availability Services-managed resources on 'ol7ttsa0' has completed
+CRS-4133: Oracle High Availability Services has been stopped.
+CRS-4123: Oracle High Availability Services has been started.
+
+ol7ttsa0     2017/03/02 20:09:26     /u01/gi12201/cdata/ol7ttsa0/backup_20170302_200926.olr     0     
+2017/03/02 20:09:27 CLSRSC-327: Successfully configured Oracle Restart for a standalone server
+# 
+</pre>
+<p>I have switched to oracle account and run last configuration script in silent mode:</p>
+<pre>
+$ /u01/gi12201/gridSetup.sh -executeConfigTools -responseFile /home/oracle/scripts/gi.rsp -silent
+Launching Oracle Grid Infrastructure Setup Wizard...
+
+You can find the logs of this session at:
+/u01/orainv/logs/GridSetupActions2017-03-02_08-10-48PM
+
+Successfully Configured Software.
+</pre>
+<p>I have checked that GI stack is now up and running:</p>
+<pre>
+$ . oraenv
+ORACLE_SID = [oracle] ? +ASM
+The Oracle base has been set to /u01/base
+$ crsctl stat res -t
+--------------------------------------------------------------------------------
+Name           Target  State        Server                   State details       
+--------------------------------------------------------------------------------
+Local Resources
+--------------------------------------------------------------------------------
+ora.DATA.dg
+               ONLINE  ONLINE       ol7ttsa0                 STABLE
+ora.LISTENER.lsnr
+               ONLINE  ONLINE       ol7ttsa0                 STABLE
+ora.asm
+               ONLINE  ONLINE       ol7ttsa0                 Started,STABLE
+ora.ons
+               OFFLINE OFFLINE      ol7ttsa0                 STABLE
+--------------------------------------------------------------------------------
+Cluster Resources
+--------------------------------------------------------------------------------
+ora.cssd
+      1        ONLINE  ONLINE       ol7ttsa0                 STABLE
+ora.diskmon
+      1        OFFLINE OFFLINE                               STABLE
+ora.evmd
+      1        ONLINE  ONLINE       ol7ttsa0                 STABLE
+--------------------------------------------------------------------------------
+$ asmcmd lsdg
+State    Type    Rebal  Sector  Logical_Sector  Block       AU  Total_MB  Free_MB  Req_mir_free_MB  Usable_file_MB  Offline_disks  Voting_files  Name
+MOUNTED  EXTERN  N         512             512   4096  1048576     40959    40896                0           40896              0             N  DATA/
+</pre>
+<h3> Additional ASM disk creation </h3>
+<p>I have created a Fast Recovery Area (FRA) disk group named RECO with:</p>
+<pre> 
+$ sqlplus / as sysasm
+
+SQL*Plus: Release 12.2.0.1.0 Production on Thu Mar 2 20:14:07 2017
+
+Copyright (c) 1982, 2016, Oracle.  All rights reserved.
+
+
+Connected to:
+Oracle Database 12c Enterprise Edition Release 12.2.0.1.0 - 64bit Production
+
+SQL&gt; select instance_name, host_name from v$instance;
+
+INSTANCE_NAME
+----------------
+HOST_NAME
+----------------------------------------------------------------
++ASM
+ol7ttsa0.localdomain
+
+
+SQL&gt; create diskgroup RECO external redundancy disk '/dev/asm-disk2';
+
+Diskgroup created.
+
+SQL&gt; Disconnected from Oracle Database 12c Enterprise Edition Release 12.2.0.1.0 - 64bit Production
+$ asmcmd lsdg
+State    Type    Rebal  Sector  Logical_Sector  Block       AU  Total_MB  Free_MB  Req_mir_free_MB  Usable_file_MB  Offline_disks  Voting_files  Name
+MOUNTED  EXTERN  N         512             512   4096  1048576     40959    40896                0           40896              0             N  DATA/
+MOUNTED  EXTERN  N         512             512   4096  1048576     12039    11987                0           11987              0             N  RECO/
+$ crsctl stat res -t
+--------------------------------------------------------------------------------
+Name           Target  State        Server                   State details       
+--------------------------------------------------------------------------------
+Local Resources
+--------------------------------------------------------------------------------
+ora.DATA.dg
+               ONLINE  ONLINE       ol7ttsa0                 STABLE
+ora.LISTENER.lsnr
+               ONLINE  ONLINE       ol7ttsa0                 STABLE
+ora.RECO.dg
+               ONLINE  ONLINE       ol7ttsa0                 STABLE
+ora.asm
+               ONLINE  ONLINE       ol7ttsa0                 Started,STABLE
+ora.ons
+               OFFLINE OFFLINE      ol7ttsa0                 STABLE
+--------------------------------------------------------------------------------
+Cluster Resources
+--------------------------------------------------------------------------------
+ora.cssd
+      1        ONLINE  ONLINE       ol7ttsa0                 STABLE
+ora.diskmon
+      1        OFFLINE OFFLINE                               STABLE
+ora.evmd
+      1        ONLINE  ONLINE       ol7ttsa0                 STABLE
+--------------------------------------------------------------------------------
+</pre>
+<h3> GI installation validation with database installation and creation </h3>
+<p>I have installed Oracle Database 12.2.0.1 in silent mode with following script and same steps like in <a href="https://pierreforstmanndotcom.wordpress.com/2017/03/01/oracle-database-12-2-0-1-silent-installation-and-database-creation-on-oracle-linux-7/">previous blog post</a>:</p>
+<pre>
+cd /stage/database
+export DISTRIB=`pwd`
+./runInstaller -silent \
+   -responseFile $DISTRIB/response/db_install.rsp      \
+   oracle.install.option=INSTALL_DB_SWONLY             \
+   UNIX_GROUP_NAME=oinstall                            \
+   INVENTORY_LOCATION=/u01/orainv                      \
+   SELECTED_LANGUAGES=en                               \
+   ORACLE_HOME=/u01/db12201                            \
+   ORACLE_BASE=/u01/oracle                             \
+   oracle.install.db.InstallEdition=EE                 \
+   oracle.install.db.isCustomInstall=false             \
+   oracle.install.db.OSDBA_GROUP=dba                   \
+   oracle.install.db.OSBACKUPDBA_GROUP=dba             \
+   oracle.install.db.OSDGDBA_GROUP=dba                 \
+   oracle.install.db.OSKMDBA_GROUP=dba                 \
+   oracle.install.db.OSRACDBA_GROUP=dba                \
+   SECURITY_UPDATES_VIA_MYORACLESUPPORT=false          \
+   DECLINE_SECURITY_UPDATES=true
+</pre>
+<p>I have created a single instance database container database with:</p>
+<pre>
+dbca -silent \
+-createDatabase \
+-templateName General_Purpose.dbc \
+-gdbName CDB \
+-sid CDB \
+-createAsContainerDatabase true \
+-numberOfPdbs 1 \
+-pdbName pdb \
+-pdbadminUsername pdba \
+-pdbadminPassword oracle12c \
+-SysPassword oracle12c \
+-SystemPassword oracle12c \
+-emConfiguration NONE \
+-storageType ASM \
+-datafileDestination +DATA \
+-recoveryAreaDestination +RECO \
+-recoveryAreaSize 4000  \
+-characterSet AL32UTF8 \
+-memoryPercentage 40 \
+-enableArchive true \
+-redoLogFileSize 100 
+</pre>
+<p>I have run this script:</p>
+<pre>
+$ ./cdb.sh
+[WARNING] [DBT-06801] Specified Fast Recovery Area size (4,000 MB) is less than the recommended value.
+   CAUSE: Fast Recovery Area size should at least be three times the database size (2,430 MB).
+   ACTION: Specify Fast Recovery Area Size to be at least three times the database size.
+[WARNING] [DBT-06208] The 'SYS' password entered does not conform to the Oracle recommended standards.
+   CAUSE: 
+a. Oracle recommends that the password entered should be at least 8 characters in length, contain at least 1 uppercase character, 1 lower case character and 1 digit [0-9].
+b.The password entered is a keyword that Oracle does not recommend to be used as password
+   ACTION: Specify a strong password. If required refer Oracle documentation for guidelines.
+[WARNING] [DBT-06208] The 'SYSTEM' password entered does not conform to the Oracle recommended standards.
+   CAUSE: 
+a. Oracle recommends that the password entered should be at least 8 characters in length, contain at least 1 uppercase character, 1 lower case character and 1 digit [0-9].
+b.The password entered is a keyword that Oracle does not recommend to be used as password
+   ACTION: Specify a strong password. If required refer Oracle documentation for guidelines.
+[WARNING] [DBT-06208] The 'PDBADMIN' password entered does not conform to the Oracle recommended standards.
+   CAUSE: 
+a. Oracle recommends that the password entered should be at least 8 characters in length, contain at least 1 uppercase character, 1 lower case character and 1 digit [0-9].
+b.The password entered is a keyword that Oracle does not recommend to be used as password
+   ACTION: Specify a strong password. If required refer Oracle documentation for guidelines.
+[WARNING] [DBT-06801] Specified Fast Recovery Area size (4,000 MB) is less than the recommended value.
+   CAUSE: Fast Recovery Area size should at least be three times the database size (3,271 MB).
+   ACTION: Specify Fast Recovery Area Size to be at least three times the database size.
+Registering database with Oracle Restart
+4% complete
+Copying database files
+5% complete
+17% complete
+28% complete
+Creating and starting Oracle instance
+29% complete
+32% complete
+33% complete
+34% complete
+37% complete
+40% complete
+41% complete
+42% complete
+44% complete
+Completing Database Creation
+45% complete
+46% complete
+48% complete
+51% complete
+52% complete
+Creating Pluggable Databases
+56% complete
+76% complete
+Executing Post Configuration Actions
+100% complete
+Look at the log file "/u01/base/cfgtoollogs/dbca/CDB/CDB.log" for further details.
+</pre>
+<p>I have ignored all warnings and checked the created database:</p>
+<pre>
+$ sqlplus / as sysdba
+
+SQL*Plus: Release 12.2.0.1.0 Production on Thu Mar 2 21:13:15 2017
+
+Copyright (c) 1982, 2016, Oracle.  All rights reserved.
+
+
+Connected to:
+Oracle Database 12c Enterprise Edition Release 12.2.0.1.0 - 64bit Production
+
+SQL&gt; select name, cdb, log_mode from v$database;
+
+NAME	  CDB LOG_MODE
+--------- --- ------------
+CDB	  YES ARCHIVELOG
+
+SQL&gt; select * from v$version;
+
+BANNER
+--------------------------------------------------------------------------------
+    CON_ID
+----------
+Oracle Database 12c Enterprise Edition Release 12.2.0.1.0 - 64bit Production
+	 0
+
+PL/SQL Release 12.2.0.1.0 - Production
+	 0
+
+CORE	12.2.0.1.0	Production
+	 0
+
+
+BANNER
+--------------------------------------------------------------------------------
+    CON_ID
+----------
+TNS for Linux: Version 12.2.0.1.0 - Production
+	 0
+
+NLSRTL Version 12.2.0.1.0 - Production
+	 0
+
+
+SQL&gt; show pdbs
+
+    CON_ID CON_NAME			  OPEN MODE  RESTRICTED
+---------- ------------------------------ ---------- ----------
+	 2 PDB$SEED			  READ ONLY  NO
+	 3 PDB				  READ WRITE NO
+SQL&gt; select name from v$datafile;
+
+NAME
+--------------------------------------------------------------------------------
++DATA/CDB/DATAFILE/system.257.937602319
++DATA/CDB/DATAFILE/sysaux.258.937602355
++DATA/CDB/DATAFILE/undotbs1.259.937602369
++DATA/CDB/4700A987085B3DFAE05387E5E50A8C7B/DATAFILE/system.267.937602429
++DATA/CDB/4700A987085B3DFAE05387E5E50A8C7B/DATAFILE/sysaux.266.937602429
++DATA/CDB/DATAFILE/users.260.937602371
++DATA/CDB/4700A987085B3DFAE05387E5E50A8C7B/DATAFILE/undotbs1.268.937602429
++DATA/CDB/49C60C5C16113F4EE0531E38A8C03989/DATAFILE/system.272.937602751
++DATA/CDB/49C60C5C16113F4EE0531E38A8C03989/DATAFILE/sysaux.273.937602751
++DATA/CDB/49C60C5C16113F4EE0531E38A8C03989/DATAFILE/undotbs1.271.937602751
++DATA/CDB/49C60C5C16113F4EE0531E38A8C03989/DATAFILE/users.275.937602759
+
+11 rows selected.
+
+SQL&gt; select name from v$controlfile;
+
+NAME
+--------------------------------------------------------------------------------
++DATA/CDB/CONTROLFILE/current.261.937602411
++RECO/CDB/CONTROLFILE/current.256.937602413
+
+SQL&gt; select member from v$logfile;
+
+MEMBER
+--------------------------------------------------------------------------------
++DATA/CDB/ONLINELOG/group_3.264.937602419
++RECO/CDB/ONLINELOG/group_3.259.937602421
++DATA/CDB/ONLINELOG/group_2.263.937602415
++RECO/CDB/ONLINELOG/group_2.257.937602417
++DATA/CDB/ONLINELOG/group_1.262.937602415
++RECO/CDB/ONLINELOG/group_1.258.937602417
+
+6 rows selected.
+
+SQL&gt; 
+</pre>
+<p>I have also checked GI Oracle Local Registry (OLR):</p>
+<pre>
+$ srvctl config database -d CDB
+Database unique name: CDB
+Database name: CDB
+Oracle home: /u01/db12201
+Oracle user: oracle
+Spfile: +DATA/CDB/PARAMETERFILE/spfile.270.937602621
+Password file: 
+Domain: 
+Start options: open
+Stop options: immediate
+Database role: PRIMARY
+Management policy: AUTOMATIC
+Disk Groups: RECO,DATA
+Services: 
+OSDBA group: 
+OSOPER group: 
+$ crsctl stat res -t
+--------------------------------------------------------------------------------
+Name           Target  State        Server                   State details       
+--------------------------------------------------------------------------------
+Local Resources
+--------------------------------------------------------------------------------
+ora.DATA.dg
+               ONLINE  ONLINE       ol7ttsa0                 STABLE
+ora.LISTENER.lsnr
+               ONLINE  ONLINE       ol7ttsa0                 STABLE
+ora.RECO.dg
+               ONLINE  ONLINE       ol7ttsa0                 STABLE
+ora.asm
+               ONLINE  ONLINE       ol7ttsa0                 Started,STABLE
+ora.ons
+               OFFLINE OFFLINE      ol7ttsa0                 STABLE
+--------------------------------------------------------------------------------
+Cluster Resources
+--------------------------------------------------------------------------------
+ora.cdb.db
+      1        ONLINE  ONLINE       ol7ttsa0                 Open,HOME=/u01/db122
+                                                             01,STABLE
+ora.cssd
+      1        ONLINE  ONLINE       ol7ttsa0                 STABLE
+ora.diskmon
+      1        OFFLINE OFFLINE                               STABLE
+ora.evmd
+      1        ONLINE  ONLINE       ol7ttsa0                 STABLE
+--------------------------------------------------------------------------------
+$ lsnrctl status
+
+LSNRCTL for Linux: Version 12.2.0.1.0 - Production on 02-MAR-2017 21:15:29
+
+Copyright (c) 1991, 2016, Oracle.  All rights reserved.
+
+Connecting to (DESCRIPTION=(ADDRESS=(PROTOCOL=TCP)(HOST=ol7ttsa0.localdomain)(PORT=1521)))
+STATUS of the LISTENER
+------------------------
+Alias                     LISTENER
+Version                   TNSLSNR for Linux: Version 12.2.0.1.0 - Production
+Start Date                02-MAR-2017 20:36:22
+Uptime                    0 days 0 hr. 39 min. 6 sec
+Trace Level               off
+Security                  ON: Local OS Authentication
+SNMP                      OFF
+Listener Parameter File   /u01/gi12201/network/admin/listener.ora
+Listener Log File         /u01/base/diag/tnslsnr/ol7ttsa0/listener/alert/log.xml
+Listening Endpoints Summary...
+  (DESCRIPTION=(ADDRESS=(PROTOCOL=tcp)(HOST=ol7ttsa0.localdomain)(PORT=1521)))
+  (DESCRIPTION=(ADDRESS=(PROTOCOL=ipc)(KEY=EXTPROC1521)))
+Services Summary...
+Service "+ASM" has 1 instance(s).
+  Instance "+ASM", status READY, has 1 handler(s) for this service...
+Service "+ASM_DATA" has 1 instance(s).
+  Instance "+ASM", status READY, has 1 handler(s) for this service...
+Service "+ASM_RECO" has 1 instance(s).
+  Instance "+ASM", status READY, has 1 handler(s) for this service...
+Service "49c60c5c16113f4ee0531e38a8c03989" has 1 instance(s).
+  Instance "CDB", status READY, has 1 handler(s) for this service...
+Service "CDB" has 1 instance(s).
+  Instance "CDB", status READY, has 1 handler(s) for this service...
+Service "CDBXDB" has 1 instance(s).
+  Instance "CDB", status READY, has 1 handler(s) for this service...
+Service "pdb" has 1 instance(s).
+  Instance "CDB", status READY, has 1 handler(s) for this service...
+The command completed successfully
+</pre>
+<p>I note that crsctl is now dislplaying Oracle Home for database resources and that Oracle Net listener has new services (1 for each disk group and a new service for the new container database with a strange name (49c60c5c16113f4ee0531e38a8c03989)).</p>
+<h3> Conclusion </h3>
+<p>Major change in GI 12.2.0.1 is image-based installation. <a href="http://docs.oracle.com/database/122/CWLIN/about-image-based-oracle-grid-infastructure-installation.htm">Documentation says</a>:<i> this installation feature streamlines the installation process and supports automation of large-scale custom deployments. You can also use this installation method for deployment of customized images, after you patch the base-release software with the necessary Patch Set Updates (PSUs) and patches.</i><br />
+I understand that GI Oracle Home can now be cloned like Oracle Database Home.</p>
