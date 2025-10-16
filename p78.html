@@ -1,0 +1,578 @@
+<p>Today 23rd of July 2018 Oracle Corp. has released Oracle 18c for Linux on OTN.</p>
+<h2> Silent Oracle Database installation </h2>
+<p>This is my first 18c installation on a new Oracle Linux 7.5 virtual machine (VM) using a minimal Linux installation:</p>
+<pre>
+# cat /etc/redhat-release 
+Red Hat Enterprise Linux Server release 7.5 (Maipo)
+# cat /etc/os-release 
+NAME="Oracle Linux Server"
+VERSION="7.5"
+ID="ol"
+VERSION_ID="7.5"
+PRETTY_NAME="Oracle Linux Server 7.5"
+ANSI_COLOR="0;31"
+CPE_NAME="cpe:/o:oracle:linux:7:5:server"
+HOME_URL="https://linux.oracle.com/"
+BUG_REPORT_URL="https://bugzilla.oracle.com/"
+
+ORACLE_BUGZILLA_PRODUCT="Oracle Linux 7"
+ORACLE_BUGZILLA_PRODUCT_VERSION=7.5
+ORACLE_SUPPORT_PRODUCT="Oracle Linux"
+ORACLE_SUPPORT_PRODUCT_VERSION=7.5
+# 
+</pre>
+<p>This VM has 4 GB of RMAN (and 4 GB of swap space), one single 40 GB disk and is connected to internet to be able to access Oracle Linux public yum repository.<br />
+<br />
+I have enabled in <b>/etc/yum.repos.d/public-yum-ol7.repo</b>:</p>
+<pre>
+[ol7_u5_base]
+name=Oracle Linux $releasever Update 5 installation media copy ($basearch)
+baseurl=https://yum.oracle.com/repo/OracleLinux/OL7/5/base/$basearch/
+gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-oracle
+gpgcheck=1
+enabled=1
+</pre>
+<p>I have checked YUM repositories with:</p>
+<pre>
+# yum repolist                     
+Loaded plugins: ulninfo
+ol7_UEKR4/x86_64/primary                                       |  40 MB  00:00:51     
+ol7_UEKR4                                                                     732/732
+ol7_latest                                                                  8173/8173
+ol7_u5_base                                                                 7278/7278
+repo id            repo name                                                    status
+ol7_UEKR4/x86_64   Latest Unbreakable Enterprise Kernel Release 4 for Oracle Li   732
+ol7_latest/x86_64  Oracle Linux 7Server Latest (x86_64)                         8 173
+ol7_u5_base/x86_64 Oracle Linux 7Server Update 5 installation media copy (x86_6 7 278
+repolist: 16 183
+</pre>
+<p>I have checked that Oracle 18c preinstallation RPM is available:</p>
+<pre>
+# yum info *preinstall* | grep Name 
+Name        : oracle-database-preinstall-18c
+Name        : oracle-database-server-12cR2-preinstall
+Name        : oracle-rdbms-server-11gR2-preinstall
+Name        : oracle-rdbms-server-12cR1-preinstall
+</pre>
+<p>I have installed 18c preinstallation RPM to ease Oracle installation using Internet connection. I have connected as root and run: </p>
+<pre>
+# yum -y install  oracle-database-preinstall-18c
+</pre>
+<p>Note that preinstallation RPM has also created oracle account:</p>
+<pre>
+# id oracle
+uid=54321(oracle) gid=54321(oinstall) groups=54321(oinstall),54322(dba),54323(oper),54324(backupdba),54325(dgdba),54326(kmdba),54330(racdba)
+</pre>
+<p>I have downloaded from OTN Oracle 18c installation media:</p>
+<pre>
+$ ls -rtl
+total 4457668
+-rw-r--r--. 1 oracle oinstall 4564649047 Jul 23 21:54 LINUX.X64_180000_db_home.zip
+</pre>
+<p>I have created a target Oracle Home directrory with root account:</p>
+<pre>
+# mkdir -p /u01/db18c
+# chown oracle:dba /u01/db18c
+</pre>
+<p>I have unzipped installation media into this directory:</p>
+<pre>
+$ cd /u01/db18c
+$ unzip /stage/LINUX.X64_180000_db_home.zip 
+</pre>
+<p>I have created Oracle Base and Oracle Inventory directories with root account:</p>
+<pre>
+# mkdir /u01/base
+# chown oracle:dba /u01/base
+# mkdir /u01/orainv
+# chown oracle:dba /orainv
+</pre>
+<p>I have run following script from <b>/u01/db18c/</b> with oracle account:</p>
+<pre>
+./runInstaller \
+-silent \
+-responseFile /u01/db18c/install/response/db_install.rsp \
+   oracle.install.option=INSTALL_DB_SWONLY             \
+   UNIX_GROUP_NAME=oinstall                            \
+   INVENTORY_LOCATION=/u01/orainv                      \
+   SELECTED_LANGUAGES=en                               \
+   ORACLE_HOME=/u01/db18c                              \
+   ORACLE_BASE=/u01/base                               \
+   oracle.install.db.InstallEdition=EE                 \
+   oracle.install.db.isCustomInstall=false             \
+   oracle.install.db.OSDBA_GROUP=dba                   \
+   oracle.install.db.OSBACKUPDBA_GROUP=dba             \
+   oracle.install.db.OSDGDBA_GROUP=dba                 \
+   oracle.install.db.OSKMDBA_GROUP=dba                 \
+   oracle.install.db.OSRACDBA_GROUP=dba                \
+   SECURITY_UPDATES_VIA_MYORACLESUPPORT=false          \
+   DECLINE_SECURITY_UPDATES=true
+</pre>
+<p>Running the script has generated following output:</p>
+<pre>
+Launching Oracle Database Setup Wizard...
+
+[WARNING] [INS-13014] Target environment does not meet some optional requirements.
+   CAUSE: Some of the optional prerequisites are not met. See logs for details. installActions2018-07-23_10-22-54PM.log
+   ACTION: Identify the list of failed prerequisite checks from the log: installActions2018-07-23_10-22-54PM.log. Then either from the log file or from installation manual find the appropriate configuration to meet the prerequisites and fix it manually.
+The response file for this session can be found at:
+ /u01/db18c/install/response/db_2018-07-23_10-22-54PM.rsp
+
+You can find the log of this install session at:
+ /tmp/InstallActions2018-07-23_10-22-54PM/installActions2018-07-23_10-22-54PM.log
+
+As a root user, execute the following script(s):
+	1. /u01/orainv/orainstRoot.sh
+	2. /u01/db18c/root.sh
+
+Execute /u01/orainv/orainstRoot.sh on the following nodes: 
+[ol7defs0]
+Execute /u01/db18c/root.sh on the following nodes: 
+[ol7defs0]
+
+
+Successfully Setup Software with warning(s).
+Moved the install session logs to:
+ /u01/orainv/logs/InstallActions2018-07-23_10-22-54PM
+</pre>
+<p>I have ignored following warning:</p>
+<pre>
+INFO:  [Jul 23, 2018 10:23:12 PM] ------------------List of failed Tasks------------------
+INFO:  [Jul 23, 2018 10:23:12 PM] *********************************************
+INFO:  [Jul 23, 2018 10:23:12 PM] Physical Memory: This is a prerequisite condition to test whether the system has at least 8GB (8388608.0KB) of total physical memory.
+INFO:  [Jul 23, 2018 10:23:12 PM] Severity:IGNORABLE
+INFO:  [Jul 23, 2018 10:23:12 PM] OverallStatus:VERIFICATION_FAILED
+INFO:  [Jul 23, 2018 10:23:12 PM] -----------------End of failed Tasks List----------------
+</pre>
+<p>I have run with user root:</p>
+<pre>
+# /u01/orainv/orainstRoot.sh
+Changing permissions of /u01/orainv.
+Adding read,write permissions for group.
+Removing read,write,execute permissions for world.
+
+Changing groupname of /u01/orainv to oinstall.
+The execution of the script is complete.
+# /u01/db18c/root.sh
+Check /u01/db18c/install/root_ol7defs0_2018-07-23_22-31-41-412574476.log for the output of root script
+# cat /u01/db18c/install/root_ol7defs0_2018-07-23_22-31-41-412574476.log
+Performing root user operation.
+
+The following environment variables are set as:
+    ORACLE_OWNER= oracle
+    ORACLE_HOME=  /u01/db18c
+   Copying dbhome to /usr/local/bin ...
+   Copying oraenv to /usr/local/bin ...
+   Copying coraenv to /usr/local/bin ...
+
+
+Creating /etc/oratab file...
+Entries will be added to the /etc/oratab file as needed by
+Database Configuration Assistant when a database is created
+Finished running generic part of root script.
+Now product-specific root actions will be performed.
+Oracle Trace File Analyzer (TFA) is available at : /u01/db18c/suptools/tfa/release/tfa_home/bin/tfactl 
+</pre>
+<p>I have checked detailed Oracle Database version:</p>
+<pre>
+$ export ORACLE_HOME=/u01/db18c
+$ export PATH=$ORACLE_HOME/bin:$PATH
+$ $ORACLE_HOME/OPatch/opatch lsinv
+Oracle Interim Patch Installer version 12.2.0.1.14
+Copyright (c) 2018, Oracle Corporation.  All rights reserved.
+
+
+Oracle Home       : /u01/db18c
+Central Inventory : /u01/orainv
+   from           : /u01/db18c/oraInst.loc
+OPatch version    : 12.2.0.1.14
+OUI version       : 12.2.0.4.0
+Log file location : /u01/db18c/cfgtoollogs/opatch/opatch2018-07-23_22-35-16PM_1.log
+
+Lsinventory Output file location : /u01/db18c/cfgtoollogs/opatch/lsinv/lsinventory2018-07-23_22-35-16PM.txt
+
+--------------------------------------------------------------------------------
+Local Machine Information::
+Hostname: ol7defs0
+ARU platform id: 226
+ARU platform description:: Linux x86-64
+
+Installed Top-level Products (1): 
+
+Oracle Database 18c                                                  18.0.0.0.0
+There are 1 products installed in this Oracle Home.
+
+
+Interim patches (4) :
+
+Patch  27908644     : applied on Wed Jul 18 19:44:11 CEST 2018
+Unique Patch ID:  22153180
+Patch description:  "UPDATE 18.3 DATABASE CLIENT JDK IN ORACLE HOME TO JDK8U171"
+   Created on 4 May 2018, 01:21:02 hrs PST8PDT
+   Bugs fixed:
+     27908644
+
+Patch  27923415     : applied on Wed Jul 18 19:41:38 CEST 2018
+Unique Patch ID:  22239273
+Patch description:  "OJVM RELEASE UPDATE: 18.3.0.0.180717 (27923415)"
+   Created on 15 Jul 2018, 10:33:22 hrs PST8PDT
+   Bugs fixed:
+     27304131, 27539876, 27952586, 27642235, 27636900, 27461740
+
+Patch  28090553     : applied on Wed Jul 18 19:40:01 CEST 2018
+Unique Patch ID:  22256940
+Patch description:  "OCW RELEASE UPDATE 18.3.0.0.0 (28090553)"
+   Created on 11 Jul 2018, 19:20:31 hrs PST8PDT
+   Bugs fixed:
+     12816839, 18701017, 22734786, 23698980, 23840305, 25709124, 25724089
+     26299684, 26313403, 26433972, 26527054, 26586174, 26587652, 26647619
+     26827699, 26860285, 26882126, 26882316, 26943660, 26996813, 27012915
+     27018734, 27032726, 27034318, 27040560, 27080748, 27086406, 27092991
+     27098733, 27106915, 27114112, 27121566, 27133637, 27144533, 27153755
+     27166715, 27174938, 27174948, 27177551, 27177852, 27182006, 27182064
+     27184253, 27204476, 27212837, 27213140, 27220610, 27222423, 27222938
+     27238077, 27238258, 27249544, 27252023, 27257509, 27263677, 27265816
+     27267992, 27271876, 27274143, 27285557, 27299455, 27300007, 27302415
+     27309182, 27314512, 27315159, 27320985, 27334353, 27338838, 27346984
+     27358232, 27362190, 27370933, 27377219, 27378959, 27379846, 27379956
+     27393421, 27398223, 27399499, 27399762, 27399985, 27401618, 27403244
+     27404599, 27426277, 27428790, 27430219, 27430254, 27433163, 27452897
+     27458829, 27465480, 27475272, 27481406, 27481765, 27492916, 27496806
+     27503318, 27503413, 27508936, 27508984, 27513114, 27519708, 27526362
+     27528204, 27532009, 27534289, 27560562, 27560735, 27573154, 27573408
+     27574335, 27577122, 27579969, 27581484, 27593587, 27595801, 27600706
+     27609819, 27625010, 27625050, 27627992, 27654039, 27657467, 27657920
+     27668379, 27682288, 27691717, 27702244, 27703242, 27708711, 27714373
+     27725967, 27731346, 27734470, 27735534, 27739957, 27740854, 27747407
+     27748321, 27757979, 27766679, 27768034, 27778433, 27782464, 27783059
+     27786669, 27786699, 27801774, 27811439, 27839732, 27850736, 27862636
+     27864737, 27865439, 27889841, 27896388, 27897639, 27906509, 27931506
+     27935826, 27941514, 27957892, 27978668, 27984314, 27993298, 28023410
+     28025398, 28032758, 28039471, 28039953, 28045209, 28099592, 28109698
+     28174926, 28182503, 28204423, 28240153
+
+Patch  28090523     : applied on Wed Jul 18 19:39:24 CEST 2018
+Unique Patch ID:  22329768
+Patch description:  "Database Release Update : 18.3.0.0.180717 (28090523)"
+   Created on 14 Jul 2018, 00:03:50 hrs PST8PDT
+   Bugs fixed:
+     9062315, 13554903, 21547051, 21766220, 21806121, 23003564, 23310101
+     24489904, 24689376, 24737581, 24925863, 25035594, 25035599, 25287072
+     25348956, 25634405, 25726981, 25743479, 25824236, 25943740, 26226953
+     26336101, 26423085, 26427905, 26450454, 26476244, 26598422, 26615291
+     26646549, 26654411, 26731697, 26785169, 26792891, 26818960, 26822620
+     26843558, 26843664, 26846077, 26894737, 26898279, 26928317, 26933599
+     26956033, 26961415, 26966120, 26986173, 26992964, 27005278, 27026401
+     27028251, 27030974, 27036408, 27038986, 27041253, 27044575, 27047831
+     27053044, 27058530, 27060167, 27060859, 27061736, 27066451, 27066519
+     27073066, 27086821, 27090765, 27101527, 27101652, 27110878, 27112686
+     27119621, 27126666, 27128580, 27135647, 27143756, 27143882, 27147979
+     27153641, 27155549, 27156355, 27163928, 27169796, 27181521, 27181537
+     27189611, 27190851, 27193810, 27199245, 27208953, 27210038, 27210872
+     27214085, 27215007, 27216224, 27221900, 27222121, 27222626, 27224987
+     27226913, 27232983, 27233563, 27236052, 27236110, 27240246, 27240570
+     27241221, 27241247, 27244337, 27244785, 27249215, 27250547, 27254851
+     27258578, 27259386, 27259983, 27262650, 27262945, 27263276, 27263996
+     27270197, 27274456, 27274536, 27275136, 27275776, 27282707, 27283029
+     27283960, 27284499, 27285244, 27288230, 27292213, 27294480, 27301308
+     27301568, 27302594, 27302681, 27302695, 27302711, 27302730, 27302777
+     27302800, 27302960, 27304410, 27304936, 27305318, 27307868, 27310092
+     27313687, 27314206, 27314390, 27318869, 27321179, 27321834, 27326204
+     27329812, 27330158, 27330161, 27333658, 27333664, 27333693, 27334316
+     27334648, 27335682, 27338912, 27338946, 27339115, 27339396, 27339483
+     27339495, 27341036, 27345190, 27345231, 27345450, 27345498, 27346329
+     27346644, 27346709, 27346949, 27347126, 27348081, 27348707, 27349393
+     27352600, 27354783, 27356373, 27357773, 27358241, 27359178, 27359368
+     27360126, 27364891, 27364916, 27364947, 27365139, 27365702, 27365993
+     27367194, 27368850, 27372756, 27375260, 27375542, 27376871, 27378103
+     27379233, 27381383, 27381656, 27384222, 27389352, 27392187, 27395404
+     27395416, 27395794, 27396357, 27396365, 27396377, 27396624, 27396666
+     27396672, 27396813, 27398080, 27398660, 27401637, 27405242, 27405696
+     27410300, 27410595, 27412805, 27417186, 27420715, 27421101, 27422874
+     27423251, 27425507, 27425622, 27426363, 27427805, 27430802, 27432338
+     27432355, 27433870, 27434050, 27434193, 27434486, 27434974, 27435537
+     27439835, 27441326, 27442041, 27444727, 27445330, 27445462, 27447452
+     27447687, 27448162, 27450355, 27450400, 27450783, 27451049, 27451182
+     27451187, 27451531, 27452760, 27453225, 27457666, 27457891, 27458164
+     27459909, 27460675, 27467543, 27469329, 27471876, 27472969, 27473800
+     27479358, 27483974, 27484556, 27486253, 27487795, 27489719, 27496224
+     27496308, 27497950, 27498477, 27501327, 27501413, 27501465, 27502420
+     27504190, 27505603, 27506774, 27508985, 27511196, 27512439, 27517818
+     27518227, 27518310, 27520070, 27520900, 27522245, 27523368, 27523800
+     27525909, 27532375, 27533819, 27534509, 27537472, 27544030, 27545630
+     27547732, 27550341, 27551855, 27558557, 27558559, 27558861, 27560702
+     27563629, 27563767, 27570318, 27577758, 27579353, 27580996, 27585755
+     27585800, 27586810, 27586895, 27587672, 27591842, 27592466, 27593389
+     27595973, 27599689, 27602091, 27602488, 27603841, 27604293, 27607805
+     27608669, 27610269, 27613080, 27613247, 27615608, 27616657, 27617522
+     27625274, 27625620, 27631506, 27634676, 27635508, 27644757, 27649707
+     27652302, 27663370, 27664702, 27679488, 27679664, 27679806, 27679961
+     27680162, 27680509, 27682151, 27688099, 27688692, 27690578, 27691809
+     27692215, 27693713, 27697092, 27701795, 27705761, 27707544, 27709046
+     27718914, 27719187, 27723002, 27726269, 27726780, 27732323, 27739006
+     27740844, 27744211, 27745220, 27747869, 27748954, 27751006, 27753336
+     27757567, 27772815, 27773602, 27774320, 27774539, 27779886, 27780562
+     27782339, 27783289, 27786772, 27791223, 27797290, 27803665, 27807441
+     27812560, 27812593, 27813267, 27815347, 27818871, 27832643, 27833369
+     27834984, 27840386, 27847259, 27851757, 27861909, 27869339, 27873643
+     27882176, 27892488, 27924147, 27926113, 27930478, 27934468, 27941896
+     27945870, 27950708, 27952762, 27961746, 27964051, 27970265, 27971575
+     27984028, 27989849, 27993289, 27994333, 27997875, 27999597, 28021205
+     28022847, 28033429, 28057267, 28059199, 28072130, 28098865, 28106402
+     28132287, 28169711, 28174827, 28184554, 28188330, 25929650, 28264172
+
+
+
+--------------------------------------------------------------------------------
+
+OPatch succeeded.
+$ $ORACLE_HOME/OPatch/opatch lspatches
+27908644;UPDATE 18.3 DATABASE CLIENT JDK IN ORACLE HOME TO JDK8U171
+27923415;OJVM RELEASE UPDATE: 18.3.0.0.180717 (27923415)
+28090553;OCW RELEASE UPDATE 18.3.0.0.0 (28090553)
+28090523;Database Release Update : 18.3.0.0.180717 (28090523)
+
+OPatch succeeded.
+</pre>
+<p>So this 18c version has some of the July 2018 release updates (180717 = 17-JUL-2018).</p>
+<p>I have also checked SQL*Plus banner:</p>
+<pre>
+$ sqlplus -v
+
+SQL*Plus: Release 18.0.0.0.0 - Production
+Version 18.3.0.0.0
+$ 
+</pre>
+<h2> Silent database creation </h2>
+<p>I have created directories for databases with root account:</p>
+<pre>
+# mkdir /u01/oradata
+# chown oracle:dba /u01/oradata
+# mkdir /u01/fra
+# chown oracle:dba /u01/fra
+</pre>
+<p>I have used following script to create a container database named CDB with one pluggable database: </p>
+<pre>
+dbca -silent \
+-createDatabase \
+-templateName General_Purpose.dbc \
+-gdbName CDB \
+-sid CDB \
+-createAsContainerDatabase true \
+-numberOfPdbs 1 \
+-pdbName pdb \
+-pdbadminUsername pdba \
+-pdbadminPassword oracle \
+-SysPassword oracle \
+-SystemPassword oracle \
+-emConfiguration NONE \
+-storageType FS \
+-datafileDestination /u01/oradata \
+-recoveryAreaDestination /u01/fra \
+-recoveryAreaSize 3200  \
+-characterSet AL32UTF8 \
+-memoryPercentage 40 \
+-enableArchive true \
+-redoLogFileSize 100
+</pre>
+<p>Output is:</p>
+<pre>
+WARNING] [DBT-06801] Specified Fast Recovery Area size (3,200 MB) is less than the recommended value.
+   CAUSE: Fast Recovery Area size should at least be three times the database size (2,446 MB).
+   ACTION: Specify Fast Recovery Area Size to be at least three times the database size.
+[WARNING] [DBT-06208] The 'SYS' password entered does not conform to the Oracle recommended standards.
+   CAUSE: 
+a. Oracle recommends that the password entered should be at least 8 characters in length, contain at least 1 uppercase character, 1 lower case character and 1 digit [0-9].
+b.The password entered is a keyword that Oracle does not recommend to be used as password
+   ACTION: Specify a strong password. If required refer Oracle documentation for guidelines.
+[WARNING] [DBT-06208] The 'SYSTEM' password entered does not conform to the Oracle recommended standards.
+   CAUSE: 
+a. Oracle recommends that the password entered should be at least 8 characters in length, contain at least 1 uppercase character, 1 lower case character and 1 digit [0-9].
+b.The password entered is a keyword that Oracle does not recommend to be used as password
+   ACTION: Specify a strong password. If required refer Oracle documentation for guidelines.
+[WARNING] [DBT-06208] The 'PDBADMIN' password entered does not conform to the Oracle recommended standards.
+   CAUSE: 
+a. Oracle recommends that the password entered should be at least 8 characters in length, contain at least 1 uppercase character, 1 lower case character and 1 digit [0-9].
+b.The password entered is a keyword that Oracle does not recommend to be used as password
+   ACTION: Specify a strong password. If required refer Oracle documentation for guidelines.
+[WARNING] [DBT-06801] Specified Fast Recovery Area size (3,200 MB) is less than the recommended value.
+   CAUSE: Fast Recovery Area size should at least be three times the database size (3,309 MB).
+   ACTION: Specify Fast Recovery Area Size to be at least three times the database size.
+Prepare for db operation
+8% complete
+Copying database files
+31% complete
+Creating and starting Oracle instance
+32% complete
+36% complete
+40% complete
+43% complete
+46% complete
+Completing Database Creation
+51% complete
+53% complete
+54% complete
+Creating Pluggable Databases
+58% complete
+77% complete
+Executing Post Configuration Actions
+100% complete
+Database creation complete. For details check the logfiles at:
+ /u01/base/cfgtoollogs/dbca/CDB.
+Database Information:
+Global Database Name:CDB
+System Identifier(SID):CDB
+Look at the log file "/u01/base/cfgtoollogs/dbca/CDB/CDB.log" for further details.
+</pre>
+<p>I have checked created database with:</p>
+<pre>
+SQL&gt; select * from v$version;
+
+BANNER
+--------------------------------------------------------------------------------
+BANNER_FULL
+--------------------------------------------------------------------------------
+BANNER_LEGACY
+--------------------------------------------------------------------------------
+    CON_ID
+----------
+Oracle Database 18c Enterprise Edition Release 18.0.0.0.0 - Production
+Oracle Database 18c Enterprise Edition Release 18.0.0.0.0 - Production
+Version 18.3.0.0.0
+Oracle Database 18c Enterprise Edition Release 18.0.0.0.0 - Production
+	 0
+
+BANNER
+--------------------------------------------------------------------------------
+BANNER_FULL
+--------------------------------------------------------------------------------
+BANNER_LEGACY
+--------------------------------------------------------------------------------
+    CON_ID
+----------
+
+SQL&gt; select patch_id, status, description, action_time from dba_registry_sqlpatch;
+
+  PATCH_ID STATUS		     DESCRIPTION								      ACTION_TIME
+---------- ------------------------- -------------------------------------------------------------------------------- ------------------------------
+  28090523 SUCCESS		     Database Release Update : 18.3.0.0.180717 (28090523)			      23-JUL-18 10.57.56.127734 PM
+  27923415 SUCCESS		     OJVM RELEASE UPDATE: 18.3.0.0.180717 (27923415)				      23-JUL-18 10.57.56.142065 PM
+
+SQL&gt; select name, cdb, log_mode from v$database;
+
+NAME	  CDB LOG_MODE
+--------- --- ------------
+CDB	  YES ARCHIVELOG
+
+SQL&gt; show pdbs
+
+    CON_ID CON_NAME			  OPEN MODE  RESTRICTED
+---------- ------------------------------ ---------- ----------
+	 2 PDB$SEED			  READ ONLY  NO
+	 3 PDB				  READ WRITE NO
+
+</pre>
+<p>I have used following script to create a non-container database named NCDB with: </p>
+<pre>
+dbca -silent \
+-createDatabase \
+-templateName General_Purpose.dbc \
+-gdbName NCDB \
+-sid NCDB \
+-createAsContainerDatabase false \
+-SysPassword oracle \
+-SystemPassword oracle \
+-emConfiguration NONE \
+-storageType FS \
+-datafileDestination /u01/oradata \
+-recoveryAreaDestination /u01/fra \
+-recoveryAreaSize 3200  \
+-characterSet AL32UTF8 \
+-memoryPercentage 40 \
+-enableArchive true \
+-redoLogFileSize 100 
+</pre>
+<p>Output is:</p>
+<pre>
+[WARNING] [DBT-06208] The 'SYS' password entered does not conform to the Oracle recommended standards.
+   CAUSE: 
+a. Oracle recommends that the password entered should be at least 8 characters in length, contain at least 1 uppercase character, 1 lower case character and 1 digit [0-9].
+b.The password entered is a keyword that Oracle does not recommend to be used as password
+   ACTION: Specify a strong password. If required refer Oracle documentation for guidelines.
+[WARNING] [DBT-06208] The 'SYSTEM' password entered does not conform to the Oracle recommended standards.
+   CAUSE: 
+a. Oracle recommends that the password entered should be at least 8 characters in length, contain at least 1 uppercase character, 1 lower case character and 1 digit [0-9].
+b.The password entered is a keyword that Oracle does not recommend to be used as password
+   ACTION: Specify a strong password. If required refer Oracle documentation for guidelines.
+[WARNING] [DBT-06801] Specified Fast Recovery Area size (3,200 MB) is less than the recommended value.
+   CAUSE: Fast Recovery Area size should at least be three times the database size (2,402 MB).
+   ACTION: Specify Fast Recovery Area Size to be at least three times the database size.
+Prepare for db operation
+10% complete
+Copying database files
+40% complete
+Creating and starting Oracle instance
+42% complete
+46% complete
+50% complete
+54% complete
+60% complete
+Completing Database Creation
+66% complete
+69% complete
+70% complete
+Executing Post Configuration Actions
+100% complete
+Database creation complete. For details check the logfiles at:
+ /u01/base/cfgtoollogs/dbca/NCDB.
+Database Information:
+Global Database Name:NCDB
+System Identifier(SID):NCDB
+Look at the log file "/u01/base/cfgtoollogs/dbca/NCDB/NCDB.log" for further details.
+</pre>
+<p>I have checked created database with:</p>
+<pre>
+SQL&gt; select * from v$version;
+
+BANNER
+--------------------------------------------------------------------------------
+BANNER_FULL
+--------------------------------------------------------------------------------
+BANNER_LEGACY
+--------------------------------------------------------------------------------
+    CON_ID
+----------
+Oracle Database 18c Enterprise Edition Release 18.0.0.0.0 - Production
+Oracle Database 18c Enterprise Edition Release 18.0.0.0.0 - Production
+Version 18.3.0.0.0
+Oracle Database 18c Enterprise Edition Release 18.0.0.0.0 - Production
+	 0
+
+BANNER
+--------------------------------------------------------------------------------
+BANNER_FULL
+--------------------------------------------------------------------------------
+BANNER_LEGACY
+--------------------------------------------------------------------------------
+    CON_ID
+----------
+
+SQL&gt; select patch_id, status, description, action_time from dba_registry_sqlpatch;
+
+  PATCH_ID STATUS		     DESCRIPTION								      ACTION_TIME
+---------- ------------------------- -------------------------------------------------------------------------------- ------------------------------
+  28090523 SUCCESS		     Database Release Update : 18.3.0.0.180717 (28090523)			      23-JUL-18 11.33.28.278762 PM
+  27923415 SUCCESS		     OJVM RELEASE UPDATE: 18.3.0.0.180717 (27923415)				      23-JUL-18 11.33.28.325217 PM
+
+SQL&gt; select name, cdb, log_mode from v$database;
+
+NAME	  CDB LOG_MODE
+--------- --- ------------
+NCDB	  NO  ARCHIVELOG
+
+SQL&gt; show pdbs
+SQL&gt; 
+</pre>
+<h2>Conclusion</h2>
+<p>As documented Oracle Database 18c installation is now image based like Grid Infrastructure 12.2.0.1: response file and parameters for software installation and database creation are very similar to Oracle 12.2.0.1.</p>
+<p>Oracle Corp. has decided to release on OTN a patched version: this is something new for a new release (it was possible to have patched versions but only in preinstalled VMs like the Hands-On Lab for Upgrade).</p>
+<p>However at the time of writing I have not found the announced RPM to install Oracle 18c on Linux.</p>
