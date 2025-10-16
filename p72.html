@@ -1,0 +1,529 @@
+<p>The system configuration used is Oracle Linux 6.8 64-bit: this a single machine running Oracle Grid Infrastructure (GI): this is an Oracle Restart installation and not a RAC cluster.</p>
+<p>The documentation I have used is chapter 11 Upgrading Grid Infrastructure of <a href="https://docs.oracle.com/en/database/oracle/oracle-database/12.2/cwlin/upgrading-oracle-grid-infrastructure.html#GUID-DF76F201-3374-486F-9D19-06276764569F">Oracle Grid Infrastructure Installation and Upgrade Guide for Linux 12c Release 2 (12.2) for Linux</a>.</p>
+<p>All shell script steps have been run with oracle account which is GI software owner (and also Oracle Database software owner) unless otherwise stated.<br />
+</p>
+<h3> Upload Grid Infrastructure 12.2.0.1 media </h3>
+<p>First I have created the target directory for GI 12.2:</p>
+<pre>
+$ mkdir -p /u01/app/12.2.0.1/grid
+</pre>
+<p>I have extracted GI media into this directory:</p>
+<pre>
+$ cd /u01/app/12.2.0.1/grid
+$ pwd
+/u01/app/12.2.0.1/grid
+$ hostname
+ol6twsa.localdomain
+$ id
+uid=54321(oracle) gid=54321(oinstall) groups=54321(oinstall),54322(dba)
+$ unzip -q /tmp/linuxx64_12201_grid_home.zip
+$
+</pre>
+<h3> CLUVFY </h3>
+<p>I have tried to run CLUVFY tool but I always got some strange error:</p>
+<pre>
+$ ./runcluvfy.sh stage -pre crsinst -upgrade -src_crshome /u01/app/12.1.0.2/grid -dest_crshome /u01/app/12.2.0.1/grid -dest_version 12.2.0.1 -fixup -verbose
+
+ERROR: 
+Parse error:   'crs' is an invalid argument  Brief usage:   crsctl query has releaseversion     
+Lists the Oracle Clusterware release version    crsctl query has softwareversion    
+Lists the version of Oracle Clusterware software installed on the local node    crsctl query has releasepatch      L
+ists the Oracle Clusterware release patch level    crsctl query has softwarepatch      
+Lists the patch level of Oracle Clusterware software installed on the local host  
+For complete usage, use:     crsctl [-h | --help]  
+For detailed help on each command and object and its options use:     crsctl command object -h  For example, crsctl relocate resource -h
+
+ERROR: 
+Parse error:   'crs' is an invalid argument  Brief usage:   crsctl query has releaseversion     
+Lists the Oracle Clusterware release version    crsctl query has softwareversion     
+Lists the version of Oracle Clusterware software installed on the local node    crsctl query has releasepatch      
+Lists the Oracle Clusterware release patch level    crsctl query has softwarepatch      
+Lists the patch level of Oracle Clusterware software installed on the local host  
+For complete usage, use:     crsctl [-h | --help]  
+For detailed help on each command and object and its options use:     crsctl command  object -h  For example, crsctl relocate resource -h
+PRVG-0712 : Cannot upgrade: Oracle Clusterware stack not running on this node.
+
+Verification cannot proceed
+</pre>
+<p>I have commented in <b>.bash_profile</b> ORACLE_HOME and ORACLE_BASE settings:</p>
+<pre>
+$ tail  ~/.bash_profile
+
+PATH=$PATH:$HOME/bin
+
+export PATH
+export SQLPATH=/home/oracle/scripts
+export EDITOR=
+
+# for GI upgrade
+#export ORACLE_HOME=/u01/app/12.1.0.2/db
+#export ORACLE_BASE=/u01/app/oracle
+</pre>
+<h3> Upgrade response file </h3>
+<p>I have created an <a href="https://pierreforstmanndotcom.wordpress.com/upgrade-rsp">upgrade response file</a> using install/response/gridsetup.rsp template:</p>
+<pre>
+$ diff upgrade.rsp ./install/response/gridsetup.rsp 
+60c60
+&lt; INVENTORY_LOCATION=/u01/app/oracle/oraInventory
+---
+&gt; INVENTORY_LOCATION=
+74c74
+&lt; oracle.install.option=UPGRADE
+---
+&gt; oracle.install.option=
+79c79
+&lt; ORACLE_BASE=/u01/app/oracle
+---
+&gt; ORACLE_BASE=
+95c95
+&lt; oracle.install.asm.OSDBA=dba
+---
+&gt; oracle.install.asm.OSDBA=
+108c108
+&lt; oracle.install.asm.OSASM=dba
+---
+&gt; oracle.install.asm.OSASM=
+</pre>
+<p>I have made sure to have about 24 GB free disk space for /u01 to avoid following error:</p>
+<pre>
+[WARNING] [INS-30100] Insufficient disk space on the selected location (/u01/app/12.2.0.1/grid).
+   CAUSE: Specified location is on a volume without enough disk space on nodes: [ol6twsa].
+   ACTION: Choose a location that has enough space (minimum of 7,065MB) or free up space on the existing volume.
+</pre>
+<h3> Running gridSetup.sh in upgrade  mode </h3>
+<p>I have created following script to upgrade GI in silent mode:</p>
+<pre>
+#!/bin/sh
+unset ORACLE_HOME
+unset ORACLE_BASE
+unset ORACLE_SID
+unset ORA_CRS_HOME
+./gridSetup.sh -silent -responseFile upgrade.rsp
+</pre>
+<p>But I could not run it:</p>
+<pre>
+Launching Oracle Grid Infrastructure Setup Wizard...
+
+[WARNING] [INS-40436] Installer has detected an earlier version of Oracle Automatic Storage Management (ASM) Instance configured. Before proceeding with the upgrade you must shutdown all Oracle Databases that are using Oracle ASM for storage.
+
+You may ignore this message and continue with the upgrade, if the database(s) are already in shutdown state.
+[WARNING] [INS-41808] Possible invalid choice for OSASM Group.
+   CAUSE: The name of the group you selected for the OSASM group is commonly used to grant other system privileges (For example: asmdba, asmoper, dba, oper).
+   ACTION: Oracle recommends that you designate asmadmin as the OSASM group.
+[WARNING] [INS-41809] Possible invalid choice for OSDBA Group.
+   CAUSE: The group name you selected as the OSDBA for ASM group is commonly used for Oracle Database administrator privileges.
+   ACTION: Oracle recommends that you designate asmdba as the OSDBA for ASM group, and that the group should not be the same group as an Oracle Database OSDBA group.
+[WARNING] [INS-41812] OSDBA and OSASM are the same OS group.
+   CAUSE: The chosen values for OSDBA group and the chosen value for OSASM group are the same.
+   ACTION: Select an OS group that is unique for ASM administrators. The OSASM group should not be the same as the OS groups that grant privileges for Oracle ASM access, or for database administration.
+[WARNING] [INS-32056] The specified Oracle Base contains the existing Central Inventory location: /u01/app/oracle/oraInventory.
+   ACTION: Oracle recommends that the Central Inventory location is outside the Oracle Base directory. Specify a different location for the Oracle Base.
+[WARNING] [INS-32018] The selected Oracle home is outside of Oracle base.
+   ACTION: Oracle recommends installing Oracle software within the Oracle base directory. Adjust the Oracle home or Oracle base accordingly.
+[FATAL] [INS-13019] Some mandatory prerequisites are not met. These prerequisites cannot be ignored.
+   ACTION: Identify the list of failed prerequisite checks from the log: /u01/app/oracle/oraInventory/logs/GridSetupActions2017-12-23_02-55-43PM/gridSetupActions2017-12-23_02-55-43PM.log. Then either from the log file or from installation manual find the appropriate configuration to meet the prerequisites and fix it manually.
+</pre>
+<p>List of failed tasks were:</p>
+<pre>
+INFO:  [Dec 23, 2017 2:56:09 PM] ------------------List of failed Tasks------------------
+INFO:  [Dec 23, 2017 2:56:09 PM] *********************************************
+INFO:  [Dec 23, 2017 2:56:09 PM] Physical Memory: This is a prerequisite condition to test whether the system has at least 8GB (8388608.0KB) of total physical memory.
+INFO:  [Dec 23, 2017 2:56:09 PM] Severity:IGNORABLE
+INFO:  [Dec 23, 2017 2:56:09 PM] OverallStatus:VERIFICATION_FAILED
+INFO:  [Dec 23, 2017 2:56:09 PM] *********************************************
+INFO:  [Dec 23, 2017 2:56:09 PM] Oracle patch:21255373: This test checks that the Oracle patch "21255373" has been applied in home "/u01/app/12.1.0.2/grid".
+INFO:  [Dec 23, 2017 2:56:09 PM] Severity:FATAL
+INFO:  [Dec 23, 2017 2:56:09 PM] OverallStatus:VERIFICATION_FAILED
+INFO:  [Dec 23, 2017 2:56:09 PM] *********************************************
+INFO:  [Dec 23, 2017 2:56:09 PM] Package: cvuqdisk-1.0.10-1: This is a prerequisite condition to test whether the package "cvuqdisk-1.0.10-1" is available on the system.
+INFO:  [Dec 23, 2017 2:56:09 PM] Severity:IGNORABLE
+INFO:  [Dec 23, 2017 2:56:09 PM] OverallStatus:VERIFICATION_FAILED
+INFO:  [Dec 23, 2017 2:56:09 PM] -----------------End of failed Tasks List----------------
+SEVERE:  [Dec 23, 2017 2:56:09 PM] [FATAL] [INS-13019] Some mandatory prerequisites are not met. These prerequisites cannot be ignored.
+   ACTION: Identify the list of failed prerequisite checks from the log: /u01/app/oracle/oraInventory/logs/GridSetupActions2017-12-23_02-55-43PM/gridSetup
+</pre>
+<p>I decided to not install patch 21255373 and run with -skipPrereqs option:</p>
+<pre>
+#!/bin/sh
+unset ORACLE_HOME
+unset ORACLE_BASE
+unset ORACLE_SID
+unset ORA_CRS_HOME
+./gridSetup.sh -silent -responseFile upgrade.rsp -skipPrereqs
+</pre>
+<p>To avoid:</p>
+<pre>
+SEVERE:/u01/app/12.2.0.1/grid/inventory/Scripts/upgrade.rsp (No such file or directory)
+[FATAL] /u01/app/12.2.0.1/grid/inventory/Scripts/upgrade.rsp (No such file or directory)
+</pre>
+<p>I had to copy my response file to /u01/app/12.2.0.1/grid/inventory/Scripts directory.<br />
+<br />
+This worked better:</p>
+<pre>
+./su.sh
+Launching Oracle Grid Infrastructure Setup Wizard...
+
+[WARNING] [INS-40436] Installer has detected an earlier version of Oracle Automatic Storage Management (ASM) Instance configured. Before proceeding with the upgrade you must shutdown all Oracle Databases that are using Oracle ASM for storage.
+
+You may ignore this message and continue with the upgrade, if the database(s) are already in shutdown state.
+[WARNING] [INS-41808] Possible invalid choice for OSASM Group.
+   CAUSE: The name of the group you selected for the OSASM group is commonly used to grant other system privileges (For example: asmdba, asmoper, dba, oper).
+   ACTION: Oracle recommends that you designate asmadmin as the OSASM group.
+[WARNING] [INS-41809] Possible invalid choice for OSDBA Group.
+   CAUSE: The group name you selected as the OSDBA for ASM group is commonly used for Oracle Database administrator privileges.
+   ACTION: Oracle recommends that you designate asmdba as the OSDBA for ASM group, and that the group should not be the same group as an Oracle Database OSDBA group.
+[WARNING] [INS-41812] OSDBA and OSASM are the same OS group.
+   CAUSE: The chosen values for OSDBA group and the chosen value for OSASM group are the same.
+   ACTION: Select an OS group that is unique for ASM administrators. The OSASM group should not be the same as the OS groups that grant privileges for Oracle ASM access, or for database administration.
+[WARNING] [INS-32056] The specified Oracle Base contains the existing Central Inventory location: /u01/app/oracle/oraInventory.
+   ACTION: Oracle recommends that the Central Inventory location is outside the Oracle Base directory. Specify a different location for the Oracle Base.
+[WARNING] [INS-32018] The selected Oracle home is outside of Oracle base.
+   ACTION: Oracle recommends installing Oracle software within the Oracle base directory. Adjust the Oracle home or Oracle base accordingly.
+You can find the log of this install session at:
+ /u01/app/oracle/oraInventory/logs/GridSetupActions2017-12-23_03-01-31PM/gridSetupActions2017-12-23_03-01-31PM.log
+
+As a root user, execute the following script(s):
+	1. /u01/app/12.2.0.1/grid/rootupgrade.sh
+
+Execute /u01/app/12.2.0.1/grid/rootupgrade.sh on the following nodes: 
+[ol6twsa]
+
+
+
+Successfully Setup Software.
+As install user, execute the following command to complete the configuration.
+	/u01/app/12.2.0.1/grid/gridSetup.sh -executeConfigTools -responseFile upgrade.rsp [-silent]
+</pre>
+<h3> rootupgrade.sh </h3>
+<p>With root user account I have run:</p>
+<pre>
+# env | grep ORA
+ORACLE_HOME=/u01/app/12.1.0.2/grid
+# unset ORACLE_HOME
+# echo $PATH
+/u01/app/12.1.0.2/grid/bin:/usr/lib64/qt-3.3/bin:/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin:/root/bin
+# PATH=/usr/lib64/qt-3.3/bin:/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin:/root/bin
+# /u01/app/12.2.0.1/grid/rootupgrade.sh
+Check /u01/app/12.2.0.1/grid/install/root_ol6twsa.localdomain_2017-12-23_15-04-35-377767968.log for the output of root script
+# 
+</pre>
+<p>Log file was OK:</p>
+<pre>
+# cat /u01/app/12.2.0.1/grid/install/root_ol6twsa.localdomain_2017-12-23_15-04-35-377767968.log
+Performing root user operation.
+
+The following environment variables are set as:
+    ORACLE_OWNER= oracle
+    ORACLE_HOME=  /u01/app/12.2.0.1/grid
+   Copying dbhome to /usr/local/bin ...
+   Copying oraenv to /usr/local/bin ...
+   Copying coraenv to /usr/local/bin ...
+
+Entries will be added to the /etc/oratab file as needed by
+Database Configuration Assistant when a database is created
+Finished running generic part of root script.
+Now product-specific root actions will be performed.
+Using configuration parameter file: /u01/app/12.2.0.1/grid/crs/install/crsconfig_params
+The log of current session can be found at:
+  /u01/app/oracle/crsdata/ol6twsa/crsconfig/roothas_2017-12-23_03-04-36PM.log
+2017/12/23 15:04:37 CLSRSC-363: User ignored prerequisites during installation
+
+ASM has been upgraded and started successfully.
+
+Creating OCR keys for user 'oracle', privgrp 'oinstall'..
+Operation successful.
+LOCAL ONLY MODE 
+Successfully accumulated necessary OCR keys.
+Creating OCR keys for user 'root', privgrp 'root'..
+Operation successful.
+CRS-4664: Node ol6twsa successfully pinned.
+2017/12/23 15:05:37 CLSRSC-329: Replacing Clusterware entries in file 'oracle-ohasd.conf'
+CRS-4123: Oracle High Availability Services has been started.
+
+2017/12/23 15:09:44 CLSRSC-482: Running command: 'srvctl upgrade model -s 12.1.0.2.0 -d 12.2.0.1.0 -p first'
+2017/12/23 15:09:45 CLSRSC-482: Running command: 'srvctl upgrade model -s 12.1.0.2.0 -d 12.2.0.1.0 -p last'
+
+ol6twsa     2017/12/23 15:09:47     /u01/app/12.2.0.1/grid/cdata/ol6twsa/backup_20171223_150947.olr     0     
+
+ol6twsa     2014/07/24 21:04:10     /u01/app/12.1.0.2/grid/cdata/ol6twsa/backup_20140724_210410.olr     0     
+
+ol6twsa     2013/07/11 07:03:26     /u01/app/12.1.0/grid/cdata/ol6twsa/backup_20130711_070326.olr     -     
+CRS-2791: Starting shutdown of Oracle High Availability Services-managed resources on 'ol6twsa'
+CRS-2673: Attempting to stop 'ora.evmd' on 'ol6twsa'
+CRS-2677: Stop of 'ora.evmd' on 'ol6twsa' succeeded
+CRS-2793: Shutdown of Oracle High Availability Services-managed resources on 'ol6twsa' has completed
+CRS-4133: Oracle High Availability Services has been stopped.
+CRS-4123: Oracle High Availability Services has been started.
+2017/12/23 15:10:39 CLSRSC-327: Successfully configured Oracle Restart for a standalone server
+</pre>
+<h3> executeConfigTools step </h3>
+<p>I run last script:</p>
+<pre>
+$ /u01/app/12.2.0.1/grid/gridSetup.sh -executeConfigTools -responseFile upgrade.rsp -silent
+Launching Oracle Grid Infrastructure Setup Wizard...
+
+You can find the logs of this session at:
+/u01/app/oracle/oraInventory/logs/GridSetupActions2017-12-23_03-14-02PM
+
+/tmp/GridSetupActions2017-12-23_03-14-02PM/upgrade.rsp (No such file or directory)
+SEVERE:Abnormal program termination. An internal error has occured. Please provide the following files to Oracle Support : 
+
+"/u01/app/oracle/oraInventory/logs/installActions2017-12-23_03-14-02PM.log"
+"Unknown"
+"Unknown"
+[WARNING] [INS-10016] Installer failed to update the cluster related details, for this Oracle home, in the inventory on all/some of the nodes
+   ACTION: You may chose to retry the operation, without continuing further. Alternatively you can refer to information given below and manually execute the mentioned commands on the failed nodes now or later to update the inventory.
+
+Successfully Configured Software.
+</pre>
+<p>Something failed but it is not clear what:</p>
+<pre>
+$ cat /u01/app/oracle/oraInventory/logs/installActions2017-12-23_03-14-02PM.log
+INFO: Environment Variables: 
+
+INFO: 	ORACLE_HOME = /u01/app/12.2.0.1/grid
+
+INFO: 	PATH = /usr/lib64/qt-3.3/bin:/usr/local/bin:/bin:/usr/bin:/usr/local/sbin:/usr/sbin:/sbin:/home/oracle/bin
+
+INFO: 	CLASSPATH = 
+
+INFO: Username:oracle
+
+INFO: Creating a new Install area Control for this inventory session with new  access level  2
+
+INFO: Install area Control created with access level  2
+
+INFO: Ending the inventory Session 
+INFO: config-context initialized
+INFO: 
+ The Runconfig command constructed is /u01/app/12.2.0.1/grid/oui/bin/runConfig.sh ORACLE_HOME=/u01/app/12.2.0.1/grid MODE=perform ACTION=configure RERUN=true $*
+INFO: Since the option is to overwrite the existing /u01/app/12.2.0.1/grid/cfgtoollogs/configToolAllCommands file, backing it up
+INFO: The backed up file name is /u01/app/12.2.0.1/grid/cfgtoollogs/configToolAllCommands.bak.1
+INFO: Done processing command line arguments
+SEVERE: Abnormal program termination. An internal error has occured. Please provide the following files to Oracle Support : 
+
+"/u01/app/oracle/oraInventory/logs/installActions2017-12-23_03-14-02PM.log"
+"Unknown"
+"Unknown"
+INFO: Alert Handler not registered, using Super class functionality
+INFO: Alert Handler not registered, using Super class functionality
+INFO: User Selected: Yes/OK
+
+INFO: 'UpdateNodeList' was successful.
+INFO: Environment Variables: 
+
+INFO: 	ORACLE_HOME = /u01/app/12.2.0.1/grid
+
+INFO: 	PATH = /usr/lib64/qt-3.3/bin:/usr/local/bin:/bin:/usr/bin:/usr/local/sbin:/usr/sbin:/sbin:/home/oracle/bin
+
+INFO: 	CLASSPATH = 
+
+INFO: Username:oracle
+
+</pre>
+<h3> ASM disk compatibility issue </h3>
+<p>I checked resources:</p>
+<pre>
+$ crsctl stat res -t
+--------------------------------------------------------------------------------
+Name           Target  State        Server                   State details       
+--------------------------------------------------------------------------------
+Local Resources
+--------------------------------------------------------------------------------
+ora.DATA.dg
+               ONLINE  ONLINE       ol6twsa                  STABLE
+ora.FRA.dg
+               ONLINE  OFFLINE      ol6twsa                  STABLE
+ora.LISTENER.lsnr
+               ONLINE  ONLINE       ol6twsa                  STABLE
+ora.asm
+               ONLINE  ONLINE       ol6twsa                  Started,STABLE
+ora.ons
+               OFFLINE OFFLINE      ol6twsa                  STABLE
+--------------------------------------------------------------------------------
+Cluster Resources
+--------------------------------------------------------------------------------
+ora.cdb.db
+      1        OFFLINE OFFLINE                               Instance Shutdown,ST
+                                                             ABLE
+ora.cssd
+      1        ONLINE  ONLINE       ol6twsa                  STABLE
+ora.diskmon
+      1        OFFLINE OFFLINE                               STABLE
+ora.evmd
+      1        ONLINE  ONLINE       ol6twsa            
+</pre>
+<p>I noticed that FRA disk group was offline but I could not restart it:</p>
+<pre>
+$ srvctl start dg -diskgroup FRA
+PRCR-1079 : Failed to start resource ora.FRA.dg
+CRS-5017: The resource action "ora.FRA.dg start" encountered the following error: 
+ORA-15032: not all alterations performed
+ORA-59303: The attribute compatible.asm (10.1.0.0.0) of the diskgroup being mounted should be 11.2.0.2.0 or higher.
+ORA-15221: ASM operation requires compatible.asm of 11.1.0.0.0 or higher
+. For details refer to "(:CLSN00107:)" in "/u01/app/oracle/diag/crs/ol6twsa/crs/trace/ohasd_oraagent_oracle.trc".
+
+CRS-2674: Start of 'ora.FRA.dg' on 'ol6twsa' failed
+</pre>
+<p>I could not fix this issue with SQL statement:</p>
+<pre>
+SQL&gt; select name, compatibility, database_compatibility from v$asm_diskgroup;
+
+NAME
+------------------------------
+COMPATIBILITY
+------------------------------------------------------------
+DATABASE_COMPATIBILITY
+------------------------------------------------------------
+FRA
+0.0.0.0.0
+0.0.0.0.0
+
+DATA
+12.1.0.0.0
+10.1.0.0.0
+
+NAME
+------------------------------
+COMPATIBILITY
+------------------------------------------------------------
+DATABASE_COMPATIBILITY
+------------------------------------------------------------
+
+
+SQL&gt; alter diskgroup FRA set attribute 'compatible.asm'='12.1.0.0.0';
+alter diskgroup FRA set attribute 'compatible.asm'='12.1.0.0.0'
+*
+ERROR at line 1:
+ORA-15032: not all alterations performed
+ORA-15001: diskgroup "FRA" does not exist or is not mounted
+
+
+SQL&gt; alter diskgroup FRA mount;
+alter diskgroup FRA mount
+*
+ERROR at line 1:
+ORA-15032: not all alterations performed
+ORA-59303: The attribute compatible.asm (10.1.0.0.0) of the diskgroup being
+mounted should be 11.2.0.2.0 or higher.
+ORA-15221: ASM operation requires compatible.asm of 11.1.0.0.0 or higher
+
+
+SQL&gt; alter diskgroup FRA set attribute 'compatible.asm'='12.1.0.0.0';
+alter diskgroup FRA set attribute 'compatible.asm'='12.1.0.0.0'
+*
+ERROR at line 1:
+ORA-15032: not all alterations performed
+ORA-15001: diskgroup "FRA" does not exist or is not mounted
+
+
+SQL&gt; alter diskgroup FRA set attribute 'compatible.db'='10.1';
+alter diskgroup FRA set attribute 'compatible.db'='10.1'
+*
+ERROR at line 1:
+ORA-15032: not all alterations performed
+ORA-15001: diskgroup "FRA" does not exist or is not mounted
+</pre>
+<h3> Using mount restrict mode to change disk group compatibility </h3>
+<p>I managed to update disk group attributes with asmcmd:</p>
+<pre>
+ASMCMD&gt; mount --restrict FRA
+ASMCMD&gt; setattr -G FRA compatible.asm 11.2.0.2.0
+ASMCMD&gt; setattr -G FRA compatible.rdbms 11.2.0.0.0
+ASMCMD&gt; umount FRA
+ASMCMD&gt; mount FRA
+ASMCMD&gt; 
+</pre>
+<p>At this step it looked OK:</p>
+<pre>
+$ crsctl stat res -t
+--------------------------------------------------------------------------------
+Name           Target  State        Server                   State details       
+--------------------------------------------------------------------------------
+Local Resources
+--------------------------------------------------------------------------------
+ora.DATA.dg
+               ONLINE  ONLINE       ol6twsa                  STABLE
+ora.FRA.dg
+               ONLINE  ONLINE       ol6twsa                  STABLE
+ora.LISTENER.lsnr
+               ONLINE  ONLINE       ol6twsa                  STABLE
+ora.asm
+               ONLINE  ONLINE       ol6twsa                  Started,STABLE
+ora.ons
+               OFFLINE OFFLINE      ol6twsa                  STABLE
+--------------------------------------------------------------------------------
+Cluster Resources
+--------------------------------------------------------------------------------
+ora.cdb.db
+      1        OFFLINE OFFLINE                               Instance Shutdown,ST
+                                                             ABLE
+ora.cssd
+      1        ONLINE  ONLINE       ol6twsa                  STABLE
+ora.diskmon
+      1        OFFLINE OFFLINE                               STABLE
+ora.evmd
+      1        ONLINE  ONLINE       ol6twsa                  STABLE
+--------------------------------------------------------------------------------
+</pre>
+<p>I run last upgrade script:</p>
+<pre>
+$ /u01/app/12.2.0.1/grid/gridSetup.sh -executeConfigTools -responseFile upgrade.rsp -silent
+Launching Oracle Grid Infrastructure Setup Wizard...
+
+You can find the logs of this session at:
+/u01/app/oracle/oraInventory/logs/GridSetupActions2017-12-23_03-52-48PM
+
+Successfully Configured Software.
+</pre>
+<p>Now everything looked OK.</p>
+<p>I could start database instance:</p>
+<pre>
+$ . oraenv
+ORACLE_SID = [+ASM] ? CDB
+The Oracle base remains unchanged with value /u01/app/oracle
+$ srvctl start database -d CDB
+$ . oraenv
+ORACLE_SID = [oracle] ? +ASM
+The Oracle base has been set to /u01/app/oracle
+$ crsctl stat res -t
+--------------------------------------------------------------------------------
+Name           Target  State        Server                   State details       
+--------------------------------------------------------------------------------
+Local Resources
+--------------------------------------------------------------------------------
+ora.DATA.dg
+               ONLINE  ONLINE       ol6twsa                  STABLE
+ora.FRA.dg
+               ONLINE  ONLINE       ol6twsa                  STABLE
+ora.LISTENER.lsnr
+               ONLINE  ONLINE       ol6twsa                  STABLE
+ora.asm
+               ONLINE  ONLINE       ol6twsa                  Started,STABLE
+ora.ons
+               OFFLINE OFFLINE      ol6twsa                  STABLE
+--------------------------------------------------------------------------------
+Cluster Resources
+--------------------------------------------------------------------------------
+ora.cdb.db
+      1        ONLINE  ONLINE       ol6twsa                  Open,HOME=/u01/app/1
+                                                             2.1.0.2/db,STABLE
+ora.cssd
+      1        ONLINE  ONLINE       ol6twsa                  STABLE
+ora.diskmon
+      1        OFFLINE OFFLINE                               STABLE
+ora.evmd
+      1        ONLINE  ONLINE       ol6twsa                  STABLE
+--------------------------------------------------------------------------------
+</pre>
+<h3> Conclusion </h3>
+<p>Upgrade was not so easy because:</p>
+<li> CLUVFY was not running in my environment </li>
+<li> I did not patch Grid Infrastructure </li>
+<li> MOS says that ASM disk compatibility issue is reported by CVU ...</li>
+<li> ASMCMD mount restrict mode has allowed to fix ASM disk compatibility issue.</li>
+<p>
+This is my test environment.<br />
+<br />
+In production GI should be patched with a recent patch set update or bundle patch,<br />
+CVU should be working and ASM compatibility configuration should be double checked.</p>
