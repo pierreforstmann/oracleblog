@@ -1,0 +1,1424 @@
+<p>Both posts document how to install a 2-node Oracle RAC cluster with Oracle 12.2.0.1 on Red Hat Linux 7.3 (RH7) with VirtualBox (VBOX) 5.0.28 on Centos 7.3.</p>
+<p><a href="https://pierreforstmanndotcom.wordpress.com/2017/03/24/how-to-install-oracle-rac-12-2-0-1-in-silent-mode-on-red-hat-linux-7-3-with-virtualbox-part-1/" />Part 1</a> details Red Hat Linux installation and configuration and part 2 details Oracle software installation (Grid Infrastructure (GI), Oracle Database) and database creation.<br />
+<br />
+In this article GIMR stands for Grid Infrastructure Management Repository.</p>
+<p>Disclaimer: this is only an example that can be used to setup a lab or test system: it is not designed to be used for production purpose.<br />
+</p>
+<h2> Grid Infrastructure silent installation </h2>
+<p>I have created ORACLE_BASE and ORACLE_HOME target directories on both nodes:</p>
+<pre>
+# mkdir -p /u01/base
+# chown oracle:dba /u01/base
+# mkdir /u01/gi12201
+# chown oracle:oinstall /u01/gi12201
+# chmod -R 775 /u01
+</pre>
+<p>I have created <b>/etc/oraInst.loc</b> to define Oracle Inventory location on both nodes:</p>
+<pre>
+# cat /etc/oraInst.loc
+inventory_loc=/u01/orainv
+inst_group=oinstall
+# mkdir  /u01/orainv
+# chown oracle:oinstall /u01/orainv
+</pre>
+<p>
+I have unzipped GI media only on first cluster node:</p>
+<pre>
+$ pwd
+/u01/gi12201
+$ unzip -q /stage/linuxx64_12201_grid_home.zip
+</pre>
+<p>
+I have created following script to run OUI in silent mode:</p>
+<pre>
+set -x
+/u01/gi12201/gridSetup.sh \
+-silent \
+-ignorePrereqFailure \
+-responseFile /u01/gi12201/install/response/gridsetup.rsp \
+INVENTORY_LOCATION=/u01/orainv \
+oracle.install.option=CRS_CONFIG \
+ORACLE_BASE=/u01/base \
+oracle.install.asm.OSDBA=dba \
+oracle.install.asm.OSOPER=dba \
+oracle.install.asm.OSASM=dba \
+oracle.install.crs.config.gpnp.scanName=rh7ttc-scan \
+oracle.install.crs.config.gpnp.scanPort=1521 \
+oracle.install.crs.config.ClusterConfiguration=STANDALONE \
+oracle.install.crs.config.gpnp.configureGNS=false \
+oracle.install.crs.config.clusterName=rh7ttc \
+oracle.install.crs.config.clusterNodes=rh7ttcn1:rh7ttcn1-vip:HUB,rh7ttcn2:rh7ttcn2-vip:HUB \
+oracle.install.crs.config.networkInterfaceList=enp0s8:192.168.56.0:1,enp0s9:192.168.43.0:5 \
+oracle.install.crs.config.gpnp.configureGNS=false \
+oracle.install.asm.storageOption=ASM \
+oracle.install.asm.configureGIMRDataDG=false \
+oracle.install.asm.SYSASMPassword=oracle \
+oracle.install.asm.diskGroup.name=OVM \
+oracle.install.asm.diskGroup.redundancy=EXTERNAL \
+oracle.install.asm.diskGroup.disks=/dev/asm-disk2 \
+oracle.install.asm.diskGroup.diskDiscoveryString=/dev/asm* \
+oracle.install.asm.monitorPassword=oracle \
+-waitForCompletion                          
+</pre>
+<p>The above script is using following variables defined in <b>./install/response/gridsetup.rsp</b> response file:</p>
+<table border="2">
+<th>parameter name</th>
+<th>description</th>
+<tr>
+<td>INVENTORY_LOCATION</td>
+<td>Directory where Oracle Inventory will be stored. Must match <b>/etc/oraInst.loc</b> contents.</td>
+</tr>
+<tr>
+<td>oracle.install.option</td>
+<td>Must be set to CRS_CONFIG for Grid Infrastructure for cluster.</td>
+</tr>
+<tr>
+<td>oracle.install.crs.config.gpnp.scanName</td>
+<td>Must be set to DNS alias for the 3 SCAN listener adresses.</td>
+</tr>
+<td>oracle.install.crs.config.gpnp.scanPort</td>
+<td>Must be to set to TCP port to be used by SCAN listener.</td>
+</tr>
+<tr>
+<td>oracle.install.crs.config.ClusterConfiguration</td>
+<td>Must be set to STANDALONE (no Domain Cluster)</td>
+</tr>
+<tr>
+<td>oracle.install.crs.config.clusterName</td>
+<td>No dependency for this name.</td>
+</tr>
+<tr>
+<td>oracle.install.crs.config.gpnp.configureGNS</td>
+<td>Must be set to FALSE to <u>not</u> use Grid Naming Service (GNS).</td>
+</tr>
+<tr>
+<td>oracle.install.crs.config.clusterNodes</td>
+<td>Must be set to <i>public-hostname</i>:<i>vip-hostname</i>:<i>HUB</i> comma separated host name list (for STANDALONE cluster type).</td>
+</tr>
+<tr>
+<td>oracle.install.crs.config.networkInterfaceList</td>
+<td>Must be set to <i>network-interface</i>:<i>network-interface-subnet</i>:<i>network-interface_type</i> comma separated strings <br />where <i>network-interface_type</i> must be set to 1 for public interface and to 5 for private interface (interconnect).</td>
+<tr>
+<td>oracle.install.crs.config.storageOption</td>
+<td>Set to ASM for OCR and voting disk.</td>
+</tr>
+<tr>
+<td>oracle.install.crs.config.useIPMI</td>
+<td>Must be set to FALSE to <u>not</u> use Intelligent Power Management Interface.</td>
+</tr>
+<tr>
+<td>oracle.install.asm.SYSASMPassword</td>
+<td>Must be set to SYS password for ASM instance.</td>
+</tr>
+<tr>
+<td>oracle.install.asm.diskGroup.diskDiscoveryString</td>
+<td>Used to set ASM instance ASM_DISKSTRING parameter.</td>
+</tr>
+<tr>
+<td>oracle.install.asm.diskGroup.name</td>
+<td>Name of ASM disk group used for OCR, voting disk and GIMR database.</td>
+</tr>
+<tr>
+<td>oracle.install.asm.configureGIMRDataDG</td>
+<td>must be set to false to <u>not</u> use a separate disk for GIMR database</td>
+</tr>
+<td>oracle.install.asm.diskGroup.disks</td>
+<td>Comma separated ASM disk names list to be used for above ASM disk group.</td>
+</tr>
+<tr>
+<td>oracle.install.asm.diskGroup.redundancy</td>
+<td>Disk group redundancy used by above ASM disk group.</td>
+</tr>
+<tr>
+<td>oracle.install.asm.monitorPassword</td>
+<td>Must be set to ASMSNMP password for ASM instance.</td>
+</tr>
+</table>
+<p>
+Note that I have set oracle.install.asm.configureGIMRDataDG to false because I have not been able to use a separate disk<br />
+for GIMR. In my environment I have tried to set:</p>
+<pre>
+oracle.install.asm.configureGIMRDataDG=true
+oracle.install.asm.gimrDG.name=MGMT
+oracle.install.asm.gimrDG.redundancy=EXTERNAL
+oracle.install.asm.gimrDG.disks=/dev/asm-disk2
+</pre>
+<p>But this has always failed in root.sh steps on first node with:</p>
+<pre>
+CLSRSC-594: Executing installation step 9 of 19: 'ConfigOLR'.
+PROTL-4: Failed to retrieve data from the local registry
+CLSRSC-169: Failed to create or upgrade OLR
+Died at /u01/gi12201/crs/install/oraolr.pm line 495.
+The command '/u01/gi12201/perl/bin/perl -I/u01/gi12201/perl/lib -I/u01/gi12201/crs/install /u01/gi12201/crs/install/rootcrs.pl ' execution failed
+</pre>
+<p>
+Running OUI script for GI has given following output:</p>
+<pre>
+Launching Oracle Grid Infrastructure Setup Wizard...
+
+[WARNING] [INS-30011] The SYS password entered does not conform to the Oracle recommended standards.
+   CAUSE: Oracle recommends that the password entered should be at least 8 characters in length, contain at least 1 uppercase character, 1 lower case character and 1 digit [0-9].
+   ACTION: Provide a password that conforms to the Oracle recommended standards.
+[WARNING] [INS-30011] The ASMSNMP password entered does not conform to the Oracle recommended standards.
+   CAUSE: Oracle recommends that the password entered should be at least 8 characters in length, contain at least 1 uppercase character, 1 lower case character and 1 digit [0-9].
+   ACTION: Provide a password that conforms to the Oracle recommended standards.
+[WARNING] [INS-41808] Possible invalid choice for OSASM Group.
+   CAUSE: The name of the group you selected for the OSASM group is commonly used to grant other system privileges (For example: asmdba, asmoper, dba, oper).
+   ACTION: Oracle recommends that you designate asmadmin as the OSASM group.
+[WARNING] [INS-41809] Possible invalid choice for OSDBA Group.
+   CAUSE: The group name you selected as the OSDBA for ASM group is commonly used for Oracle Database administrator privileges.
+   ACTION: Oracle recommends that you designate asmdba as the OSDBA for ASM group, and that the group should not be the same group as an Oracle Database OSDBA group.
+[WARNING] [INS-41810] Possible invalid choice for OSOPER Group.
+   CAUSE: The group name you selected as the OSOPER for ASM group is commonly used for Oracle Database administrator privileges.
+   ACTION: Oracle recommends that you designate asmoper as the OSOPER for ASM group, and that the group should not be the same group as an Oracle Database OSOPER group.
+[WARNING] [INS-41813] OSDBA for ASM, OSOPER for ASM, and OSASM are the same OS group.
+   CAUSE: The group you selected for granting the OSDBA for ASM group for database access, and the OSOPER for ASM group for startup and shutdown of Oracle ASM, is the same group as the OSASM group, whose members have SYSASM privileges on Oracle ASM.
+   ACTION: Choose different groups as the OSASM, OSDBA for ASM, and OSOPER for ASM groups.
+[WARNING] [INS-13013] Target environment does not meet some mandatory requirements.
+   CAUSE: Some of the mandatory prerequisites are not met. See logs for details. /u01/orainv/logs/GridSetupActions2017-03-22_07-46-05PM/gridSetupActions2017-03-22_07-46-05PM.log
+   ACTION: Identify the list of failed prerequisite checks from the log: /u01/orainv/logs/GridSetupActions2017-03-22_07-46-05PM/gridSetupActions2017-03-22_07-46-05PM.log. Then either from the log file or from installation manual find the appropriate configuration to meet the prerequisites and fix it manually.
+You can find the log of this install session at:
+ /u01/orainv/logs/GridSetupActions2017-03-22_07-46-05PM/gridSetupActions2017-03-22_07-46-05PM.log
+
+As a root user, execute the following script(s):
+	1. /u01/gi12201/root.sh
+
+Execute /u01/gi12201/root.sh on the following nodes: 
+[rh7ttcn1, rh7ttcn2]
+
+Run the script on the local node first. After successful completion, you can start the script in parallel on all other nodes.
+
+Successfully Setup Software.
+As install user, execute the following command to complete the configuration.
+	/u01/gi12201/gridSetup.sh -executeConfigTools -responseFile /u01/gi12201/install/response/gridsetup.rsp [-silent]
+</pre>
+<p>I have ignore following failed prerequisites with -ignorePrereqFailure switch:</p>
+<pre>
+INFO:  [Mar 22, 2017 7:48:22 PM] ------------------List of failed Tasks------------------
+INFO:  [Mar 22, 2017 7:48:22 PM] *********************************************
+INFO:  [Mar 22, 2017 7:48:22 PM] Package: gcc-c++-4.8.2: This is a prerequisite condition to test whether the package "gcc-c++-4.8.2" is available on the system.
+INFO:  [Mar 22, 2017 7:48:22 PM] Severity:IGNORABLE
+INFO:  [Mar 22, 2017 7:48:22 PM] OverallStatus:VERIFICATION_FAILED
+INFO:  [Mar 22, 2017 7:48:22 PM] *********************************************
+INFO:  [Mar 22, 2017 7:48:22 PM] Domain Sockets: This task verifies Clusterware domain sockets
+INFO:  [Mar 22, 2017 7:48:22 PM] Severity:IGNORABLE
+INFO:  [Mar 22, 2017 7:48:22 PM] OverallStatus:VERIFICATION_FAILED
+INFO:  [Mar 22, 2017 7:48:22 PM] *********************************************
+INFO:  [Mar 22, 2017 7:48:22 PM] /dev/shm mounted as temporary file system: Checks whether /dev/shm is mounted correctly as temporary file system
+INFO:  [Mar 22, 2017 7:48:22 PM] Severity:IGNORABLE
+INFO:  [Mar 22, 2017 7:48:22 PM] OverallStatus:VERIFICATION_FAILED
+INFO:  [Mar 22, 2017 7:48:22 PM] *********************************************
+INFO:  [Mar 22, 2017 7:48:22 PM] I/O scheduler: This task checks the I/O scheduler parameter configured
+INFO:  [Mar 22, 2017 7:48:22 PM] Severity:IGNORABLE
+INFO:  [Mar 22, 2017 7:48:22 PM] OverallStatus:WARNING
+INFO:  [Mar 22, 2017 7:48:22 PM] *********************************************
+INFO:  [Mar 22, 2017 7:48:22 PM] resolv.conf Integrity: resolv.conf Integrity
+INFO:  [Mar 22, 2017 7:48:22 PM] Severity:CRITICAL
+INFO:  [Mar 22, 2017 7:48:22 PM] OverallStatus:VERIFICATION_FAILED
+INFO:  [Mar 22, 2017 7:48:22 PM] *********************************************
+INFO:  [Mar 22, 2017 7:48:22 PM] (Linux) resolv.conf Integrity: This task checks consistency of file /etc/resolv.conf file across nodes
+INFO:  [Mar 22, 2017 7:48:22 PM] Severity:CRITICAL
+INFO:  [Mar 22, 2017 7:48:22 PM] OverallStatus:VERIFICATION_FAILED
+INFO:  [Mar 22, 2017 7:48:22 PM] -----------------End of failed Tasks List----------------
+</pre>
+<p>On  first cluster node I have run root.sh:</p>
+<pre>
+# /u01/gi12201/root.sh
+Check /u01/gi12201/install/root_rh7ttcn1.localdomain_2017-03-22_19-56-08-393599429.log for the output of root script
+</pre>
+<p>Corresponding log is:</p>
+<pre>
+cat  /u01/gi12201/install/root_rh7ttcn1.localdomain_2017-03-22_19-56-08-393599429.log
+Performing root user operation.
+
+The following environment variables are set as:
+    ORACLE_OWNER= oracle
+    ORACLE_HOME=  /u01/gi12201
+   Copying dbhome to /usr/local/bin ...
+   Copying oraenv to /usr/local/bin ...
+   Copying coraenv to /usr/local/bin ...
+
+Entries will be added to the /etc/oratab file as needed by
+Database Configuration Assistant when a database is created
+Finished running generic part of root script.
+Now product-specific root actions will be performed.
+Relinking oracle with rac_on option
+Using configuration parameter file: /u01/gi12201/crs/install/crsconfig_params
+The log of current session can be found at:
+  /u01/base/crsdata/rh7ttcn1/crsconfig/rootcrs_rh7ttcn1_2017-03-22_07-56-17PM.log
+2017/03/22 19:56:21 CLSRSC-594: Executing installation step 1 of 19: 'SetupTFA'.
+2017/03/22 19:56:21 CLSRSC-4001: Installing Oracle Trace File Analyzer (TFA) Collector.
+2017/03/22 19:56:51 CLSRSC-4002: Successfully installed Oracle Trace File Analyzer (TFA) Collector.
+2017/03/22 19:56:51 CLSRSC-594: Executing installation step 2 of 19: 'ValidateEnv'.
+2017/03/22 19:56:56 CLSRSC-363: User ignored prerequisites during installation
+2017/03/22 19:56:56 CLSRSC-594: Executing installation step 3 of 19: 'CheckFirstNode'.
+2017/03/22 19:56:57 CLSRSC-594: Executing installation step 4 of 19: 'GenSiteGUIDs'.
+2017/03/22 19:56:59 CLSRSC-594: Executing installation step 5 of 19: 'SaveParamFile'.
+2017/03/22 19:57:05 CLSRSC-594: Executing installation step 6 of 19: 'SetupOSD'.
+2017/03/22 19:57:06 CLSRSC-594: Executing installation step 7 of 19: 'CheckCRSConfig'.
+2017/03/22 19:57:06 CLSRSC-594: Executing installation step 8 of 19: 'SetupLocalGPNP'.
+2017/03/22 19:57:36 CLSRSC-594: Executing installation step 9 of 19: 'ConfigOLR'.
+2017/03/22 19:57:44 CLSRSC-594: Executing installation step 10 of 19: 'ConfigCHMOS'.
+2017/03/22 19:57:44 CLSRSC-594: Executing installation step 11 of 19: 'CreateOHASD'.
+2017/03/22 19:57:50 CLSRSC-594: Executing installation step 12 of 19: 'ConfigOHASD'.
+2017/03/22 19:58:06 CLSRSC-330: Adding Clusterware entries to file 'oracle-ohasd.service'
+2017/03/22 19:58:25 CLSRSC-594: Executing installation step 13 of 19: 'InstallAFD'.
+2017/03/22 19:58:31 CLSRSC-594: Executing installation step 14 of 19: 'InstallACFS'.
+CRS-2791: Starting shutdown of Oracle High Availability Services-managed resources on 'rh7ttcn1'
+CRS-2793: Shutdown of Oracle High Availability Services-managed resources on 'rh7ttcn1' has completed
+CRS-4133: Oracle High Availability Services has been stopped.
+CRS-4123: Oracle High Availability Services has been started.
+2017/03/22 19:58:52 CLSRSC-594: Executing installation step 15 of 19: 'InstallKA'.
+2017/03/22 19:58:58 CLSRSC-594: Executing installation step 16 of 19: 'InitConfig'.
+CRS-2791: Starting shutdown of Oracle High Availability Services-managed resources on 'rh7ttcn1'
+CRS-2793: Shutdown of Oracle High Availability Services-managed resources on 'rh7ttcn1' has completed
+CRS-4133: Oracle High Availability Services has been stopped.
+CRS-4123: Oracle High Availability Services has been started.
+CRS-2672: Attempting to start 'ora.evmd' on 'rh7ttcn1'
+CRS-2672: Attempting to start 'ora.mdnsd' on 'rh7ttcn1'
+CRS-2676: Start of 'ora.mdnsd' on 'rh7ttcn1' succeeded
+CRS-2676: Start of 'ora.evmd' on 'rh7ttcn1' succeeded
+CRS-2672: Attempting to start 'ora.gpnpd' on 'rh7ttcn1'
+CRS-2676: Start of 'ora.gpnpd' on 'rh7ttcn1' succeeded
+CRS-2672: Attempting to start 'ora.cssdmonitor' on 'rh7ttcn1'
+CRS-2672: Attempting to start 'ora.gipcd' on 'rh7ttcn1'
+CRS-2676: Start of 'ora.cssdmonitor' on 'rh7ttcn1' succeeded
+CRS-2676: Start of 'ora.gipcd' on 'rh7ttcn1' succeeded
+CRS-2672: Attempting to start 'ora.cssd' on 'rh7ttcn1'
+CRS-2672: Attempting to start 'ora.diskmon' on 'rh7ttcn1'
+CRS-2676: Start of 'ora.diskmon' on 'rh7ttcn1' succeeded
+CRS-2676: Start of 'ora.cssd' on 'rh7ttcn1' succeeded
+
+Disk groups created successfully. Check /u01/base/cfgtoollogs/asmca/asmca-170322PM075939.log for details.
+
+
+2017/03/22 20:01:12 CLSRSC-482: Running command: '/u01/gi12201/bin/ocrconfig -upgrade oracle oinstall'
+CRS-2672: Attempting to start 'ora.crf' on 'rh7ttcn1'
+CRS-2672: Attempting to start 'ora.storage' on 'rh7ttcn1'
+CRS-2676: Start of 'ora.storage' on 'rh7ttcn1' succeeded
+CRS-2676: Start of 'ora.crf' on 'rh7ttcn1' succeeded
+CRS-2672: Attempting to start 'ora.crsd' on 'rh7ttcn1'
+CRS-2676: Start of 'ora.crsd' on 'rh7ttcn1' succeeded
+CRS-4256: Updating the profile
+Successful addition of voting disk d61c25e4f4ec4f0fbfd283e630fba8a4.
+Successfully replaced voting disk group with +OVM.
+CRS-4256: Updating the profile
+CRS-4266: Voting file(s) successfully replaced
+##  STATE    File Universal Id                File Name Disk group
+--  -----    -----------------                --------- ---------
+ 1. ONLINE   d61c25e4f4ec4f0fbfd283e630fba8a4 (/dev/asm-disk2) [OVM]
+Located 1 voting disk(s).
+CRS-2791: Starting shutdown of Oracle High Availability Services-managed resources on 'rh7ttcn1'
+CRS-2673: Attempting to stop 'ora.crsd' on 'rh7ttcn1'
+CRS-2677: Stop of 'ora.crsd' on 'rh7ttcn1' succeeded
+CRS-2673: Attempting to stop 'ora.storage' on 'rh7ttcn1'
+CRS-2673: Attempting to stop 'ora.crf' on 'rh7ttcn1'
+CRS-2673: Attempting to stop 'ora.gpnpd' on 'rh7ttcn1'
+CRS-2673: Attempting to stop 'ora.mdnsd' on 'rh7ttcn1'
+CRS-2677: Stop of 'ora.crf' on 'rh7ttcn1' succeeded
+CRS-2677: Stop of 'ora.gpnpd' on 'rh7ttcn1' succeeded
+CRS-2677: Stop of 'ora.storage' on 'rh7ttcn1' succeeded
+CRS-2673: Attempting to stop 'ora.asm' on 'rh7ttcn1'
+CRS-2677: Stop of 'ora.mdnsd' on 'rh7ttcn1' succeeded
+CRS-2677: Stop of 'ora.asm' on 'rh7ttcn1' succeeded
+CRS-2673: Attempting to stop 'ora.cluster_interconnect.haip' on 'rh7ttcn1'
+CRS-2677: Stop of 'ora.cluster_interconnect.haip' on 'rh7ttcn1' succeeded
+CRS-2673: Attempting to stop 'ora.ctssd' on 'rh7ttcn1'
+CRS-2673: Attempting to stop 'ora.evmd' on 'rh7ttcn1'
+CRS-2677: Stop of 'ora.evmd' on 'rh7ttcn1' succeeded
+CRS-2677: Stop of 'ora.ctssd' on 'rh7ttcn1' succeeded
+CRS-2673: Attempting to stop 'ora.cssd' on 'rh7ttcn1'
+CRS-2677: Stop of 'ora.cssd' on 'rh7ttcn1' succeeded
+CRS-2673: Attempting to stop 'ora.gipcd' on 'rh7ttcn1'
+CRS-2677: Stop of 'ora.gipcd' on 'rh7ttcn1' succeeded
+CRS-2793: Shutdown of Oracle High Availability Services-managed resources on 'rh7ttcn1' has completed
+CRS-4133: Oracle High Availability Services has been stopped.
+2017/03/22 20:02:26 CLSRSC-594: Executing installation step 17 of 19: 'StartCluster'.
+CRS-4123: Starting Oracle High Availability Services-managed resources
+CRS-2672: Attempting to start 'ora.mdnsd' on 'rh7ttcn1'
+CRS-2672: Attempting to start 'ora.evmd' on 'rh7ttcn1'
+CRS-2676: Start of 'ora.mdnsd' on 'rh7ttcn1' succeeded
+CRS-2676: Start of 'ora.evmd' on 'rh7ttcn1' succeeded
+CRS-2672: Attempting to start 'ora.gpnpd' on 'rh7ttcn1'
+CRS-2676: Start of 'ora.gpnpd' on 'rh7ttcn1' succeeded
+CRS-2672: Attempting to start 'ora.gipcd' on 'rh7ttcn1'
+CRS-2676: Start of 'ora.gipcd' on 'rh7ttcn1' succeeded
+CRS-2672: Attempting to start 'ora.cssdmonitor' on 'rh7ttcn1'
+CRS-2676: Start of 'ora.cssdmonitor' on 'rh7ttcn1' succeeded
+CRS-2672: Attempting to start 'ora.cssd' on 'rh7ttcn1'
+CRS-2672: Attempting to start 'ora.diskmon' on 'rh7ttcn1'
+CRS-2676: Start of 'ora.diskmon' on 'rh7ttcn1' succeeded
+CRS-2676: Start of 'ora.cssd' on 'rh7ttcn1' succeeded
+CRS-2672: Attempting to start 'ora.cluster_interconnect.haip' on 'rh7ttcn1'
+CRS-2672: Attempting to start 'ora.ctssd' on 'rh7ttcn1'
+CRS-2676: Start of 'ora.ctssd' on 'rh7ttcn1' succeeded
+CRS-2676: Start of 'ora.cluster_interconnect.haip' on 'rh7ttcn1' succeeded
+CRS-2672: Attempting to start 'ora.asm' on 'rh7ttcn1'
+CRS-2676: Start of 'ora.asm' on 'rh7ttcn1' succeeded
+CRS-2672: Attempting to start 'ora.storage' on 'rh7ttcn1'
+CRS-2676: Start of 'ora.storage' on 'rh7ttcn1' succeeded
+CRS-2672: Attempting to start 'ora.crf' on 'rh7ttcn1'
+CRS-2676: Start of 'ora.crf' on 'rh7ttcn1' succeeded
+CRS-2672: Attempting to start 'ora.crsd' on 'rh7ttcn1'
+CRS-2676: Start of 'ora.crsd' on 'rh7ttcn1' succeeded
+CRS-6023: Starting Oracle Cluster Ready Services-managed resources
+CRS-6017: Processing resource auto-start for servers: rh7ttcn1
+CRS-6016: Resource auto-start has completed for server rh7ttcn1
+CRS-6024: Completed start of Oracle Cluster Ready Services-managed resources
+CRS-4123: Oracle High Availability Services has been started.
+2017/03/22 20:04:36 CLSRSC-343: Successfully started Oracle Clusterware stack
+2017/03/22 20:04:36 CLSRSC-594: Executing installation step 18 of 19: 'ConfigNode'.
+CRS-2672: Attempting to start 'ora.ASMNET1LSNR_ASM.lsnr' on 'rh7ttcn1'
+CRS-2676: Start of 'ora.ASMNET1LSNR_ASM.lsnr' on 'rh7ttcn1' succeeded
+CRS-2672: Attempting to start 'ora.asm' on 'rh7ttcn1'
+CRS-2676: Start of 'ora.asm' on 'rh7ttcn1' succeeded
+CRS-2672: Attempting to start 'ora.OVM.dg' on 'rh7ttcn1'
+CRS-2676: Start of 'ora.OVM.dg' on 'rh7ttcn1' succeeded
+2017/03/22 20:06:46 CLSRSC-594: Executing installation step 19 of 19: 'PostConfig'.
+2017/03/22 20:07:19 CLSRSC-325: Configure Oracle Grid Infrastructure for a Cluster ... succeeded
+</pre>
+<p>I have run root.sh on second cluster node:</p>
+<pre>
+# /u01/gi12201/root.sh
+Check /u01/gi12201/install/root_rh7ttcn2.localdomain_2017-03-22_20-09-10-533930444.log for the output of root script
+</pre>
+<p>Corresponding log is:</p>
+<pre>
+# cat /u01/gi12201/install/root_rh7ttcn2.localdomain_2017-03-22_20-09-10-533930444.log
+Performing root user operation.
+
+The following environment variables are set as:
+    ORACLE_OWNER= oracle
+    ORACLE_HOME=  /u01/gi12201
+   Copying dbhome to /usr/local/bin ...
+   Copying oraenv to /usr/local/bin ...
+   Copying coraenv to /usr/local/bin ...
+
+Entries will be added to the /etc/oratab file as needed by
+Database Configuration Assistant when a database is created
+Finished running generic part of root script.
+Now product-specific root actions will be performed.
+Relinking oracle with rac_on option
+Using configuration parameter file: /u01/gi12201/crs/install/crsconfig_params
+The log of current session can be found at:
+  /u01/base/crsdata/rh7ttcn2/crsconfig/rootcrs_rh7ttcn2_2017-03-22_08-09-22PM.log
+2017/03/22 20:09:26 CLSRSC-594: Executing installation step 1 of 19: 'SetupTFA'.
+2017/03/22 20:09:27 CLSRSC-4001: Installing Oracle Trace File Analyzer (TFA) Collector.
+2017/03/22 20:09:54 CLSRSC-4002: Successfully installed Oracle Trace File Analyzer (TFA) Collector.
+2017/03/22 20:09:55 CLSRSC-594: Executing installation step 2 of 19: 'ValidateEnv'.
+2017/03/22 20:09:57 CLSRSC-363: User ignored prerequisites during installation
+2017/03/22 20:09:57 CLSRSC-594: Executing installation step 3 of 19: 'CheckFirstNode'.
+2017/03/22 20:09:58 CLSRSC-594: Executing installation step 4 of 19: 'GenSiteGUIDs'.
+2017/03/22 20:09:58 CLSRSC-594: Executing installation step 5 of 19: 'SaveParamFile'.
+2017/03/22 20:10:01 CLSRSC-594: Executing installation step 6 of 19: 'SetupOSD'.
+2017/03/22 20:10:05 CLSRSC-594: Executing installation step 7 of 19: 'CheckCRSConfig'.
+2017/03/22 20:10:06 CLSRSC-594: Executing installation step 8 of 19: 'SetupLocalGPNP'.
+2017/03/22 20:10:08 CLSRSC-594: Executing installation step 9 of 19: 'ConfigOLR'.
+2017/03/22 20:10:09 CLSRSC-594: Executing installation step 10 of 19: 'ConfigCHMOS'.
+2017/03/22 20:10:09 CLSRSC-594: Executing installation step 11 of 19: 'CreateOHASD'.
+2017/03/22 20:10:11 CLSRSC-594: Executing installation step 12 of 19: 'ConfigOHASD'.
+2017/03/22 20:10:26 CLSRSC-330: Adding Clusterware entries to file 'oracle-ohasd.service'
+2017/03/22 20:10:41 CLSRSC-594: Executing installation step 13 of 19: 'InstallAFD'.
+2017/03/22 20:10:42 CLSRSC-594: Executing installation step 14 of 19: 'InstallACFS'.
+CRS-2791: Starting shutdown of Oracle High Availability Services-managed resources on 'rh7ttcn2'
+CRS-2793: Shutdown of Oracle High Availability Services-managed resources on 'rh7ttcn2' has completed
+CRS-4133: Oracle High Availability Services has been stopped.
+CRS-4123: Oracle High Availability Services has been started.
+2017/03/22 20:10:59 CLSRSC-594: Executing installation step 15 of 19: 'InstallKA'.
+2017/03/22 20:11:00 CLSRSC-594: Executing installation step 16 of 19: 'InitConfig'.
+CRS-2791: Starting shutdown of Oracle High Availability Services-managed resources on 'rh7ttcn2'
+CRS-2793: Shutdown of Oracle High Availability Services-managed resources on 'rh7ttcn2' has completed
+CRS-4133: Oracle High Availability Services has been stopped.
+CRS-4123: Oracle High Availability Services has been started.
+CRS-2791: Starting shutdown of Oracle High Availability Services-managed resources on 'rh7ttcn2'
+CRS-2793: Shutdown of Oracle High Availability Services-managed resources on 'rh7ttcn2' has completed
+CRS-4133: Oracle High Availability Services has been stopped.
+2017/03/22 20:11:18 CLSRSC-594: Executing installation step 17 of 19: 'StartCluster'.
+CRS-4123: Starting Oracle High Availability Services-managed resources
+CRS-2672: Attempting to start 'ora.mdnsd' on 'rh7ttcn2'
+CRS-2672: Attempting to start 'ora.evmd' on 'rh7ttcn2'
+CRS-2676: Start of 'ora.evmd' on 'rh7ttcn2' succeeded
+CRS-2676: Start of 'ora.mdnsd' on 'rh7ttcn2' succeeded
+CRS-2672: Attempting to start 'ora.gpnpd' on 'rh7ttcn2'
+CRS-2676: Start of 'ora.gpnpd' on 'rh7ttcn2' succeeded
+CRS-2672: Attempting to start 'ora.gipcd' on 'rh7ttcn2'
+CRS-2676: Start of 'ora.gipcd' on 'rh7ttcn2' succeeded
+CRS-2672: Attempting to start 'ora.cssdmonitor' on 'rh7ttcn2'
+CRS-2676: Start of 'ora.cssdmonitor' on 'rh7ttcn2' succeeded
+CRS-2672: Attempting to start 'ora.cssd' on 'rh7ttcn2'
+CRS-2672: Attempting to start 'ora.diskmon' on 'rh7ttcn2'
+CRS-2676: Start of 'ora.diskmon' on 'rh7ttcn2' succeeded
+CRS-2676: Start of 'ora.cssd' on 'rh7ttcn2' succeeded
+CRS-2672: Attempting to start 'ora.cluster_interconnect.haip' on 'rh7ttcn2'
+CRS-2672: Attempting to start 'ora.ctssd' on 'rh7ttcn2'
+CRS-2676: Start of 'ora.ctssd' on 'rh7ttcn2' succeeded
+CRS-2676: Start of 'ora.cluster_interconnect.haip' on 'rh7ttcn2' succeeded
+CRS-2672: Attempting to start 'ora.asm' on 'rh7ttcn2'
+CRS-2676: Start of 'ora.asm' on 'rh7ttcn2' succeeded
+CRS-2672: Attempting to start 'ora.storage' on 'rh7ttcn2'
+CRS-2676: Start of 'ora.storage' on 'rh7ttcn2' succeeded
+CRS-2672: Attempting to start 'ora.crf' on 'rh7ttcn2'
+CRS-2676: Start of 'ora.crf' on 'rh7ttcn2' succeeded
+CRS-2672: Attempting to start 'ora.crsd' on 'rh7ttcn2'
+CRS-2676: Start of 'ora.crsd' on 'rh7ttcn2' succeeded
+CRS-6017: Processing resource auto-start for servers: rh7ttcn2
+CRS-2673: Attempting to stop 'ora.LISTENER_SCAN1.lsnr' on 'rh7ttcn1'
+CRS-2672: Attempting to start 'ora.net1.network' on 'rh7ttcn2'
+CRS-2672: Attempting to start 'ora.ASMNET1LSNR_ASM.lsnr' on 'rh7ttcn2'
+CRS-2677: Stop of 'ora.LISTENER_SCAN1.lsnr' on 'rh7ttcn1' succeeded
+CRS-2676: Start of 'ora.net1.network' on 'rh7ttcn2' succeeded
+CRS-2673: Attempting to stop 'ora.scan1.vip' on 'rh7ttcn1'
+CRS-2672: Attempting to start 'ora.ons' on 'rh7ttcn2'
+CRS-2677: Stop of 'ora.scan1.vip' on 'rh7ttcn1' succeeded
+CRS-2672: Attempting to start 'ora.scan1.vip' on 'rh7ttcn2'
+CRS-2676: Start of 'ora.scan1.vip' on 'rh7ttcn2' succeeded
+CRS-2672: Attempting to start 'ora.LISTENER_SCAN1.lsnr' on 'rh7ttcn2'
+CRS-2676: Start of 'ora.ASMNET1LSNR_ASM.lsnr' on 'rh7ttcn2' succeeded
+CRS-2672: Attempting to start 'ora.asm' on 'rh7ttcn2'
+CRS-2676: Start of 'ora.ons' on 'rh7ttcn2' succeeded
+CRS-2676: Start of 'ora.LISTENER_SCAN1.lsnr' on 'rh7ttcn2' succeeded
+CRS-2676: Start of 'ora.asm' on 'rh7ttcn2' succeeded
+CRS-6016: Resource auto-start has completed for server rh7ttcn2
+CRS-6024: Completed start of Oracle Cluster Ready Services-managed resources
+CRS-4123: Oracle High Availability Services has been started.
+2017/03/22 20:13:04 CLSRSC-343: Successfully started Oracle Clusterware stack
+2017/03/22 20:13:04 CLSRSC-594: Executing installation step 18 of 19: 'ConfigNode'.
+2017/03/22 20:13:19 CLSRSC-594: Executing installation step 19 of 19: 'PostConfig'.
+2017/03/22 20:13:28 CLSRSC-325: Configure Oracle Grid Infrastructure for a Cluster ... succeeded
+</pre>
+<p>I have run the last GI configuration script with oracle user account:</p>
+<pre>
+/u01/gi12201/gridSetup.sh -executeConfigTools \
+-responseFile /u01/gi12201/install/response/gridsetup.rsp \
+-silent \
+INVENTORY_LOCATION=/u01/orainv \
+oracle.install.option=CRS_CONFIG \
+ORACLE_BASE=/u01/base \
+oracle.install.asm.OSDBA=dba \
+oracle.install.asm.OSOPER=dba \
+oracle.install.asm.OSASM=dba \
+oracle.install.crs.config.gpnp.scanName=rh7ttc-scan \
+oracle.install.crs.config.gpnp.scanPort=1521 \
+oracle.install.crs.config.ClusterConfiguration=STANDALONE \
+oracle.install.crs.config.gpnp.configureGNS=false \
+oracle.install.crs.config.clusterName=rh7ttc \
+oracle.install.crs.config.clusterNodes=rh7ttcn1:rh7ttcn1-vip:HUB,rh7ttcn2:rh7ttcn2-vip:HUB \
+oracle.install.crs.config.networkInterfaceList=enp0s8:192.168.56.0:1,enp0s9:192.168.43.0:5 \
+oracle.install.crs.config.gpnp.configureGNS=false \
+oracle.install.asm.storageOption=ASM \
+oracle.install.asm.configureGIMRDataDG=false \
+oracle.install.asm.SYSASMPassword=oracle \
+oracle.install.asm.diskGroup.name=OVM \
+oracle.install.asm.diskGroup.redundancy=EXTERNAL \
+oracle.install.asm.diskGroup.disks=/dev/asm-disk2 \
+oracle.install.asm.diskGroup.diskDiscoveryString=/dev/asm* \
+oracle.install.asm.monitorPassword=oracle \
+-waitForCompletion
+</pre>
+<p>Output is:</p>
+<pre>
+Launching Oracle Grid Infrastructure Setup Wizard...
+
+You can find the logs of this session at:
+/u01/orainv/logs/GridSetupActions2017-03-22_08-24-45PM
+
+Successfully Configured Software.
+</pre>
+<p>I  have checked current cluster resources:</p>
+<pre>
+$ crsctl stat res -t
+--------------------------------------------------------------------------------
+Name           Target  State        Server                   State details       
+--------------------------------------------------------------------------------
+Local Resources
+--------------------------------------------------------------------------------
+ora.ASMNET1LSNR_ASM.lsnr
+               ONLINE  ONLINE       rh7ttcn1                 STABLE
+               ONLINE  ONLINE       rh7ttcn2                 STABLE
+ora.LISTENER.lsnr
+               ONLINE  ONLINE       rh7ttcn1                 STABLE
+               ONLINE  ONLINE       rh7ttcn2                 STABLE
+ora.OVM.dg
+               ONLINE  ONLINE       rh7ttcn1                 STABLE
+               ONLINE  ONLINE       rh7ttcn2                 STABLE
+ora.chad
+               ONLINE  ONLINE       rh7ttcn1                 STABLE
+               ONLINE  ONLINE       rh7ttcn2                 STABLE
+ora.net1.network
+               ONLINE  ONLINE       rh7ttcn1                 STABLE
+               ONLINE  ONLINE       rh7ttcn2                 STABLE
+ora.ons
+               ONLINE  ONLINE       rh7ttcn1                 STABLE
+               ONLINE  ONLINE       rh7ttcn2                 STABLE
+--------------------------------------------------------------------------------
+Cluster Resources
+--------------------------------------------------------------------------------
+ora.LISTENER_SCAN1.lsnr
+      1        ONLINE  ONLINE       rh7ttcn2                 STABLE
+ora.LISTENER_SCAN2.lsnr
+      1        ONLINE  ONLINE       rh7ttcn1                 STABLE
+ora.LISTENER_SCAN3.lsnr
+      1        ONLINE  ONLINE       rh7ttcn1                 STABLE
+ora.MGMTLSNR
+      1        ONLINE  ONLINE       rh7ttcn1                 169.254.253.229 192.
+                                                             168.43.141,STABLE
+ora.asm
+      1        ONLINE  ONLINE       rh7ttcn1                 Started,STABLE
+      2        ONLINE  ONLINE       rh7ttcn2                 Started,STABLE
+      3        OFFLINE OFFLINE                               STABLE
+ora.cvu
+      1        ONLINE  ONLINE       rh7ttcn1                 STABLE
+ora.mgmtdb
+      1        ONLINE  ONLINE       rh7ttcn1                 Open,STABLE
+ora.qosmserver
+      1        ONLINE  ONLINE       rh7ttcn1                 STABLE
+ora.rh7ttcn1.vip
+      1        ONLINE  ONLINE       rh7ttcn1                 STABLE
+ora.rh7ttcn2.vip
+      1        ONLINE  ONLINE       rh7ttcn2                 STABLE
+ora.scan1.vip
+      1        ONLINE  ONLINE       rh7ttcn2                 STABLE
+ora.scan2.vip
+      1        ONLINE  ONLINE       rh7ttcn1                 STABLE
+ora.scan3.vip
+      1        ONLINE  ONLINE       rh7ttcn1                 STABLE
+--------------------------------------------------------------------------------
+</pre>
+<p>This step has taken is quite long (in my environment it has taken about 30 minutes).<br />
+<br />
+I have also checked OCR and voting disk with:</p>
+<pre>
+$ asmcmd lsdg
+State    Type    Rebal  Sector  Logical_Sector  Block       AU  Total_MB  Free_MB  Req_mir_free_MB  Usable_file_MB  Offline_disks  Voting_files  Name
+MOUNTED  EXTERN  N         512             512   4096  1048576     40959     7081                0            7081              0             Y  OVM/
+$ ocrcheck
+Status of Oracle Cluster Registry is as follows :
+	 Version                  :          4
+	 Total space (kbytes)     :     409568
+	 Used space (kbytes)      :       2096
+	 Available space (kbytes) :     407472
+	 ID                       : 1666908690
+	 Device/File Name         :       +OVM
+                                    Device/File integrity check succeeded
+
+                                    Device/File not configured
+
+                                    Device/File not configured
+
+                                    Device/File not configured
+
+                                    Device/File not configured
+
+	 Cluster registry integrity check succeeded
+
+	 Logical corruption check bypassed due to non-privileged user
+
+$ crsctl query css votedisk
+##  STATE    File Universal Id                File Name Disk group
+--  -----    -----------------                --------- ---------
+ 1. ONLINE   d61c25e4f4ec4f0fbfd283e630fba8a4 (/dev/asm-disk2) [OVM]
+Located 1 voting disk(s).
+</pre>
+<p>I have checked GIMR configuration database with:</p>
+<pre>
+$ srvctl config mgmtdb
+Database unique name: _mgmtdb
+Database name: 
+Oracle home: 
+Oracle user: oracle
+Spfile: +OVM/_MGMTDB/PARAMETERFILE/spfile.270.939328471
+Password file: 
+Domain: 
+Start options: open
+Stop options: immediate
+Database role: PRIMARY
+Management policy: AUTOMATIC
+Type: Management
+PDB name: GIMR_DSCREP_10
+PDB service: GIMR_DSCREP_10
+Cluster name: rh7ttc
+Database instance: -MGMTDB
+</pre>
+<h2> Oracle Database silent installation </h2>
+<p>I have unzipped the media file:</p>
+<pre>
+$ unzip linuxx64_12201_database.zip 
+</pre>
+<p>I have created Oracle Home directory on both nodes:</p>
+<pre>
+# mkdir /u01/db12201
+# chown oracle:dba /u01/db12201
+</pre>
+<p>On first node I have run following script:</p>
+<pre>
+cd database
+export DISTRIB=`pwd`
+./runInstaller -silent \
+-responseFile $DISTRIB/response/db_install.rsp      \
+oracle.install.option=INSTALL_DB_SWONLY             \
+oracle.install.db.CLUSTER_NODES=rh7ttcn1,rh7ttcn2   \
+UNIX_GROUP_NAME=oinstall                            \
+SELECTED_LANGUAGES=en                               \
+ORACLE_HOME=/u01/db12201                            \
+ORACLE_BASE=/u01/base                               \
+oracle.install.db.InstallEdition=EE                 \
+oracle.install.db.isCustomInstall=false             \
+oracle.install.db.OSDBA_GROUP=dba                   \
+oracle.install.db.OSBACKUPDBA_GROUP=dba             \
+oracle.install.db.OSDGDBA_GROUP=dba                 \
+oracle.install.db.OSKMDBA_GROUP=dba                 \
+oracle.install.db.OSRACDBA_GROUP=dba                \
+SECURITY_UPDATES_VIA_MYORACLESUPPORT=false          \
+DECLINE_SECURITY_UPDATES=true                       \
+-waitForCompletion
+</pre>
+<p>I have ignored following failed prerequisites:</p>
+<pre>
+INFO: ------------------List of failed Tasks------------------
+INFO: *********************************************
+INFO: Package: gcc-c++-4.8.2: This is a prerequisite condition to test whether the package "gcc-c++-4.8.2" is available on the system.
+INFO: Severity:IGNORABLE
+INFO: OverallStatus:VERIFICATION_FAILED
+INFO: *********************************************
+INFO: /dev/shm mounted as temporary file system: Checks whether /dev/shm is mounted correctly as temporary file system
+INFO: Severity:IGNORABLE
+INFO: OverallStatus:VERIFICATION_FAILED
+INFO: *********************************************
+INFO: resolv.conf Integrity: resolv.conf Integrity
+INFO: Severity:CRITICAL
+INFO: OverallStatus:VERIFICATION_FAILED
+INFO: *********************************************
+INFO: (Linux) resolv.conf Integrity: This task checks consistency of file /etc/resolv.conf file across nodes
+INFO: Severity:CRITICAL
+INFO: OverallStatus:VERIFICATION_FAILED
+INFO: -----------------End of failed Tasks List----------------
+</pre>
+<p>Running this script has produced following output:</p>
+<pre>
+Starting Oracle Universal Installer...
+
+Checking Temp space: must be greater than 500 MB.   Actual 12001 MB    Passed
+Checking swap space: must be greater than 150 MB.   Actual 8176 MB    Passed
+Preparing to launch Oracle Universal Installer from /tmp/OraInstall2017-03-23_06-35-19PM. Please wait ...[WARNING] [INS-32018] The selected Oracle home is outside of Oracle base.
+   ACTION: Oracle recommends installing Oracle software within the Oracle base directory. Adjust the Oracle home or Oracle base accordingly.
+[WARNING] [INS-13013] Target environment does not meet some mandatory requirements.
+   CAUSE: Some of the mandatory prerequisites are not met. See logs for details. /u01/orainv/logs/installActions2017-03-23_06-35-19PM.log
+   ACTION: Identify the list of failed prerequisite checks from the log: /u01/orainv/logs/installActions2017-03-23_06-35-19PM.log. Then either from the log file or from installation manual find the appropriate configuration to meet the prerequisites and fix it manually.
+You can find the log of this install session at:
+ /u01/orainv/logs/installActions2017-03-23_06-35-19PM.log
+The installation of Oracle Database 12c was successful.
+Please check '/u01/orainv/logs/silentInstall2017-03-23_06-35-19PM.log' for more details.
+The Cluster Node Addition of /u01/db12201 was successful.
+Please check '/u01/orainv/logs/silentInstall2017-03-23_06-35-19PM.log' for more details.
+
+As a root user, execute the following script(s):
+	1. /u01/db12201/root.sh
+
+Execute /u01/db12201/root.sh on the following nodes: 
+[rh7ttcn1, rh7ttcn2]
+
+
+Successfully Setup Software.
+</pre>
+<p>I have run root.sh on first node ...</p>
+<pre>
+# /u01/db12201/root.sh
+Check /u01/db12201/install/root_rh7ttcn1.localdomain_2017-03-23_18-51-55-954652456.log for the output of root script
+# cat /u01/db12201/install/root_rh7ttcn2.localdomain_2017-03-23_18-52-27-511950573.log
+Performing root user operation.
+
+The following environment variables are set as:
+    ORACLE_OWNER= oracle
+    ORACLE_HOME=  /u01/db12201
+   Copying dbhome to /usr/local/bin ...
+   Copying oraenv to /usr/local/bin ...
+   Copying coraenv to /usr/local/bin ...
+
+Entries will be added to the /etc/oratab file as needed by
+Database Configuration Assistant when a database is created
+Finished running generic part of root script.
+Now product-specific root actions will be performed.
+</pre>
+<p>... and on second node:</p>
+<pre>
+# /u01/db12201/root.sh
+Check /u01/db12201/install/root_rh7ttcn2.localdomain_2017-03-23_18-52-27-511950573.log for the output of root script
+[root@rh7ttcn2 ~]# cat /u01/db12201/install/root_rh7ttcn2.localdomain_2017-03-23_18-52-27-511950573.log
+Performing root user operation.
+
+The following environment variables are set as:
+    ORACLE_OWNER= oracle
+    ORACLE_HOME=  /u01/db12201
+   Copying dbhome to /usr/local/bin ...
+   Copying oraenv to /usr/local/bin ...
+   Copying coraenv to /usr/local/bin ...
+
+Entries will be added to the /etc/oratab file as needed by
+Database Configuration Assistant when a database is created
+Finished running generic part of root script.
+Now product-specific root actions will be performed.
+</pre>
+<p>I have run opatch on first node:</p>
+<pre>
+$ export ORACLE_HOME=/u01/db12201
+$ $ORACLE_HOME/OPatch/opatch lsinv
+Oracle Interim Patch Installer version 12.2.0.1.6
+Copyright (c) 2017, Oracle Corporation.  All rights reserved.
+
+
+Oracle Home       : /u01/db12201
+Central Inventory : /u01/orainv
+   from           : /u01/db12201/oraInst.loc
+OPatch version    : 12.2.0.1.6
+OUI version       : 12.2.0.1.4
+Log file location : /u01/db12201/cfgtoollogs/opatch/opatch2017-03-23_18-53-43PM_1.log
+
+Lsinventory Output file location : /u01/db12201/cfgtoollogs/opatch/lsinv/lsinventory2017-03-23_18-53-43PM.txt
+
+--------------------------------------------------------------------------------
+Local Machine Information::
+Hostname: rh7ttcn1
+ARU platform id: 226
+ARU platform description:: Linux x86-64
+
+Installed Top-level Products (1): 
+
+Oracle Database 12c                                                  12.2.0.1.0
+There are 1 products installed in this Oracle Home.
+
+
+There are no Interim patches installed in this Oracle Home.
+
+
+--------------------------------------------------------------------------------
+
+OPatch succeeded.
+</pre>
+<h3>Fast Recovery Area (FRA) disk group creation</h3>
+<p>I have switched to oracle account to create FRA disk group that will be used for database creation.<br />
+<br />
+First I have set current instance to ASM instance on first cluster node:</p>
+<pre>
+$ . oraenv
+ORACLE_SID = [+ASM1] ? +ASM1
+The Oracle base remains unchanged with value /u01/base
+</pre>
+<pre>
+$ sqlplus / as sysasm
+
+SQL*Plus: Release 12.2.0.1.0 Production on Thu Mar 23 18:54:45 2017
+
+Copyright (c) 1982, 2016, Oracle.  All rights reserved.
+
+
+Connected to:
+Oracle Database 12c Enterprise Edition Release 12.2.0.1.0 - 64bit Production
+
+SQL&gt; create diskgroup FRA external redundancy disk '/dev/asm-disk4';
+
+Diskgroup created.
+
+SQL&gt; 
+</pre>
+<p>I have checked that disk group resource ora.FRA.dg has been added to OCR:</p>
+<pre>
+$ crsctl stat res -t
+--------------------------------------------------------------------------------
+Name           Target  State        Server                   State details       
+--------------------------------------------------------------------------------
+Local Resources
+--------------------------------------------------------------------------------
+ora.ASMNET1LSNR_ASM.lsnr
+               ONLINE  ONLINE       rh7ttcn1                 STABLE
+               ONLINE  ONLINE       rh7ttcn2                 STABLE
+ora.FRA.dg
+               ONLINE  ONLINE       rh7ttcn1                 STABLE
+               OFFLINE OFFLINE      rh7ttcn2                 STABLE
+ora.LISTENER.lsnr
+               ONLINE  ONLINE       rh7ttcn1                 STABLE
+               ONLINE  ONLINE       rh7ttcn2                 STABLE
+ora.OVM.dg
+               ONLINE  ONLINE       rh7ttcn1                 STABLE
+               ONLINE  ONLINE       rh7ttcn2                 STABLE
+ora.chad
+               ONLINE  ONLINE       rh7ttcn1                 STABLE
+               ONLINE  ONLINE       rh7ttcn2                 STABLE
+ora.net1.network
+               ONLINE  ONLINE       rh7ttcn1                 STABLE
+               ONLINE  ONLINE       rh7ttcn2                 STABLE
+ora.ons
+               ONLINE  ONLINE       rh7ttcn1                 STABLE
+               ONLINE  ONLINE       rh7ttcn2                 STABLE
+--------------------------------------------------------------------------------
+Cluster Resources
+--------------------------------------------------------------------------------
+ora.LISTENER_SCAN1.lsnr
+      1        ONLINE  ONLINE       rh7ttcn2                 STABLE
+ora.LISTENER_SCAN2.lsnr
+      1        ONLINE  ONLINE       rh7ttcn1                 STABLE
+ora.LISTENER_SCAN3.lsnr
+      1        ONLINE  ONLINE       rh7ttcn1                 STABLE
+ora.MGMTLSNR
+      1        ONLINE  ONLINE       rh7ttcn1                 169.254.253.229 192.
+                                                             168.43.141,STABLE
+ora.asm
+      1        ONLINE  ONLINE       rh7ttcn1                 Started,STABLE
+      2        ONLINE  ONLINE       rh7ttcn2                 Started,STABLE
+      3        OFFLINE OFFLINE                               STABLE
+ora.cvu
+      1        ONLINE  ONLINE       rh7ttcn1                 STABLE
+ora.mgmtdb
+      1        ONLINE  ONLINE       rh7ttcn1                 Open,STABLE
+ora.qosmserver
+      1        ONLINE  ONLINE       rh7ttcn1                 STABLE
+ora.rh7ttcn1.vip
+      1        ONLINE  ONLINE       rh7ttcn1                 STABLE
+ora.rh7ttcn2.vip
+      1        ONLINE  ONLINE       rh7ttcn2                 STABLE
+ora.scan1.vip
+      1        ONLINE  ONLINE       rh7ttcn2                 STABLE
+ora.scan2.vip
+      1        ONLINE  ONLINE       rh7ttcn1                 STABLE
+ora.scan3.vip
+      1        ONLINE  ONLINE       rh7ttcn1                 STABLE
+--------------------------------------------------------------------------------
+</pre>
+<p>I have started disk group on cluster node 2:</p>
+<pre>
+$ srvctl start diskgroup -diskgroup FRA
+$ srvctl status diskgroup -diskgroup FRA
+Disk Group FRA is running on rh7ttcn1,rh7ttcn2
+</pre>
+<h3>Database files disk group creation</h3>
+<p>I have run similar steps for last ASM disk group.</p>
+<pre>
+$ sqlplus / as sysasm
+
+SQL*Plus: Release 12.2.0.1.0 Production on Thu Mar 23 18:56:50 2017
+
+Copyright (c) 1982, 2016, Oracle.  All rights reserved.
+
+
+Connected to:
+Oracle Database 12c Enterprise Edition Release 12.2.0.1.0 - 64bit Production
+
+SQL&gt; create diskgroup DATA external redundancy disk '/dev/asm-disk3';
+
+Diskgroup created.
+
+SQL&gt; Disconnected from Oracle Database 12c Enterprise Edition Release 12.1.0.2.0 - 64bit Production
+With the Real Application Clusters and Automatic Storage Management options
+
+$ srvctl start diskgroup -diskgroup DATA
+$ srvctl status diskgroup -diskgroup DATA
+Disk Group DATA is running on rh7ttcn1,rh7ttcn2
+$ crsctl stat res -t
+--------------------------------------------------------------------------------
+Name           Target  State        Server                   State details       
+--------------------------------------------------------------------------------
+Local Resources
+--------------------------------------------------------------------------------
+ora.ASMNET1LSNR_ASM.lsnr
+               ONLINE  ONLINE       rh7ttcn1                 STABLE
+               ONLINE  ONLINE       rh7ttcn2                 STABLE
+ora.DATA.dg
+               ONLINE  ONLINE       rh7ttcn1                 STABLE
+               ONLINE  ONLINE       rh7ttcn2                 STABLE
+ora.FRA.dg
+               ONLINE  ONLINE       rh7ttcn1                 STABLE
+               ONLINE  ONLINE       rh7ttcn2                 STABLE
+ora.LISTENER.lsnr
+               ONLINE  ONLINE       rh7ttcn1                 STABLE
+               ONLINE  ONLINE       rh7ttcn2                 STABLE
+ora.OVM.dg
+               ONLINE  ONLINE       rh7ttcn1                 STABLE
+               ONLINE  ONLINE       rh7ttcn2                 STABLE
+ora.chad
+               ONLINE  ONLINE       rh7ttcn1                 STABLE
+               ONLINE  ONLINE       rh7ttcn2                 STABLE
+ora.net1.network
+               ONLINE  ONLINE       rh7ttcn1                 STABLE
+               ONLINE  ONLINE       rh7ttcn2                 STABLE
+ora.ons
+               ONLINE  ONLINE       rh7ttcn1                 STABLE
+               ONLINE  ONLINE       rh7ttcn2                 STABLE
+--------------------------------------------------------------------------------
+Cluster Resources
+--------------------------------------------------------------------------------
+ora.LISTENER_SCAN1.lsnr
+      1        ONLINE  ONLINE       rh7ttcn2                 STABLE
+ora.LISTENER_SCAN2.lsnr
+      1        ONLINE  ONLINE       rh7ttcn1                 STABLE
+ora.LISTENER_SCAN3.lsnr
+      1        ONLINE  ONLINE       rh7ttcn1                 STABLE
+ora.MGMTLSNR
+      1        ONLINE  ONLINE       rh7ttcn1                 169.254.253.229 192.
+                                                             168.43.141,STABLE
+ora.asm
+      1        ONLINE  ONLINE       rh7ttcn1                 Started,STABLE
+      2        ONLINE  ONLINE       rh7ttcn2                 Started,STABLE
+      3        OFFLINE OFFLINE                               STABLE
+ora.cvu
+      1        ONLINE  ONLINE       rh7ttcn1                 STABLE
+ora.mgmtdb
+      1        ONLINE  ONLINE       rh7ttcn1                 Open,STABLE
+ora.qosmserver
+      1        ONLINE  ONLINE       rh7ttcn1                 STABLE
+ora.rh7ttcn1.vip
+      1        ONLINE  ONLINE       rh7ttcn1                 STABLE
+ora.rh7ttcn2.vip
+      1        ONLINE  ONLINE       rh7ttcn2                 STABLE
+ora.scan1.vip
+      1        ONLINE  ONLINE       rh7ttcn2                 STABLE
+ora.scan2.vip
+      1        ONLINE  ONLINE       rh7ttcn1                 STABLE
+ora.scan3.vip
+      1        ONLINE  ONLINE       rh7ttcn1                 STABLE
+--------------------------------------------------------------------------------
+$ 
+</pre>
+<p>I have changed disk groups compatibility to make sure that I can create a 12.2.0.1 database and avoid following error:</p>
+<pre>
+[FATAL] [DBT-05802] Creating password file on diskgroup (DATA) would fail since it requires compatible.asm of version (12.1.0.0.0) or higher. 
+Current compatible.asm version is '11.2.0.2.0'.
+ACTION: Choose a diskgroup with correct value for compatible.asm attribute.
+</pre>
+<p>I have run a SYSASM connection to local ASM instance:</p>
+<pre>
+$ sqlplus / as sysasm
+
+SQL*Plus: Release 12.2.0.1.0 Production on Thu Mar 23 19:04:43 2017
+
+Copyright (c) 1982, 2016, Oracle.  All rights reserved.
+
+
+Connected to:
+Oracle Database 12c Enterprise Edition Release 12.2.0.1.0 - 64bit Production
+
+SQL&gt; alter diskgroup DATA set attribute 'compatible.asm'='12.1.0.0';
+
+Diskgroup altered.
+</pre>
+<h3>RAC database creation</h3>
+<p>I have created a RAC database with following script:</p>
+<pre>
+/u01/db12201/bin/dbca \
+ -silent \
+ -nodelist rh7ttcn1,rh7ttcn2 \
+ -createDatabase \
+ -templateName General_Purpose.dbc   \
+ -gdbName CDBRAC \
+ -createAsContainerDatabase true \
+ -numberOfPdbs 1 \
+ -pdbName pdb \
+ -pdbadminUsername pdba \
+ -pdbadminPassword oracle \
+ -SysPassword oracle \
+ -SystemPassword oracle \
+ -emConfiguration NONE \
+ -storageType ASM \
+ -asmSysPassword oracle \
+ -diskGroupName DATA \
+ -characterSet AL32UTF8 \
+ -totalMemory 1024 \
+ -recoveryGroupName FRA
+</pre>
+<p>This script has printed following output:</p>
+<pre>
+[WARNING] [DBT-06208] The 'SYS' password entered does not conform to the Oracle recommended standards.
+   CAUSE: 
+a. Oracle recommends that the password entered should be at least 8 characters in length, contain at least 1 uppercase character, 1 lower case character and 1 digit [0-9].
+b.The password entered is a keyword that Oracle does not recommend to be used as password
+   ACTION: Specify a strong password. If required refer Oracle documentation for guidelines.
+[WARNING] [DBT-06208] The 'SYSTEM' password entered does not conform to the Oracle recommended standards.
+   CAUSE: 
+a. Oracle recommends that the password entered should be at least 8 characters in length, contain at least 1 uppercase character, 1 lower case character and 1 digit [0-9].
+b.The password entered is a keyword that Oracle does not recommend to be used as password
+   ACTION: Specify a strong password. If required refer Oracle documentation for guidelines.
+[WARNING] [DBT-06208] The 'PDBADMIN' password entered does not conform to the Oracle recommended standards.
+   CAUSE: 
+a. Oracle recommends that the password entered should be at least 8 characters in length, contain at least 1 uppercase character, 1 lower case character and 1 digit [0-9].
+b.The password entered is a keyword that Oracle does not recommend to be used as password
+   ACTION: Specify a strong password. If required refer Oracle documentation for guidelines.
+[WARNING] [DBT-09102] Target environment does not meet some optional requirements.
+   CAUSE: Some of the optional prerequisites are not met. See logs for details. /u01/base/cfgtoollogs/dbca/trace.log_2017-03-23_07-05-46-PM
+   ACTION: Find the appropriate configuration from the log file or from the installation guide to meet the prerequisites and fix this manually.
+Copying database files
+1% complete
+11% complete
+21% complete
+Creating and starting Oracle instance
+23% complete
+25% complete
+26% complete
+27% complete
+30% complete
+33% complete
+34% complete
+35% complete
+Creating cluster database views
+37% complete
+50% complete
+Completing Database Creation
+51% complete
+53% complete
+55% complete
+57% complete
+Creating Pluggable Databases
+61% complete
+78% complete
+Executing Post Configuration Actions
+100% complete
+Look at the log file "/u01/base/cfgtoollogs/dbca/CDBRAC/CDBRAC.log" for further details.
+</pre>
+<p>I have ignored following warnings:</p>
+<pre>
+INFO: ------------------List of failed Tasks------------------
+
+
+INFO: Mar 23, 2017 7:06:59 PM oracle.install.commons.base.prereq.PrereqCheckerJob logTaskOverallResult
+INFO: *********************************************
+
+
+INFO: Mar 23, 2017 7:06:59 PM oracle.install.commons.base.prereq.PrereqCheckerJob logTaskOverallResult
+INFO: Package: gcc-c++-4.8.2: This is a prerequisite condition to test whether the package "gcc-c++-4.8.2" is available on the system.
+
+
+INFO: Mar 23, 2017 7:06:59 PM oracle.install.commons.base.prereq.PrereqCheckerJob logTaskOverallResult
+INFO: Severity:IGNORABLE
+
+
+INFO: Mar 23, 2017 7:06:59 PM oracle.install.commons.base.prereq.PrereqCheckerJob logTaskOverallResult
+INFO: OverallStatus:VERIFICATION_FAILED
+
+
+INFO: Mar 23, 2017 7:06:59 PM oracle.install.commons.base.prereq.PrereqCheckerJob logTaskOverallResult
+INFO: *********************************************
+
+
+INFO: Mar 23, 2017 7:06:59 PM oracle.install.commons.base.prereq.PrereqCheckerJob logTaskOverallResult
+INFO: /dev/shm mounted as temporary file system: Checks whether /dev/shm is mounted correctly as temporary file system
+
+
+INFO: Mar 23, 2017 7:06:59 PM oracle.install.commons.base.prereq.PrereqCheckerJob logTaskOverallResult
+INFO: Severity:IGNORABLE
+
+
+INFO: Mar 23, 2017 7:06:59 PM oracle.install.commons.base.prereq.PrereqCheckerJob logTaskOverallResult
+INFO: OverallStatus:VERIFICATION_FAILED
+
+
+INFO: Mar 23, 2017 7:06:59 PM oracle.assistants.dbca.validator.PrereqValidator validate
+INFO: -----------------End of failed Tasks List----------------
+</pre>
+<p>I have fixed <b>/etc/oratab</b> on node 1 to add instance name ...:</p>
+<pre>
+$ tail -n 3 /etc/oratab
+-MGMTDB:/u01/gi12201:N
+CDBRAC1:/u01/db12201:N	
++ASM1:/u01/gi12201:N		# line added by Agent
+</pre>
+<p>... and on node 2:</p>
+<pre>
+$ tail  -n 3 /etc/oratab
+#
++ASM2:/u01/gi12201:N		# line added by Agent
+CDBRAC2:/u01/db12201:N	
+</pre>
+<p>I have connected to database instance and run some checks:</p>
+<pre>
+$ . oraenv
+ORACLE_SID = [+ASM1] ? CDBRAC1
+The Oracle base remains unchanged with value /u01/base
+$ sqlplus / as sysdba
+
+SQL*Plus: Release 12.2.0.1.0 Production on Thu Mar 23 19:25:03 2017
+
+Copyright (c) 1982, 2016, Oracle.  All rights reserved.
+
+
+Connected to:
+Oracle Database 12c Enterprise Edition Release 12.2.0.1.0 - 64bit Production
+
+SQL&gt; select name, cdb from v$database;
+
+NAME	  CDB
+--------- ---
+CDBRAC	  YES
+
+SQL&gt; show pdbs
+
+    CON_ID CON_NAME			  OPEN MODE  RESTRICTED
+---------- ------------------------------ ---------- ----------
+	 2 PDB$SEED			  READ ONLY  NO
+	 3 PDB				  READ WRITE NO
+
+SQL&gt; select comp_name, version, status from dba_registry;
+
+COMP_NAME			    VERSION		 STATUS
+----------------------------------- -------------------- --------------------
+Oracle Database Catalog Views	    12.2.0.1.0		 VALID
+Oracle Database Packages and Types  12.2.0.1.0		 VALID
+JServer JAVA Virtual Machine	    12.2.0.1.0		 VALID
+Oracle XDK			    12.2.0.1.0		 VALID
+Oracle Database Java Packages	    12.2.0.1.0		 VALID
+OLAP Analytic Workspace 	    12.2.0.1.0		 VALID
+Oracle Real Application Clusters    12.2.0.1.0		 VALID
+Oracle XML Database		    12.2.0.1.0		 VALID
+Oracle Workspace Manager	    12.2.0.1.0		 VALID
+Oracle Text			    12.2.0.1.0		 VALID
+Oracle Multimedia		    12.2.0.1.0		 VALID
+
+COMP_NAME			    VERSION		 STATUS
+----------------------------------- -------------------- --------------------
+Spatial 			    12.2.0.1.0		 VALID
+Oracle OLAP API 		    12.2.0.1.0		 VALID
+Oracle Label Security		    12.2.0.1.0		 VALID
+Oracle Database Vault		    12.2.0.1.0		 VALID
+
+15 rows selected.
+
+SQL&gt; 
+
+</pre>
+<p>I  have exited SQL*Plus and checked database configuration OCR:</p>
+<pre>
+$ srvctl config database -d CDBRAC
+Database unique name: CDBRAC
+Database name: CDBRAC
+Oracle home: /u01/db12201
+Oracle user: oracle
+Spfile: +DATA/CDBRAC/PARAMETERFILE/spfile.272.939410123
+Password file: +DATA/CDBRAC/PASSWORD/pwdcdbrac.256.939409649
+Domain: 
+Start options: open
+Stop options: immediate
+Database role: PRIMARY
+Management policy: AUTOMATIC
+Server pools: 
+Disk Groups: FRA,DATA
+Mount point paths: 
+Services: 
+Type: RAC
+Start concurrency: 
+Stop concurrency: 
+OSDBA group: dba
+OSOPER group: 
+Database instances: CDBRAC1,CDBRAC2
+Configured nodes: rh7ttcn1,rh7ttcn2
+CSS critical: no
+CPU count: 0
+Memory target: 0
+Maximum memory: 0
+Default network number for database services: 
+Database is administrator managed
+</pre>
+<p>Note that password file is by default stored in database disk group.</p>
+<p>I have also checked that crsctl displays now all resources including the new database:</p>
+<pre>
+
+$ crsctl stat res -t
+--------------------------------------------------------------------------------
+Name           Target  State        Server                   State details       
+--------------------------------------------------------------------------------
+Local Resources
+--------------------------------------------------------------------------------
+ora.ASMNET1LSNR_ASM.lsnr
+               ONLINE  ONLINE       rh7ttcn1                 STABLE
+               ONLINE  ONLINE       rh7ttcn2                 STABLE
+ora.DATA.dg
+               ONLINE  ONLINE       rh7ttcn1                 STABLE
+               ONLINE  ONLINE       rh7ttcn2                 STABLE
+ora.FRA.dg
+               ONLINE  ONLINE       rh7ttcn1                 STABLE
+               ONLINE  ONLINE       rh7ttcn2                 STABLE
+ora.LISTENER.lsnr
+               ONLINE  ONLINE       rh7ttcn1                 STABLE
+               ONLINE  ONLINE       rh7ttcn2                 STABLE
+ora.OVM.dg
+               ONLINE  ONLINE       rh7ttcn1                 STABLE
+               ONLINE  ONLINE       rh7ttcn2                 STABLE
+ora.chad
+               ONLINE  ONLINE       rh7ttcn1                 STABLE
+               ONLINE  ONLINE       rh7ttcn2                 STABLE
+ora.net1.network
+               ONLINE  ONLINE       rh7ttcn1                 STABLE
+               ONLINE  ONLINE       rh7ttcn2                 STABLE
+ora.ons
+               ONLINE  ONLINE       rh7ttcn1                 STABLE
+               ONLINE  ONLINE       rh7ttcn2                 STABLE
+--------------------------------------------------------------------------------
+Cluster Resources
+--------------------------------------------------------------------------------
+ora.LISTENER_SCAN1.lsnr
+      1        ONLINE  ONLINE       rh7ttcn2                 STABLE
+ora.LISTENER_SCAN2.lsnr
+      1        ONLINE  ONLINE       rh7ttcn1                 STABLE
+ora.LISTENER_SCAN3.lsnr
+      1        ONLINE  ONLINE       rh7ttcn1                 STABLE
+ora.MGMTLSNR
+      1        ONLINE  ONLINE       rh7ttcn1                 169.254.253.229 192.
+                                                             168.43.141,STABLE
+ora.asm
+      1        ONLINE  ONLINE       rh7ttcn1                 Started,STABLE
+      2        ONLINE  ONLINE       rh7ttcn2                 Started,STABLE
+      3        OFFLINE OFFLINE                               STABLE
+ora.cdbrac.db
+      1        ONLINE  ONLINE       rh7ttcn1                 Open,HOME=/u01/db122
+                                                             01,STABLE
+      2        ONLINE  ONLINE       rh7ttcn2                 Open,HOME=/u01/db122
+                                                             01,STABLE
+ora.cvu
+      1        ONLINE  ONLINE       rh7ttcn1                 STABLE
+ora.mgmtdb
+      1        ONLINE  ONLINE       rh7ttcn1                 Open,STABLE
+ora.qosmserver
+      1        ONLINE  ONLINE       rh7ttcn1                 STABLE
+ora.rh7ttcn1.vip
+      1        ONLINE  ONLINE       rh7ttcn1                 STABLE
+ora.rh7ttcn2.vip
+      1        ONLINE  ONLINE       rh7ttcn2                 STABLE
+ora.scan1.vip
+      1        ONLINE  ONLINE       rh7ttcn2                 STABLE
+ora.scan2.vip
+      1        ONLINE  ONLINE       rh7ttcn1                 STABLE
+ora.scan3.vip
+      1        ONLINE  ONLINE       rh7ttcn1                 STABLE
+--------------------------------------------------------------------------------
+</pre>
+<p>And I have rebooted both cluster node to check to each resource is started automatically: it has taken after about 7 minutes to  have each resource (except ora.asm number 3) in ONLINE status.</p>
+<p>Because it was not possible at installation time to separate OCR/Voting Disk files from GIMR database,<br />
+I have created a new ASM disk group named OCRVD for OCR and voting disk using /dev/asm-disk1. I have checked that /dev/asm-disk1 is currently unsued from ASM instance:</p>
+<pre>
+SQL&gt; select name, path, mount_status, header_status, mode_status from v$asm_disk;
+
+NAME			       PATH		    MOUNT_S HEADER_STATU MODE_ST
+------------------------------ -------------------- ------- ------------ -------
+			       /dev/asm-disk1	    CLOSED  CANDIDATE	 ONLINE
+OVM_0000		       /dev/asm-disk2	    CACHED  MEMBER	 ONLINE
+DATA_0000		       /dev/asm-disk3	    CACHED  MEMBER	 ONLINE
+FRA_0000		       /dev/asm-disk4	    CACHED  MEMBER	 ONLINE
+</pre>
+<p>I have created a new diskgroup:</p>
+<pre>
+SQL&gt; create diskgroup OCRVD external redundancy disk '/dev/asm-disk1';
+Diskgroup created.
+SQL&gt; Disconnected from Oracle Database 12c Enterprise Edition Release 12.2.0.1.0 - 64bit Production
+$ asmcmd lsdg
+State    Type    Rebal  Sector  Logical_Sector  Block       AU  Total_MB  Free_MB  Req_mir_free_MB  Usable_file_MB  Offline_disks  Voting_files  Name
+MOUNTED  EXTERN  N         512             512   4096  1048576     40959    36953                0           36953              0             N  DATA/
+MOUNTED  EXTERN  N         512             512   4096  1048576     20479    19545                0           19545              0             N  FRA/
+MOUNTED  EXTERN  N         512             512   4096  1048576      2047     1995                0            1995              0             N  OCRVD/
+MOUNTED  EXTERN  N         512             512   4096  1048576     40959     7081                0            7081              0             Y  OVM/
+$ srvctl start diskgroup -diskgroup OCRVD
+$ srvctl status diskgroup -diskgroup OCRVD
+Disk Group OCRVD is running on rh7ttcn1,rh7ttcn2
+</pre>
+<p>I have moved OCR to this new diskgroup using root account:</p>
+<pre>
+# export ORACLE_HOME=/u01/gi12201
+# PATH=$ORACLE_HOME/bin:$PATH
+# ocrcheck
+Status of Oracle Cluster Registry is as follows :
+	 Version                  :          4
+	 Total space (kbytes)     :     409568
+	 Used space (kbytes)      :       2192
+	 Available space (kbytes) :     407376
+	 ID                       : 1666908690
+	 Device/File Name         :       +OVM
+                                    Device/File integrity check succeeded
+
+                                    Device/File not configured
+
+                                    Device/File not configured
+
+                                    Device/File not configured
+
+                                    Device/File not configured
+
+	 Cluster registry integrity check succeeded
+# ocrconfig -add +OCRVD
+# ocrcheck
+Status of Oracle Cluster Registry is as follows :
+	 Version                  :          4
+	 Total space (kbytes)     :     409568
+	 Used space (kbytes)      :       2192
+	 Available space (kbytes) :     407376
+	 ID                       : 1666908690
+	 Device/File Name         :       +OVM
+                                    Device/File integrity check succeeded
+	 Device/File Name         :     +OCRVD
+                                    Device/File integrity check succeeded
+
+                                    Device/File not configured
+
+                                    Device/File not configured
+
+                                    Device/File not configured
+
+	 Cluster registry integrity check succeeded
+
+	 Logical corruption check succeeded
+
+# ocrconfig -delete +OVM
+# ocrcheck
+Status of Oracle Cluster Registry is as follows :
+	 Version                  :          4
+	 Total space (kbytes)     :     409568
+	 Used space (kbytes)      :       2192
+	 Available space (kbytes) :     407376
+	 ID                       : 1666908690
+	 Device/File Name         :     +OCRVD
+                                    Device/File integrity check succeeded
+
+                                    Device/File not configured
+
+                                    Device/File not configured
+
+                                    Device/File not configured
+
+                                    Device/File not configured
+
+	 Cluster registry integrity check succeeded
+
+	 Logical corruption check succeeded
+
+#
+</pre>
+<p>And I have moved voting disk to this new diskgroup with:</p>
+<pre>
+# crsctl query css votedisk
+##  STATE    File Universal Id                File Name Disk group
+--  -----    -----------------                --------- ---------
+ 1. ONLINE   d61c25e4f4ec4f0fbfd283e630fba8a4 (/dev/asm-disk2) [OVM]
+Located 1 voting disk(s).
+# crsctl replace votedisk +OCRVD
+Successful addition of voting disk 8f30f93417ca4f66bf9c8df28b933b65.
+Successful deletion of voting disk d61c25e4f4ec4f0fbfd283e630fba8a4.
+Successfully replaced voting disk group with +OCRVD.
+CRS-4266: Voting file(s) successfully replaced
+# crsctl query css votedisk
+##  STATE    File Universal Id                File Name Disk group
+--  -----    -----------------                --------- ---------
+ 1. ONLINE   8f30f93417ca4f66bf9c8df28b933b65 (/dev/asm-disk1) [OCRVD]
+Located 1 voting disk(s).
+</pre>
+<p>The 2-node RAC 12.2.0.1 cluster is now ready.</p>
+<h3>Conclusion</h3>
+<p>Comparing with a 12.1.0.2 installation the biggest change is the GI image based installation. </p>
+<p>There are also new parameters:</p>
+<li> the cluster configuration type (here: STANDALONE)</li>
+<li>the HUB/LEAF flag for cluster nodes (here: HUB) </li>
+<li>network interface type can now be "ASM and private"</li>
+<li>the dedicated disk group parameters for GIMR (although I have not been able to use them).
+</li>
+<p>
+I note new cluster resources:</p>
+<li><code>ora.ASMNET1LSNR_ASM.ora</code> which looks like a new listener for ASM</li>
+<li><code>ora.chad</code> which is currently unknown for me (maybe Cluster High Availability Daemon ?)</li>
+<li><code>ora.qosmserver</code> which is also currently unknown for me (maybe Quality Of Service Management Server ?).
+</li>
+<p>ASM resources (<code>ora.asm</code>) were previously local resources and are now cluster resources (and there are at least 3 resources even for a 2-node cluster).<br />
+<br />The <code>ora.oc4j</code> resource has been removed.</p>
+<p>I understand that <a href="http://docs.oracle.com/database/122/CWLIN/understanding-oracle-flex-cluster-and-oracle-asm-flex-clusters.htm#BEGIN"><br />
+starting with Oracle Grid Infrastructure 12c Release 2 (12.2), Oracle Grid Infrastructure cluster configurations are Oracle Flex Clusters deployments</a>.</p>
