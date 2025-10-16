@@ -1,0 +1,552 @@
+<p>Here are the steps I have used to create a seed template (i.e a template using RMAN backup) to be able to create a container database faster in Oracle Cloud.</p>
+<p><b>DISCLAIMER:</b> Currently the way to create a 12.2.0.1 container database with CREATE DATABASE in Oracle Cloud does not look fully documented or tested: I have encountered some errors with catcdb.sql and the way these errors have been fixed is currently not documented by Oracle as far as I know.<br />
+</p>
+<h3> Template creation </h3>
+<p>First I have created a minimum container database with Unicode character set.<br />
+<br />
+Here minimum means:</p>
+<li>only with SYSTEM, SYSAUX and undo tablespaces in root container
+</li>
+<li>only 1 pluggable database that has only SYSTEM, SYSAUX and undo tablespaces
+</li>
+<li>without any database option.
+</li>
+<p>
+I have used following script:</p>
+<pre>
+#!/bin/sh
+export PATH=$ORACLE_HOME/perl/bin:$PATH
+export PERL5LIB=/var/opt/oracle/perl_lib/DBAAS
+export ORACLE_SID=CTPL
+export PFILE=$ORACLE_HOME/dbs/initCTPL.ora
+rm -rf /u02/CTPL
+rm -rf /u04/CTPL
+rm -f $ORACLE_HOME/dbs/spfileCTPL.ora
+#
+echo "db_name=CTPL" &gt; $PFILE
+echo "db_create_file_dest=/u02" &gt;&gt; $PFILE
+echo "db_recovery_file_dest=/u04" &gt;&gt; $PFILE
+echo "db_recovery_file_dest_size=10G" &gt;&gt; $PFILE
+echo "memory_target=2G" &gt;&gt; $PFILE
+echo "encrypt_new_tablespaces=DDL" &gt;&gt; $PFILE
+echo "enable_pluggable_database=TRUE" &gt;&gt; $PFILE
+#
+export CATCDB_SYS_PASSWD=oracle12C
+export CATCDB_SYSTEM_PASSWD=oracle12C
+export CATCDB_TEMPTS=temp
+#
+sqlplus / as sysdba &lt;&lt; EOF
+shutdown abort
+startup nomount
+create spfile from pfile;
+host rm $PFILE
+shutdown abort
+startup nomount
+spool crdb.log
+set echo on
+create database CTPL
+character set al32utf8
+enable pluggable database
+default temporary tablespace TEMP;
+@?/rdbms/admin/catcdb.sql /home/oracle/scripts catcdb
+--
+create pluggable database pdb admin user pdba identified by oracle12C;
+--
+EOF
+</pre>
+<p>The above script is using perl executable from $ORACLE_HOME and perl library located in <b>/var/opt/oracle/perl_lib/DBAAS</b><br />
+in order to avoid following error in <b>catcdb.sql</b>:</p>
+<pre>
+SQL&gt; host perl -I &amp;&amp;rdbms_admin &amp;&amp;rdbms_admin_catcdb --logDirectory &amp;&amp;1 --logFilename &amp;&amp;2
+Can't locate util.pm in @INC (you may need to install the util module) (@INC contains: /u01/app/oracle/product/12
+.2.0/dbhome_1/rdbms/admin /u01/app/oracle/product/12.2.0/dbhome_1/perl/lib/site_perl/5.22.0/x86_64-linux-thread-m
+ulti /u01/app/oracle/product/12.2.0/dbhome_1/perl/lib/site_perl/5.22.0 /u01/app/oracle/product/12.2.0/dbhome_1/pe
+rl/lib/5.22.0/x86_64-linux-thread-multi /u01/app/oracle/product/12.2.0/dbhome_1/perl/lib/5.22.0 .) at /u01/app/or
+acle/product/12.2.0/dbhome_1/rdbms/admin/catcdb.pl line 35.
+BEGIN failed--compilation aborted at /u01/app/oracle/product/12.2.0/dbhome_1/rdbms/admin/catcdb.pl line 35.
+</pre>
+<p>The above script is using CATCDB_SYS_PASSWD, CATCDB_SYSTEM_PASSWD and CATCDB_TEMPTS to avoid following errors in <b>catcdb.sql</b>:</p>
+<pre>
+SQL&gt; host perl -I &amp;&amp;rdbms_admin &amp;&amp;rdbms_admin_catcdb --logDirectory &amp;&amp;1 --logFilename &amp;&amp;2
+Enter new password for SYS: Enter new password for SYSTEM: Enter temporary tablespace name: No options to contain
+er mapping specified, no options will be installed in any containers
+user password environment variable CATCDB_SYS_PASSWD specified with -W was undefined
+user password environment variable CATCDB_SYS_PASSWD specified with -W was undefined
+user password environment variable CATCDB_SYS_PASSWD specified with -W was undefined
+user password environment variable CATCDB_SYS_PASSWD specified with -W was undefined
+user password environment variable CATCDB_SYS_PASSWD specified with -W was undefined
+user password environment variable CATCDB_SYS_PASSWD specified with -W was undefined
+user password environment variable CATCDB_SYS_PASSWD specified with -W was undefined
+user password environment variable CATCDB_SYS_PASSWD specified with -W was undefined
+user password environment variable CATCDB_SYS_PASSWD specified with -W was undefined
+user password environment variable CATCDB_SYS_PASSWD specified with -W was undefined
+</pre>
+<p>The created database is a container database with following options (Workspace Manager is unexpected for me):</p>
+<pre>
+SQL&gt; select name, cdb, log_mode from v$database;
+
+NAME      CDB LOG_MODE
+--------- --- ------------
+CTPL      YES NOARCHIVELOG
+
+SQL&gt; show pdbs;
+
+    CON_ID CON_NAME                       OPEN MODE  RESTRICTED
+---------- ------------------------------ ---------- ----------
+         2 PDB$SEED                       READ ONLY  NO
+         3 PDB                            MOUNTED
+SQL&gt; select name from v$datafile;
+
+NAME
+--------------------------------------------------------------------------------
+/u02/CTPL/datafile/o1_mf_system_d4dyln21_.dbf
+/u02/CTPL/42FA6811B2B673FEE05342DCC40A6FD0/datafile/o1_mf_system_d4dylpwy_.dbf
+/u02/CTPL/datafile/o1_mf_sysaux_d4dylw2f_.dbf
+/u02/CTPL/42FA6811B2B673FEE05342DCC40A6FD0/datafile/o1_mf_sysaux_d4dylx89_.dbf
+/u02/CTPL/datafile/o1_mf_sys_undo_d4dylyws_.dbf
+/u02/CTPL/42FA6811B35173FEE05342DCC40A6FD0/datafile/o1_mf_system_d4f46j1w_.dbf
+/u02/CTPL/42FA6811B35173FEE05342DCC40A6FD0/datafile/o1_mf_sysaux_d4f46j26_.dbf
+
+7 rows selected.
+
+SQL&gt; select member from v$logfile;
+
+MEMBER
+--------------------------------------------------------------------------------
+/u02/CTPL/onlinelog/o1_mf_1_d4dylhnj_.log
+/u04/CTPL/onlinelog/o1_mf_1_d4dylkcv_.log
+/u02/CTPL/onlinelog/o1_mf_2_d4dylkjm_.log
+/u04/CTPL/onlinelog/o1_mf_2_d4dyll05_.log
+
+SQL&gt; select name from v$controlfile;
+
+NAME
+--------------------------------------------------------------------------------
+/u02/CTPL/controlfile/o1_mf_d4dylh19_.ctl
+/u04/CTPL/controlfile/o1_mf_d4dylh68_.ctl
+
+SQL&gt; --
+SQL&gt; column parameter format a30
+SQL&gt; column value format a10
+SQL&gt; select parameter, value from nls_database_parameters where parameter like '%SET%';
+
+PARAMETER                      VALUE
+------------------------------ ----------
+NLS_NCHAR_CHARACTERSET         AL16UTF16
+NLS_CHARACTERSET               AL32UTF8
+
+SQL&gt; --
+SQL&gt; column action_time format a15
+SQL&gt; column action format a10
+SQL&gt; column version format a12
+SQL&gt; column description format a50
+SQL&gt; column comp_name format a40
+SQL&gt; set linesize 120
+SQL&gt; --
+SQL&gt; select comp_name, version, status
+  2  from dba_registry
+  3  order by comp_name;
+
+COMP_NAME                                VERSION      STATUS
+---------------------------------------- ------------ --------------------------------------------
+Oracle Database Catalog Views            12.2.0.1.0   VALID
+Oracle Database Packages and Types       12.2.0.1.0   VALID
+Oracle Real Application Clusters         12.2.0.1.0   OPTION OFF
+Oracle Workspace Manager                 12.2.0.1.0   VALID
+Oracle XML Database                      12.2.0.1.0   VALID
+
+SQL&gt; --
+SQL&gt; select * from dba_registry_sqlpatch;
+
+no rows selected
+
+SQL&gt;
+</pre>
+<p>Before creating the template the pluggable database must be opened and I have changed its default state so that it is always opened at instance startup:</p>
+<pre>
+SQL&gt; show pdbs  
+
+    CON_ID CON_NAME                       OPEN MODE  RESTRICTED
+---------- ------------------------------ ---------- ----------
+         2 PDB$SEED                       READ ONLY  NO
+         3 PDB                            MOUNTED
+SQL&gt; alter pluggable database pdb open;
+
+Pluggable database altered.
+
+SQL&gt; alter pluggable database pdb save state;
+
+Pluggable database altered.
+
+SQL&gt; startup force
+ORACLE instance started.
+
+Total System Global Area 2147483648 bytes
+Fixed Size                  8794848 bytes
+Variable Size            1342180640 bytes
+Database Buffers          788529152 bytes
+Redo Buffers                7979008 bytes
+Database mounted.
+Database opened.
+SQL&gt; show pdbs
+
+    CON_ID CON_NAME                       OPEN MODE  RESTRICTED
+---------- ------------------------------ ---------- ----------
+         2 PDB$SEED                       READ ONLY  NO
+         3 PDB                            READ WRITE NO
+SQL&gt; 
+</pre>
+<p>
+I have created the template with following script:</p>
+<pre>
+dbca -createCloneTemplate \
+ -silent \
+ -sourceSID CTPL \
+ -templateName CDBT
+</pre>
+<p>I have run this script:</p>
+<pre>
++ dbca -createCloneTemplate -silent -sourceSID CTPL -templateName CDBT
+Gathering information from the source database
+4% complete
+8% complete
+13% complete
+17% complete
+22% complete
+Backup datafiles
+28% complete
+88% complete
+Creating template file
+100% complete
+Look at the log file "/u01/app/oracle/cfgtoollogs/dbca/silent.log_2016-12-06_10-39-43-AM" for further details.
+</pre>
+<p>The template is made up of 5 files in $ORACLE_HOME/assistants/dbca/templates:</p>
+<pre>
+$ ls $ORACLE_HOME/assistants/dbca/templates/CDBT*
+/u01/app/oracle/product/12.2.0/dbhome_1/assistants/dbca/templates/CDBT.ctl
+/u01/app/oracle/product/12.2.0/dbhome_1/assistants/dbca/templates/CDBT.dbc
+/u01/app/oracle/product/12.2.0/dbhome_1/assistants/dbca/templates/CDBT.dfb62
+/u01/app/oracle/product/12.2.0/dbhome_1/assistants/dbca/templates/CDBT.dfb63
+/u01/app/oracle/product/12.2.0/dbhome_1/assistants/dbca/templates/CDBT.dfb64
+</pre>
+<h3> Fix DBCA template .dbc file </h3>
+<p>Some unexepected errors (DBCA bugs) have occured when trying to use this template. </p>
+<p>To avoid following error:</p>
+<pre>
+[FATAL] [DBT-11211] The Automatic Memory Management option is not allowed when the total physical memory is greater than 4GB.
+   CAUSE: The current total physical memory is 7,220GB.
+</pre>
+<p>I have removed in CDBT.dbc file:</p>
+<pre>
+initParam name="memory_target" value="2147483648"
+</pre>
+<p>To avoid following error:</p>
+<pre>
+ORA-00201: control file version 12.2.0.0.0 incompatible with ORACLE version 12.1.0.2.0
+ORA-00202: control file: '/u01/app/oracle/cfgtoollogs/dbca/CDB1/tempControl.ctl'
+</pre>
+<p>I have replaced in CDBT.dbc file:</p>
+<pre>
+ initParam name="compatible" value="12.1.0.2.0"
+</pre>
+<p>by </p>
+<pre>
+ initParam name="compatible" value="12.2.0.1.0"
+</pre>
+<h3> Testing the template </h3>
+<p>I have used following script to create a database using CDBT template (note that the template is a container database template and it is not needed to specify pluggable database parameters to have only 1 pluggable database):</p>
+<pre>
+dbca -silent \
+-createDatabase \
+-templateName CDBT.dbc \
+-gdbName CDB \
+-sid CDB \
+-SysPassword oracle12c \
+-SystemPassword oracle12c \
+-characterSet AL32UTF8 \
+-emConfiguration NONE \
+-storageType FS \
+-datafileDestination /u02 \
+-recoveryAreaDestination /u04 \
+-initParams sga_target=1536M
+</pre>
+<p>Running this script gives following output:</p>
+<pre>
+[WARNING] [DBT-06208] The 'SYS' password entered does not conform to the Oracle recommended standards.
+   CAUSE:
+a. Oracle recommends that the password entered should be at least 8 characters in length, contain at least 1 uppercase character, 1 lower case character and 1 digit [0-9].
+b.The password entered is a keyword that Oracle does not recommend to be used as password
+   ACTION: Specify a strong password. If required refer Oracle documentation for guidelines.
+[WARNING] [DBT-06208] The 'SYSTEM' password entered does not conform to the Oracle recommended standards.
+   CAUSE:
+a. Oracle recommends that the password entered should be at least 8 characters in length, contain at least 1 uppercase character, 1 lower case character and 1 digit [0-9].
+b.The password entered is a keyword that Oracle does not recommend to be used as password
+   ACTION: Specify a strong password. If required refer Oracle documentation for guidelines.
+[WARNING] [DBT-06801] Specified Fast Recovery Area size (10,240 MB) is less than the recommended value.
+   CAUSE: Fast Recovery Area size should at least be three times the database size (4,312 MB).
+   ACTION: Specify Fast Recovery Area Size to be at least three times the database size.
+Copying database files
+1% complete
+2% complete
+18% complete
+33% complete
+Creating and starting Oracle instance
+35% complete
+40% complete
+44% complete
+49% complete
+50% complete
+53% complete
+55% complete
+Completing Database Creation
+56% complete
+57% complete
+58% complete
+62% complete
+65% complete
+66% complete
+Executing Post Configuration Actions
+100% complete
+Look at the log file "/u01/app/oracle/cfgtoollogs/dbca/CDB/CDB12.log" for further details.
+</pre>
+<p>I have checked the created database:</p>
+<pre>
+SQL&gt; select name, cdb, log_mode from v$database;
+
+NAME      CDB LOG_MODE
+--------- --- ------------
+CDB       YES NOARCHIVELOG
+
+SQL&gt; show pdbs;
+
+    CON_ID CON_NAME                       OPEN MODE  RESTRICTED
+---------- ------------------------------ ---------- ----------
+         2 PDB$SEED                       READ ONLY  NO
+         3 PDB                            READ WRITE NO
+SQL&gt; select name from v$datafile;
+
+NAME
+--------------------------------------------------------------------------------
+/u02/CDB/datafile/o1_mf_system_d4f5xnt8_.dbf
+/u02/CDB/42FA6811B2B673FEE05342DCC40A6FD0/datafile/o1_mf_system_d4f5yg2j_.dbf
+/u02/CDB/datafile/o1_mf_sysaux_d4f5yx5l_.dbf
+/u02/CDB/42FA6811B2B673FEE05342DCC40A6FD0/datafile/o1_mf_sysaux_d4f5zpbd_.dbf
+/u02/CDB/datafile/o1_mf_sys_undo_d4f605hf_.dbf
+/u02/CDB/42FA6811B35173FEE05342DCC40A6FD0/datafile/o1_mf_system_d4f60ynx_.dbf
+/u02/CDB/42FA6811B35173FEE05342DCC40A6FD0/datafile/o1_mf_sysaux_d4f61frh_.dbf
+
+7 rows selected.
+
+SQL&gt; select member from v$logfile;
+
+MEMBER
+--------------------------------------------------------------------------------
+/u02/CDB/onlinelog/o1_mf_2_d4f633mm_.log
+/u04/CDB/onlinelog/o1_mf_2_d4f63561_.log
+/u02/CDB/onlinelog/o1_mf_1_d4f633m1_.log
+/u04/CDB/onlinelog/o1_mf_1_d4f6354p_.log
+
+SQL&gt; select name from v$controlfile;
+
+NAME
+--------------------------------------------------------------------------------
+/u02/CDB/controlfile/o1_mf_d4f62x81_.ctl
+/u04/CDB/controlfile/o1_mf_d4f62xgc_.ctl
+
+SQL&gt; --
+SQL&gt; column parameter format a30
+SQL&gt; column value format a10
+SQL&gt; select parameter, value from nls_database_parameters where parameter like '%SET%';
+
+PARAMETER                      VALUE
+------------------------------ ----------
+NLS_NCHAR_CHARACTERSET         AL16UTF16
+NLS_CHARACTERSET               AL32UTF8
+
+SQL&gt; --
+SQL&gt; column action_time format a15
+SQL&gt; column action format a10
+SQL&gt; column version format a12
+SQL&gt; column description format a50
+SQL&gt; column comp_name format a40
+SQL&gt; set linesize 120
+SQL&gt; --
+SQL&gt; select comp_name, version, status
+  2  from dba_registry
+  3  order by comp_name;
+
+COMP_NAME                                VERSION      STATUS
+---------------------------------------- ------------ --------------------------------------------
+Oracle Database Catalog Views            12.2.0.1.0   VALID
+Oracle Database Packages and Types       12.2.0.1.0   VALID
+Oracle Real Application Clusters         12.2.0.1.0   OPTION OFF
+Oracle Workspace Manager                 12.2.0.1.0   VALID
+Oracle XML Database                      12.2.0.1.0   VALID
+
+SQL&gt; --
+SQL&gt; select * from dba_registry_sqlpatch;
+
+no rows selected
+
+SQL&gt; 
+</pre>
+<p>I have changed pluggable database default state so that it is always opened at instance startup: </p>
+<pre>
+SQL&gt; alter pluggable database pdb save state;
+
+Pluggable database altered.
+
+SQL&gt; 
+</pre>
+<p>I have already modified tnsnames.ora to have separate Transparent Data Encryption (TDE) key stores for each database:</p>
+<pre>
+$ grep wallet $ORACLE_HOME/network/admin/sqlnet.ora
+ENCRYPTION_WALLET_LOCATION = (SOURCE=(METHOD=FILE)(METHOD_DATA=(DIRECTORY=/u01/app/oracle/admin/$ORACLE_SID/tde_wallet)))
+WALLET_LOCATION = (SOURCE=(METHOD=FILE)(METHOD_DATA=(DIRECTORY=/u01/app/oracle/admin/$ORACLE_SID/db_wallet)))
+$ 
+</pre>
+<p>I have setup TDE with following SQL script: </p>
+<pre>
+set echo on
+select name from v$database;
+set linesize 120
+column status format a10
+column wrl_parameter format a40
+column wallet_type format a15
+column wrl_type format a10
+column key_id format a60
+--
+administer key management create keystore '/u01/app/oracle/admin/CDB/tde_wallet' identified by xxx;
+administer key management set keystore open identified by xxx container=all;
+administer key management set key identified by xxx with backup container=all;
+select * from v$encryption_wallet;  
+alter session set container=pdb;
+select * from v$encryption_wallet;
+select con_id, key_id, keystore_type from v$encryption_keys;
+alter session set container=cdb$root;
+administer key management create auto_login keystore from keystore '/u01/app/oracle/admin/CDB/tde_wallet' identified by xxx;
+administer key management set keystore close identified by xxx container=all;
+--
+exit
+</pre>
+<p>I have run this script:</p>
+<pre>
+SQL&gt; select name from v$database;
+
+NAME
+---------
+CDB
+
+SQL&gt; set linesize 120
+SQL&gt; column status format a10
+SQL&gt; column wrl_parameter format a40
+SQL&gt; column wallet_type format a15
+SQL&gt; column wrl_type format a10
+SQL&gt; column key_id format a60
+SQL&gt; --
+SQL&gt; administer key management create keystore '/u01/app/oracle/admin/CDB/tde_wallet' identified by xxx;
+
+keystore altered.
+
+SQL&gt; administer key management set keystore open identified by xxx container=all;
+
+keystore altered.
+
+SQL&gt; administer key management set key identified by xxx with backup container=all;
+
+keystore altered.
+
+SQL&gt; select * from v$encryption_wallet;
+
+WRL_TYPE   WRL_PARAMETER                            STATUS     WALLET_TYPE     WALLET_OR FULLY_BAC     CON_ID
+---------- ---------------------------------------- ---------- --------------- --------- --------- ----------
+FILE       /u01/app/oracle/admin/CDB/tde_wallet/    OPEN       PASSWORD        SINGLE    NO                 1
+
+SQL&gt; alter session set container=pdb;
+
+Session altered.
+
+SQL&gt; select * from v$encryption_wallet;
+
+WRL_TYPE   WRL_PARAMETER                            STATUS     WALLET_TYPE     WALLET_OR FULLY_BAC     CON_ID
+---------- ---------------------------------------- ---------- --------------- --------- --------- ----------
+FILE                                                OPEN       PASSWORD        SINGLE    NO                 3
+
+SQL&gt; select con_id, key_id, keystore_type from v$encryption_keys;
+
+    CON_ID KEY_ID                                                       KEYSTORE_TYPE
+---------- ------------------------------------------------------------ -----------------
+         3 Abc7t62yIk8sv7xt4MeffRgAAAAAAAAAAAAAAAAAAAAAAAAAAAAA         SOFTWARE KEYSTORE
+
+SQL&gt; alter session set container=cdb$root;
+
+Session altered.
+
+SQL&gt; administer key management create auto_login keystore from keystore '/u01/app/oracle/admin/CDB/tde_wallet' identified by xxx;
+
+keystore altered.
+
+SQL&gt; administer key management set keystore close identified by xxx container=all;
+
+keystore altered.
+
+SQL&gt;
+</pre>
+<p>At this step in case of unexpected error such as <code>ORA-28374: typed master key not found in wallet </code> the simplest thing to do is just to drop, re-create the database and remove all files located in ENCRYPTION_WALLET_DIRECTORY.</p>
+<p>This is the last test step that must succeed: I have also created an application tablespace in the pluggable database and tested that database instance can be restarted without any error: </p>
+<pre>
+SQL&gt; select name from v$database;
+
+NAME
+---------
+CDB
+
+SQL&gt; show parameter new
+
+NAME                                 TYPE        VALUE
+------------------------------------ ----------- ------------------------------
+encrypt_new_tablespaces              string      CLOUD_ONLY
+SQL&gt; alter session set container=pdb;
+
+Session altered.
+
+SQL&gt; create tablespace data;
+
+Tablespace created.
+
+SQL&gt; select tablespace_name, encrypted from dba_tablespaces;
+
+TABLESPACE_NAME                ENC
+------------------------------ ---
+SYSTEM                         NO
+SYSAUX                         NO
+TEMP                           NO
+DATA                           YES
+
+SQL&gt; alter session set container=cdb$root;
+
+Session altered.
+
+SQL&gt; shutdown immediate
+Database closed.
+Database dismounted.
+ORACLE instance shut down.
+SQL&gt; startup;
+ORACLE instance started.
+
+Total System Global Area 1610612736 bytes
+Fixed Size                  8793304 bytes
+Variable Size             520094504 bytes
+Database Buffers         1073741824 bytes
+Redo Buffers                7983104 bytes
+Database mounted.
+Database opened.
+SQL&gt; show pdbs
+
+    CON_ID CON_NAME                       OPEN MODE  RESTRICTED
+---------- ------------------------------ ---------- ----------
+         2 PDB$SEED                       READ ONLY  NO
+         3 PDB                            READ WRITE NO
+SQL&gt; 
+</pre>
+<p>This template is now ready to be used to create a 12.2.0.1 container database in Oracle Cloud.</p>
