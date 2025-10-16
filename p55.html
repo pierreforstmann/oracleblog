@@ -1,0 +1,95 @@
+<p>The need to check for Oracle Net connection errors is a routine check that the database administrator must do in case of possible database connection errors:<br />
+you may be sometimes frequently asked: "my application cannot (or could not) connect to the database ..." but the application is actually hiding  the Oracle error message<br />
+(I found this is especially the case with Java code using JDBC).</p>
+<h3>listener log structure</h3>
+<p>The listener has its own log  file that is very useful to check connexions errors as documented in <a href="http://docs.oracle.com/database/121/NETAG/trouble.htm#NETAG413">Database Net Services Administrator's Guide</a>.<br />
+<br />
+The general syntax of the listener log entry is:</p>
+<pre>
+Timestamp * Connect Data [* Protocol Info] * Event [* SID | Service] * Return Code
+</pre>
+<p>The return code is:</p>
+<li>
+0 if the operation is succesfull
+</li>
+<li>
+different from 0 is the operation has failed.
+</li>
+<p>
+This simply means that this return code is the Oracle error message number returned by the listener to the client.<br />
+<br />
+For example following entry means that listener has returned <code>ORA-12514: TNS:listener does not currently know of service requested in connect</code> to client:</p>
+<pre>
+26-AUG-2016 19:04:18 
+* (CONNECT_DATA=(SERVICE_NAME=KO)(CID=(PROGRAM=sqlplus)(HOST=hol.localdomain)(USER=oracle))) 
+* (ADDRESS=(PROTOCOL=tcp)(HOST=192.168.56.20)(PORT=41291)) 
+* establish 
+* KO 
+* 12514
+</pre>
+<p>NB: to make listener log entries more readable in this article I have edited all entries so that each field is displayed on a separate line.</p>
+<p>However things can get a little bit more difficult if:</p>
+<li>
+databases are consolidated on a single machine and use the same listener
+</li>
+<li>
+applications connect (very) frequently to database instance(s)
+</li>
+<li>
+listener log is not rotated for various reasons.
+</li>
+<p>In above cases the listener log has a lot of entries and it can take some time to find manually connection errors.</p>
+<h3> grep command </h3>
+<p>You can use grep with an regular expression to:<br />
+<br />
+- filter connection requests with <code>* e</code> character string that can only match <code>* establish</code> expression<br />
+<br />
+- filter the return code that must have a least 2 digits (because 0 return code is always a single digit in listener log) at line end.</p>
+<p>Here is the grep command:</p>
+<pre>
+grep -E '\* e.*[0-9]{2}
+<p>Example:</p>
+<pre>
+$ grep -E '\* e.*[0-9]{2}
+<p>
+This should work for Oracle 12.1, <a href="http://docs.oracle.com/cd/E18283_01/network.112/e10836/trouble.htm#i423432">Oracle 11.2</a> and even <a href="http://docs.oracle.com/cd/B19306_01/network.102/b14212/troublestng.htm#sthref1674">Oracle 10.2</a> on all Linux platforms and also other Unix platforms.</p>
+<p>I wonder if there is any shorter command (excluding aliases) ?<br />
+<br />
+If you have one please let me know by adding a comment.</p>
+
+</pre>
+<p>Example:</p>
+<pre wp-pre-tag-3></pre>
+<p>
+This should work for Oracle 12.1, <a href="http://docs.oracle.com/cd/E18283_01/network.112/e10836/trouble.htm#i423432">Oracle 11.2</a> and even <a href="http://docs.oracle.com/cd/B19306_01/network.102/b14212/troublestng.htm#sthref1674">Oracle 10.2</a> on all Linux platforms and also other Unix platforms.</p>
+<p>I wonder if there is any shorter command (excluding aliases) ?<br />
+<br />
+If you have one please let me know by adding a comment.</p>
+ /u01/app/oracle/diag/tnslsnr/hol/listener/trace/listener.log
+26-AUG-2016 19:04:18 
+* (CONNECT_DATA=(SERVICE_NAME=KO)(CID=(PROGRAM=sqlplus)(HOST=hol.localdomain)(USER=oracle))) 
+* (ADDRESS=(PROTOCOL=tcp)(HOST=192.168.56.20)(PORT=41291)) 
+* establish 
+* KO 
+* 12514
+26-AUG-2016 19:15:50 
+* (CONNECT_DATA=(SERVICE_NAME=FTEX)(CID=(PROGRAM=sqlplus)(HOST=hol.localdomain)(USER=oracle))) 
+* (ADDRESS=(PROTOCOL=tcp)(HOST=192.168.56.20)(PORT=41327)) 
+* establish 
+* FTEX 
+* 12514
+</pre>
+<p>
+This should work for Oracle 12.1, <a href="http://docs.oracle.com/cd/E18283_01/network.112/e10836/trouble.htm#i423432">Oracle 11.2</a> and even <a href="http://docs.oracle.com/cd/B19306_01/network.102/b14212/troublestng.htm#sthref1674">Oracle 10.2</a> on all Linux platforms and also other Unix platforms.</p>
+<p>I wonder if there is any shorter command (excluding aliases) ?<br />
+<br />
+If you have one please let me know by adding a comment.</p>
+
+</pre>
+<p>Example:</p>
+<pre wp-pre-tag-3></pre>
+<p>
+This should work for Oracle 12.1, <a href="http://docs.oracle.com/cd/E18283_01/network.112/e10836/trouble.htm#i423432">Oracle 11.2</a> and even <a href="http://docs.oracle.com/cd/B19306_01/network.102/b14212/troublestng.htm#sthref1674">Oracle 10.2</a> on all Linux platforms and also other Unix platforms.</p>
+<p>I wonder if there is any shorter command (excluding aliases) ?<br />
+<br />
+If you have one please let me know by adding a comment.</p>
