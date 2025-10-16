@@ -1,0 +1,340 @@
+<p>The purpose of this blog post is to show that you can install ASMLib on CentOS 7.2 although CentOS 7 is not supported by Oracle Corp.</p>
+<p><b>Disclaimer:</b> This configuration is not supported by Oracle Corp. Use it at your own risks.</p>
+<p>For this installation I have used following documents:</p>
+<li>
+<a href="https://access.redhat.com/solutions/315643">Red Hat Oracle ASMLib Availability and Support</a></p>
+<li>
+<a href="http://www.oracle.com/technetwork/server-storage/linux/asmlib/rhel7-2773795.html">OTN Oracle ASMLib Downloads for Red Hat Enterprise Linux 7</a>.
+</li>
+<h2>Short version</h2>
+<p>You only need to run following commands on your Centos 7.2 machine (assuming your machine is connected to Internet and its yum configuration is OK):</p>
+<pre>
+# yum -y install kmod-oracleasm
+# wget http://download.oracle.com/otn_software/asmlib/oracleasmlib-2.0.12-1.el7.x86_64.rpm
+# yum -y localinstall oracleasmlib-2.0.12-1.el7.x86_64.rpm
+# wget http://yum.oracle.com/repo/OracleLinux/OL7/latest/x86_64/getPackage/oracleasm-support-2.1.8-3.el7.x86_64.rpm
+# yum -y localinstall oracleasm-support-2.1.8-3.el7.x86_64.rpm
+</pre>
+<h2>Long version</h2>
+<h3> Linux VirtualBox (VBOX) configuration </h3>
+<p>I have first created 2 virtual disks (first disk as system disk and second disk as ASM disk):</p>
+<pre>
+vboxmanage createhd --filename co7tosa0.sata.0.vdi --size=40960 -format=VDI --variant fixe
+vboxmanage createhd --filename co7tosa0.sata.1.vdi --size=12040 -format=VDI --variant fixe
+</pre>
+<p>I have created a 5.0.4  VBOX virtual machine with following commands:</p>
+<pre>
+vboxmanage createvm  --name co7tosa0 --basefolder "M:\VirtualBox VMs" --register
+vboxmanage modifyvm co7tosa0 --ostype Linux --memory 2048 --nic1 nat --nic2 hostonly
+vboxmanage modifyvm co7tosa0 --nictype1 82540EM
+vboxmanage modifyvm co7tosa0 --nictype2 82540EM
+vboxmanage modifyvm co7tosa0 --hostonlyadapter2 "VirtualBox Host-Only Ethernet Adapter"
+vboxmanage modifyvm co7tosa0 --ostype "RedHat_64"
+vboxmanage storagectl co7tosa0 --add ide --name IDE --controller PIIX4
+vboxmanage modifyvm co7tosa0 --vram 12
+vboxmanage storagectl co7tosa0 --add sata --name SATA --portcount 4
+vboxmanage storageattach co7tosa0 --storagectl SATA --port 0 --type hdd --medium co7tosa0.sata.0.vdi
+vboxmanage storageattach co7tosa0 --storagectl SATA --port 1 --type hdd --medium co7tosa0.sata.1.vdi
+vboxmanage storageattach co7tosa0 --storagectl IDE  --device 0 --port 0 --type dvddrive --medium j:\free_media\CentOS-7-x86_64-Minimal.iso
+</pre>
+<p>I have installed CentOS 7.2 the same way <a href="https://pierreforstmanndotcom.wordpress.com/2016/01/07/how-i-simplified-oracle-database-12-1-0-2-installation-on-centos-7-2-with-oracle-preinstallation-rpm/" />like in my previous blog post</a>.</p>
+<h3>ASMLib packages installation</h3>
+<p>I have checked operating system version:</p>
+<pre>
+# cat /etc/redhat-release
+CentOS Linux release 7.2.1511 (Core)
+# cat /etc/centos-release
+CentOS Linux release 7.2.1511 (Core)
+</pre>
+<p>I have installed wget:</p>
+<pre>
+# yum -y install wget
+Loaded plugins: fastestmirror
+Loading mirror speeds from cached hostfile
+ * base: mirrors.ircam.fr
+ * extras: centos.mirror.fr.planethoster.net
+ * updates: fr2.rpmfind.net
+Resolving Dependencies
+--&gt; Running transaction check
+---&gt; Package wget.x86_64 0:1.14-10.el7_0.1 will be installed
+--&gt; Finished Dependency Resolution
+
+Dependencies Resolved
+
+======================================================================================================
+ Package             Arch                  Version                          Repository           Size
+======================================================================================================
+Installing:
+ wget                x86_64                1.14-10.el7_0.1                  base                545 k
+
+Transaction Summary
+======================================================================================================
+Install  1 Package
+
+Total download size: 545 k
+Installed size: 2.0 M
+Downloading packages:
+wget-1.14-10.el7_0.1.x86_64.rp FAILED
+http://mirror.ate.info/ftp.centos.org/7.2.1511/os/x86_64/Packages/wget-1.14-10.el7_0.1.x86_64.rpm: [Errno 12] Timeout on http://mirror.ate.info/ftp.centos.org/7.2.1511/os/x86_64/Packages/wget-1.14-10.el7_0.1.x86_64.rpm: (28, 'Connection timed out after 30001 milliseconds')
+Trying other mirror.
+warning: /var/cache/yum/x86_64/7/base/packages/wget-1.14-10.el7_0.1.x86_64.rpm: Header V3 RSA/SHA256 Signature, key ID f4a80eb5: NOKEY
+Public key for wget-1.14-10.el7_0.1.x86_64.rpm is not installed
+wget-1.14-10.el7_0.1.x86_64.rpm                                                | 545 kB  00:00:00
+Retrieving key from file:///etc/pki/rpm-gpg/RPM-GPG-KEY-CentOS-7
+Importing GPG key 0xF4A80EB5:
+ Userid     : "CentOS-7 Key (CentOS 7 Official Signing Key) "
+ Fingerprint: 6341 ab27 53d7 8a78 a7c2 7bb1 24c6 a8a7 f4a8 0eb5
+ Package    : centos-release-7-2.1511.el7.centos.2.10.x86_64 (@anaconda)
+ From       : /etc/pki/rpm-gpg/RPM-GPG-KEY-CentOS-7
+Running transaction check
+Running transaction test
+Transaction test succeeded
+Running transaction
+  Installing : wget-1.14-10.el7_0.1.x86_64                                                        1/1
+  Verifying  : wget-1.14-10.el7_0.1.x86_64                                                        1/1
+
+Installed:
+  wget.x86_64 0:1.14-10.el7_0.1
+
+Complete!
+</pre>
+<p><b>kmod-oracleasm</b> is in the Centos yum repository: I have installed it with yum:</p>
+<pre>
+# yum -y install kmod-oracleasm
+Loaded plugins: fastestmirror
+Loading mirror speeds from cached hostfile
+ * base: mirrors.ircam.fr
+ * extras: centos.mirror.fr.planethoster.net
+ * updates: fr2.rpmfind.net
+Resolving Dependencies
+--&gt; Running transaction check
+---&gt; Package kmod-oracleasm.x86_64 0:2.0.8-15.el7.centos will be installed
+--&gt; Finished Dependency Resolution
+
+Dependencies Resolved
+
+======================================================================================================
+ Package                    Arch               Version                         Repository        Size
+======================================================================================================
+Installing:
+ kmod-oracleasm             x86_64             2.0.8-15.el7.centos             base              35 k
+
+Transaction Summary
+======================================================================================================
+Install  1 Package
+
+Total download size: 35 k
+Installed size: 123 k
+Downloading packages:
+kmod-oracleasm-2.0.8-15.el7.centos.x86_64.rpm                                  |  35 kB  00:00:00
+Running transaction check
+Running transaction test
+Transaction test succeeded
+Running transaction
+  Installing : kmod-oracleasm-2.0.8-15.el7.centos.x86_64                                          1/1
+  Verifying  : kmod-oracleasm-2.0.8-15.el7.centos.x86_64                                          1/1
+
+Installed:
+  kmod-oracleasm.x86_64 0:2.0.8-15.el7.centos
+
+Complete!
+</pre>
+<p>I have downloaded <b>oracleasmlib</b> from OTN:</p>
+<pre>
+# wget http://download.oracle.com/otn_software/asmlib/oracleasmlib-2.0.12-1.el7.x86_64.rpm
+--2016-01-12 20:01:28--  http://download.oracle.com/otn_software/asmlib/oracleasmlib-2.0.12-1.el7.x86_64.rpm
+Resolving download.oracle.com (download.oracle.com)... 23.10.251.16, 23.10.251.67
+Connecting to download.oracle.com (download.oracle.com)|23.10.251.16|:80... connected.
+HTTP request sent, awaiting response... 200 OK
+Length: 19360 (19K) [application/x-redhat-package-manager]
+Saving to: âoracleasmlib-2.0.12-1.el7.x86_64.rpmâ
+
+100%[==================================================================&gt;] 19,360      --.-K/s   in 0.02s
+
+2016-01-12 20:01:28 (1.14 MB/s) - âoracleasmlib-2.0.12-1.el7.x86_64.rpmâ saved [19360/19360]
+</pre>
+<p>I have installed it with yum:</p>
+<pre>
+# yum -y localinstall oracleasmlib-2.0.12-1.el7.x86_64.rpm
+Loaded plugins: fastestmirror
+Examining oracleasmlib-2.0.12-1.el7.x86_64.rpm: oracleasmlib-2.0.12-1.el7.x86_64
+Marking oracleasmlib-2.0.12-1.el7.x86_64.rpm to be installed
+Resolving Dependencies
+--&gt; Running transaction check
+---&gt; Package oracleasmlib.x86_64 0:2.0.12-1.el7 will be installed
+--&gt; Finished Dependency Resolution
+
+Dependencies Resolved
+
+======================================================================================================
+ Package             Arch          Version             Repository                                Size
+======================================================================================================
+Installing:
+ oracleasmlib        x86_64        2.0.12-1.el7        /oracleasmlib-2.0.12-1.el7.x86_64         39 k
+
+Transaction Summary
+======================================================================================================
+Install  1 Package
+
+Total size: 39 k
+Installed size: 39 k
+Downloading packages:
+Running transaction check
+Running transaction test
+Transaction test succeeded
+Running transaction
+  Installing : oracleasmlib-2.0.12-1.el7.x86_64                                                   1/1
+  Verifying  : oracleasmlib-2.0.12-1.el7.x86_64                                                   1/1
+
+Installed:
+  oracleasmlib.x86_64 0:2.0.12-1.el7
+
+Complete!
+</pre>
+<p>I have downloaded <b>oracleasm-support</b> using OTN link:</p>
+<pre>
+# wget http://yum.oracle.com/repo/OracleLinux/OL7/latest/x86_64/getPackage/oracleasm-support-2.1.8-3.el7.x86_64.rpm
+--2016-01-12 20:02:03--  http://yum.oracle.com/repo/OracleLinux/OL7/latest/x86_64/getPackage/oracleasm-support-2.1.8-3.el7.x86_64.rpm
+Resolving yum.oracle.com (yum.oracle.com)... 2.22.22.225, 2.22.22.218
+Connecting to yum.oracle.com (yum.oracle.com)|2.22.22.225|:80... connected.
+HTTP request sent, awaiting response... 200 OK
+Length: 80968 (79K) [application/x-rpm]
+Saving to: âoracleasm-support-2.1.8-3.el7.x86_64.rpmâ
+
+100%[======================================&gt;] 80,968       328KB/s   in 0.2s
+
+2016-01-12 21:02:03 (328 KB/s) - âoracleasm-support-2.1.8-3.el7.x86_64.rpmâ saved [80968/80968]
+</pre>
+<p>I have installed it with:</p>
+<pre>
+# yum -y localinstall oracleasm-support-2.1.8-3.el7.x86_64.rpm
+Loaded plugins: fastestmirror
+Examining oracleasm-support-2.1.8-3.el7.x86_64.rpm: oracleasm-support-2.1.8-3.el7.x86_64
+Marking oracleasm-support-2.1.8-3.el7.x86_64.rpm to be installed
+Resolving Dependencies
+--&gt; Running transaction check
+---&gt; Package oracleasm-support.x86_64 0:2.1.8-3.el7 will be installed
+--&gt; Finished Dependency Resolution
+
+Dependencies Resolved
+
+======================================================================================================
+ Package                Arch        Version          Repository                                  Size
+======================================================================================================
+Installing:
+ oracleasm-support      x86_64      2.1.8-3.el7      /oracleasm-support-2.1.8-3.el7.x86_64      242 k
+
+Transaction Summary
+======================================================================================================
+Install  1 Package
+
+Total size: 242 k
+Installed size: 242 k
+Downloading packages:
+Running transaction check
+Running transaction test
+Transaction test succeeded
+Running transaction
+  Installing : oracleasm-support-2.1.8-3.el7.x86_64                                               1/1
+Note: Forwarding request to 'systemctl enable oracleasm.service'.
+Created symlink from /etc/systemd/system/multi-user.target.wants/oracleasm.service to /usr/lib/systemd/system/oracleasm.service.
+  Verifying  : oracleasm-support-2.1.8-3.el7.x86_64                                               1/1
+
+Installed:
+  oracleasm-support.x86_64 0:2.1.8-3.el7
+Complete!
+</pre>
+<p>I have created oracle user account and related groups because they must own the ASM devices:</p>
+<pre>
+# groupadd --gid 54321 oinstall
+# groupadd --gid 54322 dba
+# useradd --uid 54321 --gid 54321 --groups 54322 oracle
+# id oracle
+uid=54321(oracle) gid=54321(oinstall) groups=54321(oinstall),54322(dba)
+</pre>
+<h3>ASMLib configuration</h3>
+<p>I have created a single disk partition in ASM device disk:</p>
+<pre>
+# fdisk /dev/sdb
+Welcome to fdisk (util-linux 2.23.2).
+
+Changes will remain in memory only, until you decide to write them.
+Be careful before using the write command.
+
+Device does not contain a recognized partition table
+Building a new DOS disklabel with disk identifier 0xe7333a6d.
+
+Command (m for help): n
+Partition type:
+   p   primary (0 primary, 0 extended, 4 free)
+   e   extended
+Select (default p): p
+Partition number (1-4, default 1):
+First sector (2048-24657919, default 2048):
+Using default value 2048
+Last sector, +sectors or +size{K,M,G} (2048-24657919, default 24657919):
+Using default value 24657919
+Partition 1 of type Linux and of size 11.8 GiB is set
+
+Command (m for help): w
+The partition table has been altered!
+
+Calling ioctl() to re-read partition table.
+Syncing disks.
+</pre>
+<p>I have configured ASMLib and created an ASM disk with oracleasm command:</p>
+<pre>
+# oracleasm configure -i
+Configuring the Oracle ASM library driver.
+
+This will configure the on-boot properties of the Oracle ASM library
+driver.  The following questions will determine whether the driver is
+loaded on boot and what permissions it will have.  The current values
+will be shown in brackets ('[]').  Hitting  without typing an
+answer will keep that current value.  Ctrl-C will abort.
+
+Default user to own the driver interface []: oracle
+Default group to own the driver interface []: dba
+Scan for Oracle ASM disks on boot (y/n) [y]:
+Writing Oracle ASM library driver configuration: done
+# oracleasm init
+Creating /dev/oracleasm mount point: /dev/oracleasm
+Loading module "oracleasm": oracleasm
+Configuring "oracleasm" to use device physical block size
+Mounting ASMlib driver filesystem: /dev/oracleasm
+#  oracleasm createdisk ASM1 /dev/sdb1
+Writing disk header: done
+Instantiating disk: done
+# oracleasm querydisk /dev/sdb1
+Device "/dev/sdb1" is marked an ASM disk with the label "ASM1"
+</pre>
+<p>I have rebooted to check ASM disk device persistence:</p>
+<pre>
+# oracleasm status
+Checking if ASM is loaded: yes
+Checking if /dev/oracleasm is mounted: yes
+# oracleasm listdisks
+ASM1
+# ls -al /dev/oracleasm/disks
+total 0
+drwxr-xr-x. 1 root   root     0 Jan 12 20:52 .
+drwxr-xr-x. 4 root   root     0 Jan 12 20:52 ..
+brw-rw----. 1 oracle dba  8, 17 Jan 12 20:52 ASM1
+</pre>
+<p>As expected the ASM device is persistent.</p>
+<p>Note also that there is a systemd service named <b>oracleasm</b> created for oracleasm Linux kernel module:</p>
+<pre>
+# systemctl status oracleasm
+  oracleasm.service - Load oracleasm Modules
+   Loaded: loaded (/usr/lib/systemd/system/oracleasm.service; enabled; vendor preset: disabled)
+   Active: active (exited) since Tue 2016-01-12 20:52:29 CET; 51s ago
+  Process: 609 ExecStart=/usr/sbin/service oracleasm start_sysctl (code=exited, status=0/SUCCESS)
+ Main PID: 609 (code=exited, status=0/SUCCESS)
+   CGroup: /system.slice/oracleasm.service
+
+Jan 12 20:52:26 co7tosa0.localdomain systemd[1]: Starting Load oracleasm Mod....
+Jan 12 20:52:27 co7tosa0.localdomain service[609]: Initializing the Oracle AS...
+Jan 12 20:52:29 co7tosa0.localdomain service[609]: Scanning the system for Or...
+Jan 12 20:52:29 co7tosa0.localdomain systemd[1]: Started Load oracleasm Modules.
+Hint: Some lines were ellipsized, use -l to show in full.
+</pre>
