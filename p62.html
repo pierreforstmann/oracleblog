@@ -1,0 +1,419 @@
+<p>In this article I detail cloning of Oracle Database home on Oracle Linux in Oracle cloud:</p>
+<li>
+source Oracle Home is hosted on an Oracle Cloud Database As a Service instance running Oracle Linux 6.6 with Oracle Database 12.2.0.1 pre-installed
+</li>
+<li>
+target Oracle Home is hosted on an Oracle Cloud compute instance (a new machine without any Oracle Database software) running Oracle Linux 7.2
+</li>
+<p>
+For this article I have used <a href="http://docs.oracle.com/database/122/LADBI/cloning-an-oracle-home.htm#LADBI-GUID-494E59C3-C381-4A35-8ABE-F6E5DBF29032">Cloning Oracle Home from Oracle Database Installation Guide 12c Release 2 (12.2) for Linux </a> with some modifications.<br />
+</p>
+<h3> Step 1 install prerequisites on new machine </h3>
+<p>This is not mentioned in Oracle documentation but you must do it otherwise cloning will fail.<br />
+<br />
+On Oracle Linux this is easily done: you only need to install Oracle preinstallation RPM (assuming default YUM configuration is OK for Oracle Linux).<br />
+<br />
+Note that on target node Linux "oracle" account does not exist but preinstall RPM is going to create it.</p>
+<p>I have switched from opc account to root account and installed the new 12c release 2 preinstall RPM:</p>
+<pre>
+# yum info *preinstall*
+Loaded plugins: ulninfo
+Repodata is over 2 weeks old. Install yum-cron? Or run: yum makecache fast
+Available Packages
+Name        : oracle-database-server-12cR2-preinstall
+Arch        : x86_64
+Version     : 1.0
+Release     : 2.el7
+Size        : 18 k
+Repo        : ol7_latest/x86_64
+Summary     : Sets the system for Oracle Database single instance and Real Application Cluster install for Oracle Linux 7
+License     : GPLv2
+Description : The Oracle Preinstallation RPM package installs software packages and sets system parameters required for Oracle
+            : Database single instance and Oracle Real Application Clusters installations for Oracle Linux Release 7 Files affected:
+            : /etc/sysctl.conf, /boot/grub/menu.lst OR /boot/grub2/grub.cfg Files added:
+            : /etc/security/limits.d/oracle-database-server-12cR2-preinstall.conf
+
+Name        : oracle-rdbms-server-11gR2-preinstall
+Arch        : x86_64
+Version     : 1.0
+Release     : 4.el7
+Size        : 19 k
+Repo        : ol7_latest/x86_64
+Summary     : Sets the system for Oracle single instance and Real Application Cluster install for Oracle Linux 7
+License     : GPLv2
+Description : The Oracle Preinstallation RPM package installs software packages and sets system parameters required for Oracle
+            : Database single instance and Oracle  Real Application Clusters installations for Oracle Linux Release 7 Files
+            : affected: /etc/sysctl.conf, /etc/security/limits.conf, /boot/grub/menu.lst or /boot/grub2/grub.cfg.
+
+Name        : oracle-rdbms-server-12cR1-preinstall
+Arch        : x86_64
+Version     : 1.0
+Release     : 5.el7
+Size        : 18 k
+Repo        : ol7_latest/x86_64
+Summary     : Sets the system for Oracle Database single instance and Real Application Cluster install for Oracle Linux 7
+License     : GPLv2
+Description : The Oracle Preinstallation RPM package installs software packages and sets system parameters required for Oracle
+            : Database single instance and Oracle Real Application Clusters installations for Oracle Linux Release 7 Files affected:
+            : /etc/sysctl.conf, /boot/grub/menu.lst OR /boot/grub2/grub.cfg Files added:
+            : /etc/security/limits.d/oracle-rdbms-server-12cR1-preinstall.conf
+
+# yum -y install oracle-database-server-12cR2-preinstall
+</pre>
+<h3> Step 2 create tar file of source Oracle home directory </h3>
+<p>I have run on source node:</p>
+<pre>
+$ cd $ORACLE_HOME
+$ pwd
+/u01/app/oracle/product/12.2.0/dbhome_1
+$ tar cf /u04/tmp/db12201.tar .
+tar: ./root.sh.bkup: Cannot open: Permission denied
+tar: Exiting with failure status due to previous errors
+$
+</pre>
+<h3>Step 3 create new target directories</h3>
+<p>On a machine where no Oracle software is installed you should create 3 directories: </p>
+<li>
+the new Oracle home
+</li>
+<li>
+the new Oracle base
+</li>
+<li>
+the new Oracle inventory (if you don't create it Oracle Universal Installer (OUI) will use /home/oracle/oraInventory).
+</li>
+<p>
+I have run as root: </p>
+<pre>
+# mkdir /u01/db12201
+# mkdir /u01/base
+# mkdir /u01/inv
+# chown oracle:dba /u01/db12201
+# chown oracle:dba /u01/base
+# chown oracle:dba /u01/inv
+</pre>
+<p>I have also created a temporary directory for Oracle Home tar file:</p>
+<pre>
+# mkdir /u01/tmp
+# chown oracle:dba /u01/tmp
+</pre>
+<h3>Step 4 transfer tar file to target node</h3>
+<p>I have used oracle account on source node (I have added source node oracle account public SSH key to target node <b>$HOME/.ssh/authorized_keys</b> to enable passwordless SSH):</p>
+<pre>
+$ scp /u04/tmp/db12201.tar dd36c4:/u01/tmp
+db12201.tar                                                                   100% 8862MB  82.8MB/s   01:47                                                   
+</pre>
+<h3>Step 5 extract Oracle home tar file on target node </h3>
+<p>I have run:</p>
+<pre>
+$ cd /u01/db12201
+$ tar xf ../tmp/db12201.tar .
+</pre>
+<h3> Step 6 run the clone command </h3>
+<p>I have first added to oracle account <b>.bash_profile</b>:</p>
+<pre>
+export ORACLE_HOME=/u01/db12201
+PATH=$ORACLE_HOME/bin:$PATH
+</pre>
+<p>and I have modified current shell environment:</p>
+<pre>
+. .bash_profile
+</pre>
+<p>I have run clone command:</p>
+<pre>
+$ $ORACLE_HOME/perl/bin/perl $ORACLE_HOME/clone/bin/clone.pl ORACLE_BASE=/u01/base ORACLE_HOME=$ORACLE_HOME INVENTORY_LOCATION=/u01/inv 
+Starting Oracle Universal Installer...
+
+Checking Temp space: must be greater than 500 MB.   Actual 2600 MB    Passed
+Checking swap space: must be greater than 500 MB.   Actual 1023 MB    Passed
+Preparing to launch Oracle Universal Installer from /tmp/OraInstall2017-01-21_01-21-42PM. 
+Please wait ...You can find the log of this install session at:
+ /u01/inv/logs/cloneActions2017-01-21_01-21-42PM.log
+..................................................   5% Done.
+..................................................   10% Done.
+..................................................   15% Done.
+..................................................   20% Done.
+..................................................   25% Done.
+..................................................   30% Done.
+..................................................   35% Done.
+..................................................   40% Done.
+..................................................   45% Done.
+..................................................   50% Done.
+..................................................   55% Done.
+..................................................   60% Done.
+..................................................   65% Done.
+..................................................   70% Done.
+..................................................   75% Done.
+..................................................   80% Done.
+..................................................   85% Done.
+..........
+Copy files in progress.
+
+Copy files successful.
+
+Link binaries in progress.
+Error in invoking target 'all_no_orcl' of makefile '/u01/db12201/rdbms/lib/ins_rdbms.mk'. See '/u01/inv/logs/cloneActions2017-01-21_01-21-42PM.log' for details.
+
+Link binaries successful.
+
+Setup files in progress.
+
+Setup files successful.
+
+Setup Inventory in progress.
+
+Setup Inventory successful.
+
+Finish Setup successful.
+The cloning of OraHome1 was successful.
+Please check '/u01/inv/logs/cloneActions2017-01-21_01-21-42PM.log' for more details.
+
+Setup Oracle Base in progress.
+
+Setup Oracle Base successful.
+..................................................   95% Done.
+
+As a root user, execute the following script(s):
+	1. /u01/inv/orainstRoot.sh
+	2. /u01/db12201/root.sh
+
+
+
+..................................................   100% Done.
+$
+</pre>
+<p>Note that I have ignored linking error because clone script has also ignored it.</p>
+<h3> Step 7 run scripts as root </h3>
+<p>I have run last scripts with root account:</p>
+<pre>
+# /u01/inv/orainstRoot.sh
+Changing permissions of /u01/inv.
+Adding read,write permissions for group.
+Removing read,write,execute permissions for world.
+
+Changing groupname of /u01/inv to oinstall.
+The execution of the script is complete.
+# /u01/db12201/root.sh
+Check /u01/db12201/install/root_dd36c4_2017-01-21_13-23-52-835244694.log for the output of root script
+# cat /u01/db12201/install/root_dd36c4_2017-01-21_13-23-52-835244694.log
+Performing root user operation.
+
+The following environment variables are set as:
+    ORACLE_OWNER= oracle
+    ORACLE_HOME=  /u01/db12201
+   Copying dbhome to /usr/local/bin ...
+   Copying oraenv to /usr/local/bin ...
+   Copying coraenv to /usr/local/bin ...
+
+
+Creating /etc/oratab file...
+Entries will be added to the /etc/oratab file as needed by
+Database Configuration Assistant when a database is created
+Finished running generic part of root script.
+Now product-specific root actions will be performed.
+Oracle Trace File Analyzer (TFA) is available at : /u01/db12201/suptools/tfa/release/tfa_home/bin/tfactl 
+
+</pre>
+<h3> Step 8 check cloned Oracle Home </h3>
+<p>I have checked oracle binary and Oracle inventory:</p>
+<pre>
+$ which oracle
+/u01/db12201/bin/oracle
+$ ldd /u01/db12201/bin/oracle
+	linux-vdso.so.1 =&gt;  (0x00007ffc035de000)
+	libodm12.so =&gt; /u01/db12201/lib/libodm12.so (0x00007f6f8e72f000)
+	libofs.so =&gt; /u01/db12201/lib/libofs.so (0x00007f6f8e52e000)
+	libcell12.so =&gt; /u01/db12201/lib/libcell12.so (0x00007f6f8e263000)
+	libskgxp12.so =&gt; /u01/db12201/lib/libskgxp12.so (0x00007f6f8df56000)
+	libskjcx12.so =&gt; /u01/db12201/lib/libskjcx12.so (0x00007f6f8dd11000)
+	librt.so.1 =&gt; /lib64/librt.so.1 (0x00007f6f8db09000)
+	libmql1.so =&gt; /u01/db12201/lib/libmql1.so (0x00007f6f8d892000)
+	libipc1.so =&gt; /u01/db12201/lib/libipc1.so (0x00007f6f8d461000)
+	libclsra12.so =&gt; /u01/db12201/lib/libclsra12.so (0x00007f6f8d215000)
+	libdbcfg12.so =&gt; /u01/db12201/lib/libdbcfg12.so (0x00007f6f8cff0000)
+	libhasgen12.so =&gt; /u01/db12201/lib/libhasgen12.so (0x00007f6f8bd06000)
+	libskgxn2.so =&gt; /u01/db12201/lib/libskgxn2.so (0x00007f6f8bb04000)
+	libocr12.so =&gt; /u01/db12201/lib/libocr12.so (0x00007f6f8b7f7000)
+	libocrb12.so =&gt; /u01/db12201/lib/libocrb12.so (0x00007f6f8b4ab000)
+	libocrutl12.so =&gt; /u01/db12201/lib/libocrutl12.so (0x00007f6f8b28f000)
+	libaio.so.1 =&gt; /lib64/libaio.so.1 (0x00007f6f8b08d000)
+	libons.so =&gt; /u01/db12201/lib/libons.so (0x00007f6f8ae3f000)
+	libdl.so.2 =&gt; /lib64/libdl.so.2 (0x00007f6f8ac3b000)
+	libm.so.6 =&gt; /lib64/libm.so.6 (0x00007f6f8a939000)
+	libpthread.so.0 =&gt; /lib64/libpthread.so.0 (0x00007f6f8a71d000)
+	libnsl.so.1 =&gt; /lib64/libnsl.so.1 (0x00007f6f8a504000)
+	libresolv.so.2 =&gt; /lib64/libresolv.so.2 (0x00007f6f8a2ea000)
+	libc.so.6 =&gt; /lib64/libc.so.6 (0x00007f6f89f29000)
+	libgcc_s.so.1 =&gt; /lib64/libgcc_s.so.1 (0x00007f6f89d13000)
+	/lib64/ld-linux-x86-64.so.2 (0x00007f6f8e931000)
+
+
+$ file /u01/db12201/bin/oracle
+/u01/db12201/bin/oracle: setuid setgid ELF 64-bit LSB executable, x86-64, version 1 (SYSV), dynamically linked (uses shared libs), for GNU/Linux 2.6.32, BuildID[sha1]=6711e5a9bc3850e4d7edd6b78d40da553c79f6ee, not stripped
+$ $ORACLE_HOME/OPatch/opatch lsinv
+Oracle Interim Patch Installer version 12.2.0.1.6
+Copyright (c) 2017, Oracle Corporation.  All rights reserved.
+
+
+Oracle Home       : /u01/db12201
+Central Inventory : /u01/inv
+   from           : /u01/db12201/oraInst.loc
+OPatch version    : 12.2.0.1.6
+OUI version       : 12.2.0.1.4
+Log file location : /u01/db12201/cfgtoollogs/opatch/opatch2017-01-21_13-34-35PM_1.log
+
+Lsinventory Output file location : /u01/db12201/cfgtoollogs/opatch/lsinv/lsinventory2017-01-21_13-34-35PM.txt
+
+--------------------------------------------------------------------------------
+Local Machine Information::
+Hostname: dd36c4.compute-frnocompan.oraclecloud.internal
+ARU platform id: 226
+ARU platform description:: Linux x86-64
+
+Installed Top-level Products (1): 
+
+Oracle Database 12c                                                  12.2.0.1.0
+There are 1 products installed in this Oracle Home.
+
+
+There are no Interim patches installed in this Oracle Home.
+
+
+--------------------------------------------------------------------------------
+
+OPatch succeeded.
+
+</pre>
+<p>Despite error in cloning step Oracle binary looks OK.<br />
+</p>
+<h3> Testing the new Oracle Home: create a new database </h3>
+<p>This new Oracle Home includes a<a href="https://pierreforstmanndotcom.wordpress.com/2016/12/09/how-to-create-a-dbca-template-for-an-oracle-database-12-2-0-1-container-database-in-oracle-cloud/" /> database template that I have created</a>:</p>
+<pre>
+$ ls -la $ORACLE_HOME/assistants/dbca/templates/*CDB*
+-rw-r----- 1 oracle oinstall   8634368 Dec  8 13:45 /u01/db12201/assistants/dbca/templates/CDBT.ctl
+-rw-r----- 1 oracle oinstall      5628 Dec  8 13:47 /u01/db12201/assistants/dbca/templates/CDBT.dbc
+-rw-r----- 1 oracle oinstall 108716032 Dec  8 13:44 /u01/db12201/assistants/dbca/templates/CDBT.dfb62
+-rw-r----- 1 oracle oinstall  71262208 Dec  8 13:44 /u01/db12201/assistants/dbca/templates/CDBT.dfb63
+-rw-r----- 1 oracle oinstall  71163904 Dec  8 13:45 /u01/db12201/assistants/dbca/templates/CDBT.dfb64
+</pre>
+<p>I have switched to root to create directories:</p>
+<pre>
+# mkdir /u01/data
+# chown oracle:dba /u01/data
+# mkdir /u01/fra
+# chown oracle:dba /u01/fra
+# exit
+</pre>
+<p>I have used following script to create a new container database:</p>
+<pre>
+dbca -silent \
+-createDatabase \
+-templateName CDBT.dbc \
+-gdbName CDB \
+-sid CDB \
+-SysPassword oracle12c \
+-SystemPassword oracle12c \
+-characterSet AL32UTF8 \
+-emConfiguration NONE \
+-storageType FS \
+-datafileDestination /u01/data \
+-recoveryAreaDestination /u01/fra \
+-initParams sga_target=1536M
+</pre>
+<p>Running this script has given following output:</p>
+<pre>
+++ dbca -silent -createDatabase -templateName CDBT.dbc -gdbName CDB -sid CDB -SysPassword oracle12c -SystemPassword oracle12c -characterSet AL32UTF8 -emConfiguration NONE -storageType FS -datafileDestination /u01/data -recoveryAreaDestination /u01/fra -initParams sga_target=1536M
+[WARNING] [DBT-06208] The 'SYS' password entered does not conform to the Oracle recommended standards.
+   CAUSE: 
+a. Oracle recommends that the password entered should be at least 8 characters in length, contain at least 1 uppercase character, 1 lower case character and 1 digit [0-9].
+b.The password entered is a keyword that Oracle does not recommend to be used as password
+   ACTION: Specify a strong password. If required refer Oracle documentation for guidelines.
+[WARNING] [DBT-06208] The 'SYSTEM' password entered does not conform to the Oracle recommended standards.
+   CAUSE: 
+a. Oracle recommends that the password entered should be at least 8 characters in length, contain at least 1 uppercase character, 1 lower case character and 1 digit [0-9].
+b.The password entered is a keyword that Oracle does not recommend to be used as password
+   ACTION: Specify a strong password. If required refer Oracle documentation for guidelines.
+[WARNING] [DBT-06801] Specified Fast Recovery Area size (10,240 MB) is less than the recommended value.
+   CAUSE: Fast Recovery Area size should at least be three times the database size (4,392 MB).
+   ACTION: Specify Fast Recovery Area Size to be at least three times the database size.
+Copying database files
+1% complete
+2% complete
+18% complete
+33% complete
+Creating and starting Oracle instance
+35% complete
+40% complete
+44% complete
+49% complete
+50% complete
+53% complete
+55% complete
+Completing Database Creation
+56% complete
+57% complete
+58% complete
+62% complete
+65% complete
+66% complete
+Executing Post Configuration Actions
+100% complete
+Look at the log file "/u01/base/cfgtoollogs/dbca/CDB/CDB.log" for further details.
+</pre>
+<p>I have checked created database with:</p>
+<pre>
+$ sqlplus / as sysdba
+
+SQL*Plus: Release 12.2.0.1.0 Production on Sat Jan 21 13:58:55 2017
+
+Copyright (c) 1982, 2016, Oracle.  All rights reserved.
+
+
+Connected to:
+Oracle Database 12c Enterprise Edition Release 12.2.0.1.0 - 64bit Production
+
+SQL&gt; select name, cdb from v$database;
+
+NAME	  CDB
+--------- ---
+CDB	  YES
+
+SQL&gt; show pdbs;
+
+    CON_ID CON_NAME			  OPEN MODE  RESTRICTED
+---------- ------------------------------ ---------- ----------
+	 2 PDB$SEED			  READ ONLY  NO
+	 3 PDB				  READ WRITE NO
+
+SQL&gt; column comp_name format a40
+SQL&gt; set linesize 120
+SQL&gt; select comp_name, version, status from dba_registry;
+
+COMP_NAME				 VERSION			STATUS
+---------------------------------------- ------------------------------ --------------------------------------------
+Oracle Database Catalog Views		 12.2.0.1.0			VALID
+Oracle Database Packages and Types	 12.2.0.1.0			VALID
+Oracle Real Application Clusters	 12.2.0.1.0			OPTION OFF
+Oracle XML Database			 12.2.0.1.0			VALID
+Oracle Workspace Manager		 12.2.0.1.0			VALID
+
+SQL&gt; select con_id, tablespace_name from cdb_tablespaces order by con_id;
+
+    CON_ID TABLESPACE_NAME
+---------- ------------------------------
+	 1 SYSTEM
+	 1 TEMP
+	 1 SYS_UNDOTS
+	 1 SYSAUX
+	 3 SYSTEM
+	 3 TEMP
+	 3 SYSAUX
+
+7 rows selected.
+
+SQL&gt; 
+</pre>
+<p>The new database is OK.</p>
+<h3> Conclusion </h3>
+<p>Cloning Oracle Database Home 12.2.0.1 on Linux works the same way as Oracle Database 12.1.0.2 on Linux.</p>
+<p>However there is at least one implementation change: Oracle has decided to replace gcc by ld for linkings steps according to <a href="http://docs.oracle.com/database/122/LADBI/operating-system-requirements-for-x86-64-linux-platforms.htm#LADBI-GUID-3F647617-7FF5-4EE4-BBA8-9A5E3EEC888F">documentation</a> which says:<i> Oracle Database 12c Release 2 (12.2) and later does not require the compiler packages gcc and gcc-c++ on Oracle Linux and Red Hat Enterprise Linux for Oracle Database or Oracle Grid Infrastructure installations</i>. But some components still require gcc during linking steps according to internal log file: this looks like a bug in some OUI scripts.</p>
