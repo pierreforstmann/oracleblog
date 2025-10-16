@@ -1,0 +1,173 @@
+<p>Whether <a href="https://pierreforstmanndotcom.wordpress.com/2014/08/19/upgrading-single-instance-oracle-database-from-12-1-0-1-to-12-1-0-2">you upgrade a database </a> or <a href="https://pierreforstmanndotcom.wordpress.com/2016/05/16/out-of-place-oracle-database-12-1-0-2-patch-set-update-psu-patching">patch a database with a given PSU</a> two major components are modified:</p>
+<li> the Oracle Database Home files (binaries, libraries, etc.) are updated
+</li>
+<li> databases using the involved Oracle Database Home must be updated: dictionary objects are generally modified with the PSU SQL script.
+</li>
+<p>
+If you use Database Creation Assistant (DBCA) to create a database using an Oracle Database home with a PSU patch, DBCA will apply the PSU SQL script to the newly created database.</p>
+<p>In this article I compare what DBCA is supposed to do and what it really does for 11.2.0.4 and 12.1.0.2 versions.</p>
+<p>I have used <a href="https://pierreforstmanndotcom.wordpress.com/2016/03/15/installing-and-using-oracle-hands-on-lab-upgrademigrateconsolidate-to-oracle-12c-hol-virtual-machine">OTN Hands On Lab virtual machine</a> where Oracle 11.2.0.4 PSU 8 and Oracle 12.1.0.2 PSU 5 are installed.</p>
+<h2>Oracle Database 11.2.0.4</h2>
+<p>Using Oracle 11.2.0.4 PSU 8 ... </p>
+<pre>
+$ $ORACLE_HOME/OPatch/opatch lspatches
+21352635;Database Patch Set Update : 11.2.0.4.8 (21352635)
+
+OPatch succeeded.
+$ 
+</pre>
+<p>... I have created a new 11.2.0.4 database with DBCA:</p>
+<pre>
+dbca -silent \
+-createDatabase \
+-templateName General_Purpose.dbc \
+-gdbName D112 \
+-sid D112 \
+-SysPassword oracle \
+-SystemPassword oracle \
+-emConfiguration NONE \
+-datafileDestination /oradata/ \
+-storageType FS \
+-characterSet AL32UTF8 \
+-memoryPercentage 20 \
+ 
+</pre>
+<p>I have checked that PSU SQL script has been run on this new database:</p>
+<pre>
+SYS@D112&gt;select to_char(action_time,'DD-MON-YYYY HH24:MI') as action_time_2, action, namespace, version,  comments
+  2  from dba_registry_history
+  3  order by action_time;
+
+ACTION_TIME_2              ACTION     NAMESPACE  VERSION    COMMENTS
+-------------------------- ---------- ---------- ---------- --------------------
+24-AUG-2013 12:03          APPLY      SERVER     11.2.0.4   Patchset 11.2.0.2.0
+27-SEP-2016 16:02          APPLY      SERVER     11.2.0.4   PSU 11.2.0.4.8
+
+</pre>
+<h2>Oracle Database 12.1.0.2</h2>
+<p>Using Oracle 12.1.0.2 PSU 5 ...</p>
+<pre>
+$ $ORACLE_HOME/OPatch/opatch lspatches
+21539301;
+21359755;Database Patch Set Update : 12.1.0.2.5 (21359755)
+
+OPatch succeeded.
+
+</pre>
+<p>... I have created a new non container 12.1.0.2 database with DBCA:</p>
+<pre>
+dbca -silent \
+-createDatabase \
+-templateName General_Purpose.dbc \
+-gdbName D121 \
+-sid D121 \
+-SysPassword oracle \
+-SystemPassword oracle \
+-emConfiguration NONE \
+-datafileDestination /oradata/ \
+-storageType FS \
+-characterSet AL32UTF8 \
+-memoryPercentage 20 \
+</pre>
+<p>I have tried to check that SQL PSU script has been run on this new database but DBA_REGISTRY_HISTORY is empty:</p>
+<pre>
+select to_char(action_time,'DD-MON-YYYY HH24:MI') as action_time_2, action, namespace, version,  comments
+  2  from dba_registry_history
+  3  order by action_time;
+
+no rows selected
+
+</pre>
+<p>Actually there is a new view <a href="http://docs.oracle.com/database/121/REFRN/GUID-F6D2BC12-606C-41FE-B9E8-F3702CD32F89.htm#REFRN-GUID-F6D2BC12-606C-41FE-B9E8-F3702CD32F89">DBA_REGISTRY_SQLPATCH</a> but it is also empty:</p>
+<pre>
+SYS@D121&gt;select to_char(action_time,'DD-MON-YYYY') as action_time_2, patch_id, patch_uid, action, version,  description
+  2  from dba_registry_sqlpatch
+  3  order by action_time;
+
+no rows selected
+
+</pre>
+<p>Note that above documentation also says:<br />
+<i><br />
+Support note 1585822.1 "Datapatch: Database 12c Post Patch SQL Automation” at My Oracle Support at the following URL for more information about datapatch:<br />
+</i><br />
+<br />
+This My Oracle Support note says that <b>datapatch</b> is the new tool to apply PSU SQL script to databases.<br />
+<br />
+I have run it:</p>
+<pre>
+$ $ORACLE_HOME/OPatch/datapatch -verbose
+SQL Patching tool version 12.1.0.2.0 on Tue Sep 27 16:40:34 2016
+Copyright (c) 2015, Oracle.  All rights reserved.
+
+Log file for this invocation: /u01/app/oracle/cfgtoollogs/sqlpatch/sqlpatch_7377_2016_09_27_16_40_34/sqlpatch_invocation.log
+
+Connecting to database...OK
+Bootstrapping registry and package to current versions...done
+Determining current state...done
+
+Current state of SQL patches:
+Patch 21539301 ():
+  Installed in the binary registry only
+Bundle series PSU:
+  ID 5 in the binary registry and not installed in the SQL registry
+
+Adding patches to installation queue and performing prereq checks...
+Installation queue:
+  Nothing to roll back
+  The following patches will be applied:
+    21359755 (Database Patch Set Update : 12.1.0.2.5 (21359755))
+    21539301 ()
+
+Installing patches...
+Patch installation complete.  Total patches installed: 2
+
+Validating logfiles...
+Patch 21359755 apply: SUCCESS
+  logfile: /u01/app/oracle/cfgtoollogs/sqlpatch/21359755/19194568/21359755_apply_D121_2016Sep27_16_40_56.log (no errors)
+Patch 21539301 apply: SUCCESS
+  logfile: /u01/app/oracle/cfgtoollogs/sqlpatch/21539301/19298399/21539301_apply_D121_2016Sep27_16_41_01.log (no errors)
+SQL Patching tool complete on Tue Sep 27 16:41:10 2016
+</pre>
+<p>I have checked again DBA_REGISTRY_SQLPATCH view:</p>
+<pre>
+SYS@D121&gt;select to_char(action_time,'DD-MON-YYYY') as action_time_2, patch_id, patch_uid, action, version,  description
+  2  from dba_registry_sqlpatch
+  3  order by action_time;
+
+ACTION_TIME_2          PATCH_ID  PATCH_UID ACTION     VERSION    DESCRIPTION
+-------------------- ---------- ---------- ---------- ---------- --------------------------------------------------
+27-SEP-2016            21359755   19194568 APPLY      12.1.0.2   Database Patch Set Update : 12.1.0.2.5 (21359755)
+27-SEP-2016            21539301   19298399 APPLY      12.1.0.2
+
+</pre>
+<p>Now it looks OK.</p>
+<p>The fact that DBCA did not run datapatch is not a feature but simply a bug according to <a href="https://blogs.oracle.com/UPGRADE/entry/dbca_12c_and_datapatch_pl">Mike Dietrich blog</a>.<br />
+<br />
+This bug should only be fixed with Oracle 12.2.<br />
+</p>
+<h2>Conclusion</h2>
+<table border="2">
+<tr>
+<th>Oracle Database version</th>
+<th>Is DBCA supposed to apply PSU SQL script ?</th>
+<th>Does DBCA actually apply PSU SQL script ?</th>
+<th>Dictionary view for PSU SQL script</th>
+</tr>
+<td>11.2.0.4</td>
+<td>Yes</td>
+<td>Yes</td>
+<td>DBA_REGISTRY_HISTORY</td>
+<tr>
+<td>12.1.0.2</td>
+<td>Yes</td>
+<td><b>NO</b></td>
+<td>DBA_REGISTRY_SQLPATCH</td>
+</tr>
+</table>
+<p>
+So do not forget for a newly database created with DBCA:</p>
+<li> to check the right PSU SQL script view
+</li>
+<li> to run datapatch for a 12.1.0.2 database.
+</li>
