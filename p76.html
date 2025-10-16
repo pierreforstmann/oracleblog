@@ -1,0 +1,196 @@
+<p>Oracle Corp. has just released <a href="http://www.oracle.com/technetwork/database/enterprise-edition/downloads/index.html">Oracle Client 18c Release 1</a> for Linux on OTN. I have not read any official statement about this release which is unexpected: Oracle 18c has only been released in Oracle Cloud and for on-premises engineered systems (Exadata and ODA). General availability for Oracle 18c is scheduled for July 2018 according to My Oracle Support.</p>
+<p>In this blog post I will document how to install Oracle Instant Client on Oracle Linux 7.5 .</p>
+<p><a href="http://www.oracle.com/technetwork/database/database-technologies/instant-client/overview/index.html">Oracle Instant Client</a> is a small package that you generally install either with a RPM or just unzip in a target directory.</p>
+<p>The configuration I have used is the following:</p>
+<pre>
+# cat /etc/os-release 
+NAME="Oracle Linux Server"
+VERSION="7.5"
+ID="ol"
+VERSION_ID="7.5"
+PRETTY_NAME="Oracle Linux Server 7.5"
+ANSI_COLOR="0;31"
+CPE_NAME="cpe:/o:oracle:linux:7:5:server"
+HOME_URL="https://linux.oracle.com/"
+BUG_REPORT_URL="https://bugzilla.oracle.com/"
+
+ORACLE_BUGZILLA_PRODUCT="Oracle Linux 7"
+ORACLE_BUGZILLA_PRODUCT_VERSION=7.5
+ORACLE_SUPPORT_PRODUCT="Oracle Linux"
+ORACLE_SUPPORT_PRODUCT_VERSION=7.5
+# uname -a
+Linux ol7dns02.localdomain 4.1.12-124.14.5.el7uek.x86_64 #2 SMP Fri May 4 15:26:53 PDT 2018 x86_64 x86_64 x86_64 GNU/Linux
+</pre>
+<p>This is a minimal Oracle Linux installation (no Oracle Database, no MySQL, no gcc):</p>
+<pre>
+# cat /etc/oraInst.loc
+cat: /etc/oraInst.loc: No such file or directory
+# id oracle
+id: oracle: no such user
+# id mysql
+id: mysql: no such user
+# yum info gcc
+Failed to set locale, defaulting to C
+Loaded plugins: langpacks, ulninfo
+Available Packages
+Name        : gcc
+Arch        : x86_64
+Version     : 4.8.5
+Release     : 28.0.1.el7
+Size        : 16 M
+Repo        : ol7_latest/x86_64
+Summary     : Various compilers (C, C++, Objective-C, Java, ...)
+URL         : http://gcc.gnu.org
+License     : GPLv3+ and GPLv3+ with exceptions and GPLv2+ with exceptions and LGPLv2+ and BSD
+Description : The gcc package contains the GNU Compiler Collection version 4.8.
+            : You'll need this package in order to compile C code.
+</pre>
+<p>I have not found any preinstallation RPM for Oracle 18c in Oracle public yum servers: </p>
+<pre> 
+# yum info *preinstall*
+Failed to set locale, defaulting to C
+Loaded plugins: langpacks, ulninfo
+Available Packages
+Name        : oracle-database-server-12cR2-preinstall
+Arch        : x86_64
+Version     : 1.0
+Release     : 3.el7
+Size        : 19 k
+Repo        : ol7_latest/x86_64
+Summary     : Sets the system for Oracle Database single instance and Real Application Cluster install for Oracle Linux 7
+License     : GPLv2
+Description : The Oracle Preinstallation RPM package installs software packages and sets system parameters required for Oracle Database single instance and Oracle
+            : Real Application Clusters installations for Oracle Linux Release 7 Files affected: /etc/sysctl.conf, /boot/grub/menu.lst OR /boot/grub2/grub.cfg
+            : Files added: /etc/security/limits.d/oracle-database-server-12cR2-preinstall.conf
+
+Name        : oracle-rdbms-server-11gR2-preinstall
+Arch        : x86_64
+Version     : 1.0
+Release     : 5.el7
+Size        : 21 k
+Repo        : ol7_latest/x86_64
+Summary     : Sets the system for Oracle single instance and Real Application Cluster install for Oracle Linux 7
+License     : GPLv2
+Description : The Oracle Preinstallation RPM package installs software packages and sets system parameters required for Oracle Database single instance and Oracle
+            : Real Application Clusters installations for Oracle Linux Release 7 Files affected: /etc/sysctl.conf, /etc/security/limits.conf, /boot/grub/menu.lst or
+            : /boot/grub2/grub.cfg.
+
+Name        : oracle-rdbms-server-12cR1-preinstall
+Arch        : x86_64
+Version     : 1.0
+Release     : 6.el7
+Size        : 20 k
+Repo        : ol7_latest/x86_64
+Summary     : Sets the system for Oracle Database single instance and Real Application Cluster install for Oracle Linux 7
+License     : GPLv2
+Description : The Oracle Preinstallation RPM package installs software packages and sets system parameters required for Oracle Database single instance and Oracle
+            : Real Application Clusters installations for Oracle Linux Release 7 Files affected: /etc/sysctl.conf, /boot/grub/menu.lst OR /boot/grub2/grub.cfg
+            : Files added: /etc/security/limits.d/oracle-rdbms-server-12cR1-preinstall.conf
+</pre>
+<p>I have decided to install the 12.2.0.1 preinstallation RPM:</p>
+<pre>
+# yum -y install oracle-database-server-12cR2-preinstall
+</pre>
+<p>I have decided to install Oracle Instant Client in <b>/opt</b> so I have changed ownership to oracle account (that has been created by preinstallation RPM):</p>
+<pre>
+# chown oracle:dba /opt
+</pre>
+<p>I have switched to oracle account, downloaded and unzipped installation media:</p>
+<pre>
+$ unzip LINUX.X64_181000_client.zip 
+</pre>
+<p>I have run following script:</p>
+<pre>
+rm -rf /opt/oraInventory/logs
+rm -rf /tmp/OraInstall*
+cd client
+DISTRIB=`pwd`
+./runInstaller -silent \
+ -responseFile $DISTRIB//response/client_install.rsp   \
+   oracle.install.client.installType=InstantClient     \
+   SELECTED_LANGUAGES=en                               \
+   ORACLE_HOME=/opt/oc18100                            \
+   INVENTORY_LOCATION=/opt/oraInventory                \
+   UNIX_GROUP_NAME=dba                                 \
+   waitForCompletion=true
+</pre>
+<p>Runnning this script has generated following output:</p>
+<pre>
+Starting Oracle Universal Installer...
+
+Checking Temp space: must be greater than 415 MB.   Actual 4334 MB    Passed
+Checking swap space: must be greater than 150 MB.   Actual 1218 MB    Passed
+Preparing to launch Oracle Universal Installer from /tmp/OraInstall2018-05-09_09-07-02PM. Please wait ...
+   [WARNING] [INS-13014] Target environment does not meet some optional requirements.
+   CAUSE: Some of the optional prerequisites are not met. See logs for details. /opt/oraInventory/logs/installActions2018-05-09_09-07-02PM.log
+   ACTION: Identify the list of failed prerequisite checks from the log: /opt/oraInventory/logs/installActions2018-05-09_09-07-02PM.log. Then either from the log file or from installation manual find the appropriate configuration to meet the prerequisites and fix it manually.
+The response file for this session can be found at:
+ /opt/oc18100/install/response/client_2018-05-09_09-07-02PM.rsp
+
+You can find the log of this install session at:
+ /opt/oraInventory/logs/installActions2018-05-09_09-07-02PM.log
+The installation of Oracle Client 18c was successful.
+Please check '/opt/oraInventory/logs/silentInstall2018-05-09_09-07-02PM.log' for more details.
+Successfully Setup Software with warning(s).
+</pre>
+<p>I have ignored following warning:</p>
+<pre>
+INFO: ------------------List of failed Tasks------------------
+INFO: *********************************************
+INFO: Swap Size: This is a prerequisite condition to test whether sufficient total swap space is available on the system.
+INFO: Severity:IGNORABLE
+INFO: OverallStatus:VERIFICATION_FAILED
+INFO: -----------------End of failed Tasks List----------------
+</pre>
+<p>I have set following environment variables (note that Oracle Instant Client does not use ORACLE_HOME):</p>
+<pre>
+export PATH=/opt/oc18100:$PATH
+export LD_LIBRARY_PATH=/opt/oc18100:$LD_LIBRARY_PATH
+</pre>
+<p>I have tested Oracle Instant Client with Easy Connect naming method:</p>
+<pre>
+$ sqlplus system/xxx@192.168.1.10:1521/XE
+
+SQL*Plus: Release 18.0.0.0.0 Production on Wed May 9 21:10:43 2018
+Version 18.1.0.0.0
+
+Copyright (c) 1982, 2017, Oracle.  All rights reserved.
+
+
+Connected to:
+Oracle Database 11g Express Edition Release 11.2.0.2.0 - 64bit Production
+
+SQL&gt; select * from v$version;
+
+BANNER
+--------------------------------------------------------------------------------
+Oracle Database 11g Express Edition Release 11.2.0.2.0 - 64bit Production
+PL/SQL Release 11.2.0.2.0 - Production
+CORE	11.2.0.2.0	Production
+TNS for Linux: Version 11.2.0.2.0 - Production
+NLSRTL Version 11.2.0.2.0 - Production
+
+SQL&gt; 
+</pre>
+<p>This 18.1 Oracle Client installation has following executables: <b>sqlplus</b>, <b>sqlldr</b>, <b>exp/imp</b>, <b>expdp/impdp</b> but <b>tnsping</b> and <b>rman</b> are missing.<br />
+We have an Oracle Inventory but we have no <b>opatch</b> executable:</p>
+<pre>
+$ ls -al /opt/oraInventory/ContentsXML/inventory.xml
+-rw-rw----. 1 oracle oinstall 455 May  9 21:07 /opt/oraInventory/ContentsXML/inventory.xml
+$ find /opt/oc18100/ -name 'opatch*'
+/opt/oc18100/inventory/Scripts/ext/jlib/opatch.jar
+/opt/oc18100/inventory/Scripts/ext/jlib/opatchsdk.jar
+</pre>
+<p>The directory size is quite small compared to the "full" client:</p>
+<pre>
+$ du -sm /opt/oc18100
+313	/opt/oc18100
+</pre>
+<h3>Conclusion</h3>
+<p>This Oracle Client 18c release works but does not look comprehensive: </p>
+<li>no separate Oracle Instant Client zip file and no Instant Client RPM
+</li>
+<li>no RPM for Oracle Client although it has been <a href="https://docs.oracle.com/en/database/oracle/oracle-database/18/ladbi/about-rpm-based-oracle-database-installation.html#GUID-C2B4A806-E1E2-4B77-971B-628CFF18A488">announced</a>.
+</li>
+<li> <a href="https://docs.oracle.com/en/database/oracle/oracle-database/18/lacli/index.html">the documentation</a> has no "Changes in this Release for Oracle Database" section but has a section on <a href="https://docs.oracle.com/en/database/oracle/oracle-database/18/lacli/about-character-set-selection-during-installation.html#GUID-70B091B3-C67A-4AFD-9F60-75046171592D">database character set</a> not really useful for client installation.
+</li>
