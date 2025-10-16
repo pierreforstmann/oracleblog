@@ -1,0 +1,818 @@
+<p>In March 2017 Oracle Corp. has made available the new Hands On Lab (HOL) virtual machine (VM) for Oracle Database 12.2.0.1. You can download it from <a href="http://www.oracle.com/technetwork/community/developer-vm/vts-hol-2415742.html">here</a>.</p>
+<p>In this blog post I mainly want to show how you can install this VM on CentOS 7 using command line and what exactly you can find in this VM.</p>
+<p>I have also used VirtualBox 5.1.22 on CentOS 7.4.</p>
+<pre>
+$ vboxmanage --version
+5.1.22r115126
+</pre>
+<h2>VM installation </h2>
+<p>I have first downloaded all zip files (about 19 GB): this has taken about 6 hours using my personal Internet connexion:</p>
+<pre>
+$ du -sh /home/pierre/Downloads/Upgrade_HOL_12201.*0*
+1.9G	/home/pierre/Downloads/Upgrade_HOL_12201.ova.7z.001
+1.9G	/home/pierre/Downloads/Upgrade_HOL_12201.ova.7z.002
+1.9G	/home/pierre/Downloads/Upgrade_HOL_12201.ova.7z.003
+1.9G	/home/pierre/Downloads/Upgrade_HOL_12201.ova.7z.004
+1.9G	/home/pierre/Downloads/Upgrade_HOL_12201.ova.7z.005
+1.9G	/home/pierre/Downloads/Upgrade_HOL_12201.ova.7z.006
+1.9G	/home/pierre/Downloads/Upgrade_HOL_12201.ova.7z.007
+1.9G	/home/pierre/Downloads/Upgrade_HOL_12201.ova.7z.008
+1.9G	/home/pierre/Downloads/Upgrade_HOL_12201.ova.7z.009
+816M	/home/pierre/Downloads/Upgrade_HOL_12201.ova.7z.010
+</pre>
+<p>To be able to rebuild the single zip file I have first installed 7-Zip as root:</p>
+<pre>
+# yum install p7zip
+Loaded plugins: fastestmirror, langpacks
+Loading mirror speeds from cached hostfile
+ * base: ftp.ciril.fr
+ * epel: mirror.freethought-internet.co.uk
+ * extras: ftp.ciril.fr
+ * nux-dextop: li.nux.ro
+ * updates: ftp.ciril.fr
+Resolving Dependencies
+--&gt; Running transaction check
+---&gt; Package p7zip.x86_64 0:16.02-2.el7 will be installed
+--&gt; Finished Dependency Resolution
+
+Dependencies Resolved
+
+================================================================================
+ Package         Arch             Version                  Repository      Size
+================================================================================
+Installing:
+ p7zip           x86_64           16.02-2.el7              epel           651 k
+
+Transaction Summary
+================================================================================
+Install  1 Package
+
+Total download size: 651 k
+Installed size: 1.9 M
+Is this ok [y/d/N]: y
+Downloading packages:
+p7zip-16.02-2.el7.x86_64.rpm                               | 651 kB   00:01     
+Running transaction check
+Running transaction test
+Transaction test succeeded
+Running transaction
+  Installing : p7zip-16.02-2.el7.x86_64                                     1/1 
+  Verifying  : p7zip-16.02-2.el7.x86_64                                     1/1 
+
+Installed:
+  p7zip.x86_64 0:16.02-2.el7                                                    
+
+Complete!
+# 7za 
+
+7-Zip (a) [64] 16.02 : Copyright (c) 1999-2016 Igor Pavlov : 2016-05-21
+p7zip Version 16.02 (locale=en_US.UTF-8,Utf16=on,HugeFiles=on,64 bits,8 CPUs Intel(R) Core(TM) i7-3770 CPU @ 3.40GHz (306A9),ASM,AES-NI)
+
+Usage: 7za  [...]  [...]
+       []
+
+
+  a : Add files to archive
+  b : Benchmark
+  d : Delete files from archive
+  e : Extract files from archive (without using directory names)
+  h : Calculate hash values for files
+  i : Show information about supported formats
+  l : List contents of archive
+  rn : Rename files in archive
+  t : Test integrity of archive
+  u : Update files to archive
+  x : eXtract files with full paths
+
+
+  -- : Stop switches parsing
+  -ai[r[-|0]]{@listfile|!wildcard} : Include archives
+  -ax[r[-|0]]{@listfile|!wildcard} : eXclude archives
+  -ao{a|s|t|u} : set Overwrite mode
+  -an : disable archive_name field
+  -bb[0-3] : set output log level
+  -bd : disable progress indicator
+  -bs{o|e|p}{0|1|2} : set output stream for output/error/progress line
+  -bt : show execution time statistics
+  -i[r[-|0]]{@listfile|!wildcard} : Include filenames
+  -m{Parameters} : set compression Method
+    -mmt[N] : set number of CPU threads
+  -o{Directory} : set Output directory
+  -p{Password} : set Password
+  -r[-|0] : Recurse subdirectories
+  -sa{a|e|s} : set Archive name mode
+  -scc{UTF-8|WIN|DOS} : set charset for for console input/output
+  -scs{UTF-8|UTF-16LE|UTF-16BE|WIN|DOS|{id}} : set charset for list files
+  -scrc[CRC32|CRC64|SHA1|SHA256|*] : set hash function for x, e, h commands
+  -sdel : delete files after compression
+  -seml[.] : send archive by email
+  -sfx[{name}] : Create SFX archive
+  -si[{name}] : read data from stdin
+  -slp : set Large Pages mode
+  -slt : show technical information for l (List) command
+  -snh : store hard links as links
+  -snl : store symbolic links as links
+  -sni : store NT security information
+  -sns[-] : store NTFS alternate streams
+  -so : write data to stdout
+  -spd : disable wildcard matching for file names
+  -spe : eliminate duplication of root folder for extract command
+  -spf : use fully qualified file paths
+  -ssc[-] : set sensitive case mode
+  -ssw : compress shared files
+  -stl : set archive timestamp from the most recently modified file
+  -stm{HexMask} : set CPU thread affinity mask (hexadecimal number)
+  -stx{Type} : exclude archive type
+  -t{Type} : Set type of archive
+  -u[-][p#][q#][r#][x#][y#][z#][!newArchiveName] : Update options
+  -v{Size}[b|k|m|g] : Create volumes
+  -w[{path}] : assign Work directory. Empty path means a temporary directory
+  -x[r[-|0]]{@listfile|!wildcard} : eXclude filenames
+  -y : assume Yes on all queries
+</pre>
+<p>I have built the single zip file with following script:</p>
+<pre>
+#!/bin/sh
+#
+F=Upgrade_HOL_12201.ova.7z
+rm -f $F
+for f in Upgrade_HOL_12201.ova.7z.*
+do
+  echo cat $f ...
+  cat  $f &gt;&gt; $F
+  echo ... done
+done
+</pre>
+<p>I have checked the single zip file with:</p>
+<pre>
+$ 7za l Upgrade_HOL_12201.ova.7z
+
+7-Zip (a) [64] 16.02 : Copyright (c) 1999-2016 Igor Pavlov : 2016-05-21
+p7zip Version 16.02 (locale=en_US.UTF-8,Utf16=on,HugeFiles=on,64 bits,8 CPUs Intel(R) Core(TM) i7-3770 CPU @ 3.40GHz (306A9),ASM,AES-NI)
+
+Scanning the drive for archives:
+1 file, 18854947848 bytes (18 GiB)
+
+Listing archive: Upgrade_HOL_12201.ova.7z
+
+--
+Path = Upgrade_HOL_12201.ova.7z
+Type = 7z
+Physical Size = 18854947848
+Headers Size = 146
+Method = LZMA2:26
+Solid = -
+Blocks = 1
+
+   Date      Time    Attr         Size   Compressed  Name
+------------------- ----- ------------ ------------  ------------------------
+2017-03-19 18:47:55 ....A  20071627264  18854947702  Upgrade_HOL_12201.ova
+------------------- ----- ------------ ------------  ------------------------
+2017-03-19 18:47:55        20071627264  18854947702  1 files
+</pre>
+<p>I have extracted the single zip file with:</p>
+<pre>
+$ 7za x Upgrade_HOL_12201.ova.7z
+
+7-Zip (a) [64] 16.02 : Copyright (c) 1999-2016 Igor Pavlov : 2016-05-21
+p7zip Version 16.02 (locale=en_US.UTF-8,Utf16=on,HugeFiles=on,64 bits,8 CPUs Intel(R) Core(TM) i7-3770 CPU @ 3.40GHz (306A9),ASM,AES-NI)
+
+Scanning the drive for archives:
+1 file, 18854947848 bytes (18 GiB)
+
+Extracting archive: Upgrade_HOL_12201.ova.7z
+--
+Path = Upgrade_HOL_12201.ova.7z
+Type = 7z
+Physical Size = 18854947848
+Headers Size = 146
+Method = LZMA2:26
+Solid = -
+Blocks = 1
+
+Everything is Ok            
+
+Size:       20071627264
+Compressed: 18854947848
+</pre>
+<p>I have created VirtualBox VM from .ova file with following script:</p>
+<pre>
+#!/bin/sh
+VMDIR=/mnt/wd10b8/vm
+vboxmanage import $VMDIR/Upgrade_HOL_12201.ova \
+--vsys 0 --unit 15 --disk $VMDIR/disk1.vmdk \
+--vsys 0 --unit 16 --disk $VMDIR/disk2.vmdk \
+--vsys 0 --unit 17 --disk $VMDIR/disk3.vmdk \
+--vsys 0 --unit 18 --disk $VMDIR/disk4.vmdk \
+--vsys 0 --unit 19 --disk $VMDIR/disk5.vmdk \
+--eula accept
+</pre>
+<p>Running this script has taken about 30 minutes and generated following output:</p>
+<pre>
+0%...10%...20%...30%...40%...50%...60%...70%...80%...90%...100%
+Interpreting /mnt/wd10b8/vm/HOL2/Upgrade_HOL_12201.ova...
+OK.
+Disks:
+  vmdisk2	107374182400	-1	http://www.vmware.com/interfaces/specifications/vmdk.html#streamOptimized	Oracle Database Upgrade HOL 12.2-disk1.vmdk	-1	-1	
+
+Virtual system 0:
+ 0: Suggested OS type: "Oracle_64"
+    (change with "--vsys 0 --ostype "; use "list ostypes" to list all possible values)
+ 1: Suggested VM name "Oracle Database Upgrade HOL 12.2"
+    (change with "--vsys 0 --vmname ")
+ 2: Product (ignored): Oracle Database
+ 3: Vendor (ignored): Oracle America, Inc.
+ 4: Version (ignored): 12.2.0.1
+ 5: ProductUrl (ignored): www.oracle.com/database
+ 6: VendorUrl (ignored): www.oracle.com
+ 7: Description "Hands-on Lab Environment for upgrade and migration to Oracle Database 12.2.0.1"
+    (change with "--vsys 0 --description ")
+ 8: End-user license agreement (accepted)
+ 9: Number of CPUs: 2
+    (change with "--vsys 0 --cpus ")
+10: Guest memory: 6000 MB
+    (change with "--vsys 0 --memory ")
+11: Sound card (appliance expects "", can change on import)
+    (disable with "--vsys 0 --unit 11 --ignore")
+12: USB controller
+    (disable with "--vsys 0 --unit 12 --ignore")
+13: Network adapter: orig NAT, config 3, extra slot=0;type=NAT
+14: CD-ROM
+    (disable with "--vsys 0 --unit 14 --ignore")
+15: IDE controller, type PIIX4
+    (disable with "--vsys 0 --unit 15 --ignore")
+16: IDE controller, type PIIX4
+    (disable with "--vsys 0 --unit 16 --ignore")
+17: SATA controller, type AHCI
+    (disable with "--vsys 0 --unit 17 --ignore")
+18: Hard disk image: source image=Oracle Database Upgrade HOL 12.2-disk1.vmdk, target path=/mnt/wd10b8/vm/HOL2/disk4.vmdk, controller=17;channel=0
+0%...10%...20%...30%...40%...50%...60%...70%...80%...90%...100%
+Successfully imported the appliance.
+</pre>
+<p>Note that there is only virtual disk but it has the same name as the previous HOL VM.</p>
+<p>The virtual disk size is 50 GB:</p>
+<pre>
+$ ls -al /mnt/wd10b8/vm/HOL2
+total 71298824
+drwxrwxrwx. 1 root root           0 Nov 11 11:35 .
+drwxrwxrwx. 1 root root       20480 Nov 11 11:34 ..
+-rwxrwxrwx. 1 root root 52944437248 Nov 11 13:50 disk4.vmdk
+-rwxrwxrwx. 1 root root 20071627264 Nov 11 11:21 Upgrade_HOL_12201.ova
+$ du -sh /mnt/wd10b8/vm/HOL2/disk4.vmdk 
+50G	/mnt/wd10b8/vm/HOL2/disk4.vmdk
+</pre>
+<p>To avoid following VM startup error:</p>
+<pre>
+VBoxManage: error: Implementation of the USB 2.0 controller not found!
+VBoxManage: error: Because the USB 2.0 controller state is part of the saved VM state, the VM cannot be started. To fix this problem, either install the 'Oracle VM VirtualBox Extension Pack' or disable USB 2.0 support in the VM settings.
+VBoxManage: error: Note! This error could also mean that an incompatible version of the 'Oracle VM VirtualBox Extension Pack' is installed (VERR_NOT_FOUND)
+VBoxManage: error: Details: code NS_ERROR_FAILURE (0x80004005), component ConsoleWrap, interface IConsole
+</pre>
+<p>I have disabled USB 2 with:</p>
+<pre>
+$ vboxmanage modifyvm "Oracle Database Upgrade HOL 12.2" --usbehci off
+</pre>
+<p>Full VM configuration is:</p>
+<pre>
+$ vboxmanage showvminfo "Oracle Database Upgrade HOL 12.2"
+Name:            Oracle Database Upgrade HOL 12.2
+Groups:          /
+Guest OS:        Oracle (64-bit)
+UUID:            22476b0c-8d05-4213-9565-44ce6789a2f8
+Config file:     /mnt/seagate/documents/vbox/Oracle Database Upgrade HOL 12.2/Oracle Database Upgrade HOL 12.2.vbox
+Snapshot folder: /mnt/seagate/documents/vbox/Oracle Database Upgrade HOL 12.2/Snapshots
+Log folder:      /mnt/seagate/documents/vbox/Oracle Database Upgrade HOL 12.2/Logs
+Hardware UUID:   22476b0c-8d05-4213-9565-44ce6789a2f8
+Memory size:     6000MB
+Page Fusion:     off
+VRAM size:       64MB
+CPU exec cap:    100%
+HPET:            off
+Chipset:         piix3
+Firmware:        BIOS
+Number of CPUs:  2
+PAE:             on
+Long Mode:       on
+Triple Fault Reset: off
+APIC:            on
+X2APIC:          off
+CPUID Portability Level: 0
+CPUID overrides: None
+Boot menu mode:  message and menu
+Boot Device (1): Floppy
+Boot Device (2): DVD
+Boot Device (3): HardDisk
+Boot Device (4): Not Assigned
+ACPI:            on
+IOAPIC:          on
+BIOS APIC mode:  APIC
+Time offset:     0ms
+RTC:             UTC
+Hardw. virt.ext: on
+Nested Paging:   on
+Large Pages:     on
+VT-x VPID:       on
+VT-x unr. exec.: on
+Paravirt. Provider: Legacy
+Effective Paravirt. Provider: None
+State:           running (since 2017-11-11T11:49:24.815000000)
+Monitor count:   1
+3D Acceleration: off
+2D Video Acceleration: off
+Teleporter Enabled: off
+Teleporter Port: 0
+Teleporter Address: 
+Teleporter Password: 
+Tracing Enabled: off
+Allow Tracing to Access VM: off
+Tracing Configuration: 
+Autostart Enabled: off
+Autostart Delay: 0
+Default Frontend: 
+Storage Controller Name (0):            IDE
+Storage Controller Type (0):            PIIX4
+Storage Controller Instance Number (0): 0
+Storage Controller Max Port Count (0):  2
+Storage Controller Port Count (0):      2
+Storage Controller Bootable (0):        on
+Storage Controller Name (1):            SATA
+Storage Controller Type (1):            IntelAhci
+Storage Controller Instance Number (1): 0
+Storage Controller Max Port Count (1):  30
+Storage Controller Port Count (1):      1
+Storage Controller Bootable (1):        on
+IDE (0, 1): Empty
+SATA (0, 0): /mnt/wd10b8/vm/HOL2/disk4.vmdk (UUID: 7abc2c14-8031-4952-abf6-124a6d3b3942)
+NIC 1:           MAC: 08002736DC9F, Attachment: NAT, Cable connected: on, Trace: off (file: none), Type: 82540EM, Reported speed: 0 Mbps, Boot priority: 0, Promisc Policy: deny, Bandwidth group: none
+NIC 1 Settings:  MTU: 0, Socket (send: 64, receive: 64), TCP Window (send:64, receive: 64)
+NIC 2:           disabled
+NIC 3:           disabled
+NIC 4:           disabled
+NIC 5:           disabled
+NIC 6:           disabled
+NIC 7:           disabled
+NIC 8:           disabled
+Pointing Device: PS/2 Mouse
+Keyboard Device: PS/2 Keyboard
+UART 1:          disabled
+UART 2:          disabled
+UART 3:          disabled
+UART 4:          disabled
+LPT 1:           disabled
+LPT 2:           disabled
+Audio:           enabled (Driver: Null, Controller: AC97, Codec: STAC9700)
+Clipboard Mode:  Bidirectional
+Drag and drop Mode: disabled
+Session name:    GUI/Qt
+Video mode:      1024x768x32 at 0,0 enabled
+VRDE:            enabled (Address 0.0.0.0, Ports 3389, MultiConn: off, ReuseSingleConn: off, Authentication type: null)
+Video redirection: disabled
+USB:             enabled
+EHCI:            disabled
+XHCI:            disabled
+
+USB Device Filters:
+
+
+
+Available remote USB devices:
+
+
+
+Currently Attached USB Devices:
+
+
+
+Bandwidth groups:  
+
+Shared folders:  
+
+Name: 'TEMP', Host path: '/Users/mdietric/TEMP' (machine mapping), writable
+
+VRDE Connection:    not active
+Clients so far:     0
+
+Video capturing:    not active
+Capture screens:    0
+Capture file:       /mnt/seagate/documents/vbox/Oracle Database Upgrade HOL 12.2/Oracle Database Upgrade HOL 12.2.webm
+Capture dimensions: 1024x768
+Capture rate:       512 kbps
+Capture FPS:        25
+
+Description:
+Hands-on Lab Environment for upgrade and migration to Oracle Database 12.2.0.1
+Guest:
+
+Configured memory balloon size:      0 MB
+OS type:                             Linux26_64
+Additions run level:                 2
+Additions version:                   5.1.10 r112026
+
+
+Guest Facilities:
+
+Facility "VirtualBox Base Driver": active/running (last update: 2017/11/11 11:49:41 UTC)
+Facility "VirtualBox System Service": active/running (last update: 2017/11/11 11:49:49 UTC)
+Facility "Seamless Mode": active/running (last update: 2017/11/11 11:49:41 UTC)
+Facility "Graphics Mode": active/running (last update: 2017/11/11 11:49:41 UTC)
+</pre>
+<h2>Inside The VM</h2>
+<p>I have started VM with:</p>
+<pre>
+$ vboxmanage startvm "Oracle Database Upgrade HOL 12.2"
+Waiting for VM "Oracle Database Upgrade HOL 12.2" to power on...
+VM "Oracle Database Upgrade HOL 12.2" has been successfully started.
+</pre>
+<p>VM starts with X Window enabled and to login was difficult because VM default keyboard layout is English and on host system I have a French keyboard (all passwords are set to 'oracle'). To make sure French keyboard settings are permanent I have used GUI System/Preferences/Keyboard/Layouts to remove German layout, to add French layout<br />
+and to made French layout default one (updating <b>/etc/sysconfig/keyboard</b> did not help).</p>
+<p>OS used is:</p>
+<pre>
+$ cat /etc/os-release 
+NAME="Oracle Linux Server" 
+VERSION="6.8" 
+ID="ol" 
+VERSION_ID="6.8" 
+PRETTY_NAME="Oracle Linux Server 6.8" 
+ANSI_COLOR="0;31" 
+CPE_NAME="cpe:/o:oracle:linux:6:8:server"
+HOME_URL="https://linux.oracle.com/" 
+BUG_REPORT_URL="https://bugzilla.oracle.com/" 
+
+ORACLE_BUGZILLA_PRODUCT="Oracle Linux 6" 
+ORACLE_BUGZILLA_PRODUCT_VERSION=6.8 
+ORACLE_SUPPORT_PRODUCT="Oracle Linux" 
+ORACLE_SUPPORT_PRODUCT_VERSION=6.8
+</pre>
+<p>On this VM following Oracle Database versions are installed (however <b>inventory.xml</b> shows that 12.1.0.2 is also installed):</p>
+<pre>
+$ tail -n 4 /etc/oratab
+#
+UPGR:/u01/app/oracle/product/11.2.0.4:Y
+FTEX:/u01/app/oracle/product/11.2.0.4:N
+CDB2:/u01/app/oracle/product/12.2.0.1:N
+$ 
+</pre>
+<p>Let's check the detailed versions with opatch:</p>
+<pre>
+$ . oraenv
+ORACLE_SID = [CDB2] ? UPGR
+The Oracle base remains unchanged with value /u01/app/oracle
+$ $ORACLE_HOME/OPatch/opatch lspatches
+24006111;Database Patch Set Update : 11.2.0.4.161018 (24006111)
+
+OPatch succeeded.
+$ export ORACLE_HOME=/u01/app/oracle/product/12.1.0.2
+$ PATH=$ORACLE_HOME/bin:$PATH
+$ $ORACLE_HOME/OPatch/opatch lspatches
+24340679;DATABASE BUNDLE PATCH: 12.1.0.2.161018 (24340679)
+
+OPatch succeeded.
+$ . oraenv
+ORACLE_SID = [UPGR] ? CDB2
+The Oracle base remains unchanged with value /u01/app/oracle
+$ $ORACLE_HOME/OPatch/opatch lspatches
+There are no Interim patches installed in this Oracle Home "/u01/app/oracle/product/12.2.0.1".
+
+OPatch succeeded.
+</pre>
+<h2>Customizing VM configuration </h2>
+<p>On Linux I prefer to work with SSH using command line mode instead of a graphical desktop.<br />
+I have stopped VM and add added network interface: </p>
+<pre>
+$ vboxmanage modifyvm "Oracle Database Upgrade HOL 12.2" --nic2 hostonly --nictype2 82540EM --hostonlyadapter2 "VirtualBox Host-Only Ethernet Adapter"
+</pre>
+<p>I have chosen 192.168.56.44 static IP address for this VM and created <b>/etc/sysconfig/network-scripts/ifcfg-eth2</b>:</p>
+<pre>
+# Intel Corporation 82540EM Gigabit Ethernet Controller
+DEVICE=eth2
+BOOTPROTO=static
+ONBOOT=yes
+HWADDR=08:00:27:55:b5:ba
+IPADDR=192.168.56.44
+</pre>
+<p>I have rebooted VM and I have been able to use ssh to login to this VM.</p>
+<p>To get rid of TEMP errors at VM startup I have run from host system:</p>
+<pre>
+$ vboxmanage sharedfolder remove "Oracle Database Upgrade HOL 12.2" --name TEMP
+</pre>
+<p>I have also changed guest host name:</p>
+<pre>
+# cat /etc/hosts
+127.0.0.1   hol2 localhost localhost.localdomain localhost4 localhost4.localdomain4
+::1         localhost localhost.localdomain localhost6 localhost6.localdomain6
+# cat /etc/sysconfig/network
+NETWORKING=yes
+HOSTNAME=hol2.localdomain
+# oracle-rdbms-server-11gR2-preinstall : Add NOZEROCONF=yes
+NOZEROCONF=yes
+</pre>
+<p>To start UPGR database instance you need to start listener because this machine is neither using Oracle Restart nor has automatic start scripts for listener and database instances.<br />
+<br />
+But I could not start Oracle 12.2.0.1 listener:</p>
+<pre>
+$  which lsnrctl
+/u01/app/oracle/product/12.2.0.1/bin/lsnrctl
+$ lsnrctl start
+
+LSNRCTL for Linux: Version 12.2.0.1.0 - Production on 14-NOV-2017 08:04:30
+
+Copyright (c) 1991, 2016, Oracle.  All rights reserved.
+
+Starting /u01/app/oracle/product/12.2.0.1/bin/tnslsnr: please wait...
+
+TNSLSNR for Linux: Version 12.2.0.1.0 - Production
+System parameter file is /u01/app/oracle/product/12.2.0.1/network/admin/listener.ora
+Log messages written to /u01/app/oracle/diag/tnslsnr/hol2/listener/alert/log.xml
+TNS-01168: Cannot allocate memory
+
+Listener failed to start. See the error message(s) above...
+
+$ oerr tns 1168$ oerr tns 1168
+01168, 00000, "Cannot allocate memory"
+// *Cause:  Sufficient memory could not be allocated to perform the desired
+// activity.
+// *Action:  Either free some resource for TNS, or add more memory to the
+// machine. For further details, turn on tracing and reexecute the operation.
+</pre>
+<p>But initial RAM configuration is 6 GB, is it really a memory issue ?</p>
+<pre>
+$ free
+             total       used       free     shared    buffers     cached
+Mem:       5965368     526940    5438428       1312      39840     304040
+-/+ buffers/cache:     183060    5782308
+Swap:      5980156          0    5980156
+</pre>
+<p>I modified <b>listener.ora</b> and enabled listener trace:</p>
+<pre>
+$ cat listener.ora
+# listener.ora Network Configuration File: /u01/app/oracle/product/12.2.0.1/network/admin/listener.ora
+# Generated by Oracle configuration tools.
+
+LISTENER =
+  (DESCRIPTION_LIST =
+    (DESCRIPTION =
+      (ADDRESS = (PROTOCOL = TCP)(HOST = hol2 )(PORT = 1521))
+    )
+  )
+TRACE_LEVEL_LISTENER=16 
+</pre>
+<p>I found following errors in trace file:</p>
+<pre>
+2017-11-14 08:29:43.481 : nlad_aand:entry
+2017-11-14 08:29:43.481 : nlad_ind:entry
+2017-11-14 08:29:43.481 : snlinGetAddrInfo:entry
+2017-11-14 08:29:43.481 : snlinGetAddrInfo:getaddrinfo() failed with error -2
+2017-11-14 08:29:43.481 : snlinGetAddrInfo:exit
+2017-11-14 08:29:43.481 : nlad_ind:exit
+2017-11-14 08:29:43.481 : nlad_pr:Result: (DESCRIPTION=(ADDRESS=(PROTOCOL=TCP)(HOST=hol2)(PORT=1521)))
+2017-11-14 08:29:43.481 : nlad_pr:descr list processing seeing ndown
+2017-11-14 08:29:43.481 : nlad_pr: node 1
+2017-11-14 08:29:43.481 : nlad_aand:entry
+2017-11-14 08:29:43.481 : nlad_ind:entry
+2017-11-14 08:29:43.481 : snlinGetAddrInfo:entry
+2017-11-14 08:29:43.481 : snlinGetAddrInfo:getaddrinfo() failed with error -2
+2017-11-14 08:29:43.481 : snlinGetAddrInfo:exit
+2017-11-14 08:29:43.481 : nlad_ind:exit
+2017-11-14 08:29:43.481 : nlad_pr:Result: (DESCRIPTION_LIST=(DESCRIPTION=(ADDRESS=(PROTOCOL=TCP)(HOST=hol2)(PORT=1521))))
+2017-11-14 08:29:43.481 : nladini:entry
+2017-11-14 08:29:43.481 : nladini:exit
+2017-11-14 08:29:43.481 : nladget:entry
+2017-11-14 08:29:43.481 : nladget:exit
+2017-11-14 08:29:43.481 : nsgllsn:LSNDSC==&gt;(DESCRIPTION=(ADDRESS=(PROTOCOL=TCP)(HOST=hol2)(PORT=1521)))
+2017-11-14 08:29:43.481 : nsglhcrt:entry
+2017-11-14 08:29:43.481 : snlinGetAddrInfo:entry
+2017-11-14 08:29:43.572 : snlinGetAddrInfo:getaddrinfo() failed with error -2
+2017-11-14 08:29:43.572 : snlinGetAddrInfo:exit
+2017-11-14 08:29:43.573 : nsglhcrt:exit
+2017-11-14 08:29:43.573 : nsglma:Reporting the following error stack:
+</pre>
+<p>I modified <b>/etc/hosts</b> to add "localdomain" suffix to "hol2" host name:</p>
+<pre>
+$ cat /etc/hosts
+192.168.56.44 hol2 hol2.localdomain
+127.0.0.1   localhost localhost.localdomain localhost4 localhost4.localdomain4
+::1         localhost localhost.localdomain localhost6 localhost6.localdomain6
+$ 
+</pre>
+<p>And I managed to start Oracle Net listener 12.2.0.1:</p>
+<pre>
+$ lsnrctl start
+
+LSNRCTL for Linux: Version 12.2.0.1.0 - Production on 14-NOV-2017 08:34:28
+
+Copyright (c) 1991, 2016, Oracle.  All rights reserved.
+
+Starting /u01/app/oracle/product/12.2.0.1/bin/tnslsnr: please wait...
+
+TNSLSNR for Linux: Version 12.2.0.1.0 - Production
+System parameter file is /u01/app/oracle/product/12.2.0.1/network/admin/listener.ora
+Log messages written to /u01/app/oracle/diag/tnslsnr/hol2/listener/alert/log.xml
+Trace information written to /u01/app/oracle/diag/tnslsnr/hol2/listener/trace/ora_4597_140666770329920.trc
+Listening on: (DESCRIPTION=(ADDRESS=(PROTOCOL=tcp)(HOST=127.0.0.1)(PORT=1521)))
+
+Connecting to (DESCRIPTION=(ADDRESS=(PROTOCOL=TCP)(HOST=hol2)(PORT=1521)))
+STATUS of the LISTENER
+------------------------
+Alias                     LISTENER
+Version                   TNSLSNR for Linux: Version 12.2.0.1.0 - Production
+Start Date                14-NOV-2017 08:34:28
+Uptime                    0 days 0 hr. 0 min. 1 sec
+Trace Level               support
+Security                  ON: Local OS Authentication
+SNMP                      OFF
+Listener Parameter File   /u01/app/oracle/product/12.2.0.1/network/admin/listener.ora
+Listener Log File         /u01/app/oracle/diag/tnslsnr/hol2/listener/alert/log.xml
+Listener Trace File       /u01/app/oracle/diag/tnslsnr/hol2/listener/trace/ora_4597_140666770329920.trc
+Listening Endpoints Summary...
+  (DESCRIPTION=(ADDRESS=(PROTOCOL=tcp)(HOST=127.0.0.1)(PORT=1521)))
+The listener supports no services
+The command completed successfully
+</pre>
+<p>I have checked database versions using dictionary views.<br />
+<br />
+For UPGR:</p>
+<pre>
+SQL&gt; column action_time format a15
+SQL&gt; column action format a10
+SQL&gt; column namespace format a10
+SQL&gt; column version format a10
+SQL&gt; column comments format a20
+SQL&gt; select name from v$database;
+
+NAME
+---------
+UPGR
+
+SQL&gt; select to_char(action_time,'DD-MON-YYYY') as action_time_2, action, namespace, version,  comments
+  2  from dba_registry_history
+  3  order by action_time;
+
+ACTION_TIME_2	     ACTION	NAMESPACE  VERSION    COMMENTS
+-------------------- ---------- ---------- ---------- --------------------
+01-JUL-2016	     APPLY	SERVER	   11.2.0.4   PSU 11.2.0.4.160419
+21-OCT-2016	     APPLY	SERVER	   11.2.0.4   PSU 11.2.0.4.161018
+
+SQL&gt;
+</pre>
+<p>For CDB2:</p>
+<pre>
+SQL&gt; set linesize 120
+SQL&gt; column action_time format a15
+SQL&gt; column action format a10
+SQL&gt; column version format a10
+SQL&gt; column description format a50
+SQL&gt; select name from v$database;
+
+NAME
+---------
+CDB2
+
+SQL&gt; select to_char(action_time,'DD-MON-YYYY') as action_time_2, patch_id, patch_uid, action, version,	description
+  2  from dba_registry_sqlpatch;
+
+no rows selected
+
+SQL&gt;
+</pre>
+<p>I have created a 12.1.0.2 database with following script:</p>
+<pre>
+set -x
+dbca \
+ -silent \
+ -createDatabase \
+ -templateName General_Purpose.dbc   \
+ -gdbName TEST \
+ -SysPassword oracle \
+ -SystemPassword oracle \
+ -emConfiguration NONE \
+ -datafileDestination /u02/oradata\
+ -characterSet AL32UTF8 \
+ -totalMemory 1024 \
+ -recoveryAreaDestination /u01/app/oracle/fast_recovery_ area 
+</pre>
+<p>I have checked database version with:</p>
+<pre>
+$ . oraenv
+ORACLE_SID = [CDB2] ? TEST
+The Oracle base remains unchanged with value /u01/app/oracle
+[oracle@hol2 scripts]$ sqlplus / as sysdba @lv2
+
+SQL*Plus: Release 12.1.0.2.0 Production on Tue Nov 14 09:33:34 2017
+
+Copyright (c) 1982, 2014, Oracle.  All rights reserved.
+
+
+Connected to:
+Oracle Database 12c Enterprise Edition Release 12.1.0.2.0 - 64bit Production
+With the Partitioning, OLAP, Advanced Analytics and Real Application Testing options
+
+SQL&gt; set linesize 120
+SQL&gt; column action_time format a15
+SQL&gt; column action format a10
+SQL&gt; column version format a10
+SQL&gt; column description format a50
+SQL&gt; select name from v$database;
+
+NAME
+---------
+TEST
+
+SQL&gt; select to_char(action_time,'DD-MON-YYYY') as action_time_2, patch_id, patch_uid, action, version,	description
+  2  from dba_registry_sqlpatch;
+
+no rows selected
+</pre>
+<p>I have run datapatch manually because DBCA has not run it:</p>
+<pre>
+$ $ORACLE_HOME/OPatch/datapatch -verbose
+SQL Patching tool version 12.1.0.2.0 on Tue Nov 14 09:35:16 2017
+Copyright (c) 2016, Oracle.  All rights reserved.
+
+Log file for this invocation: /u01/app/oracle/cfgtoollogs/sqlpatch/sqlpatch_9320_2017_11_14_09_35_16/sqlpatch_invocation.log
+
+Connecting to database...OK
+Bootstrapping registry and package to current versions...done
+Determining current state...done
+
+Current state of SQL patches:
+Bundle series DBBP:
+  ID 161018 in the binary registry and not installed in the SQL registry
+
+Adding patches to installation queue and performing prereq checks...
+Installation queue:
+  Nothing to roll back
+  The following patches will be applied:
+    24340679 (DATABASE BUNDLE PATCH: 12.1.0.2.161018 (24340679))
+
+Installing patches...
+Patch installation complete.  Total patches installed: 1
+
+Validating logfiles...
+Patch 24340679 apply: SUCCESS
+  logfile: /u01/app/oracle/cfgtoollogs/sqlpatch/24340679/20646358/24340679_apply_TEST_2017Nov14_09_35_28.log (no errors)
+SQL Patching tool complete on Tue Nov 14 09:36:53 2017
+</pre>
+<p>I have checked again database version:</p>
+<pre>
+SQL&gt; set linesize 120
+SQL&gt; column action_time format a15
+SQL&gt; column action format a10
+SQL&gt; column version format a10
+SQL&gt; column description format a50
+SQL&gt; select name from v$database;
+
+NAME
+---------
+TEST
+
+SQL&gt; select to_char(action_time,'DD-MON-YYYY') as action_time_2, patch_id, patch_uid, action, version,	description
+  2  from dba_registry_sqlpatch;
+
+ACTION_TIME_2	       PATCH_ID  PATCH_UID ACTION     VERSION	 DESCRIPTION
+-------------------- ---------- ---------- ---------- ---------- --------------------------------------------------
+14-NOV-2017	       24340679   20646358 APPLY      12.1.0.2	 DATABASE BUNDLE PATCH: 12.1.0.2.161018 (24340679)
+
+SQL&gt; 
+</pre>
+<p>Here is a summary of detailed Oracle Database installations:<br />
+</p>
+<table border="2">
+</p>
+<tr>
+<td>Oracle Database Home</td>
+<td>patch set</td>
+<td>PSU/BP</td>
+<td>interim patch</tD><br />
+  </tr>
+<tr>
+<td><code>/u01/app/oracle/product/11.2.0.4</code></td>
+<td>11.2.0.4</td>
+<td>11.2.0.4.161018</td>
+<td>none</td>
+</tr>
+<tr>
+<td><code>/u01/app/oracle/product/12.1.0.2</code></td>
+<td>12.1.0.2</td>
+<td>12.1.0.2.161018 </td>
+<td>none</td>
+</tr>
+</tr>
+<tr>
+<td><code>/u01/app/oracle/product/12.2.0.1</code></td>
+<td>12.2.0.1</td>
+<td>none </td>
+<td>none</td>
+</tr>
+</table>
+<p>
+This shows that 11.2.0.4 and 12.1.0.2 have been updated with respect to <a href="https://pierreforstmanndotcom.wordpress.com/2016/03/15/installing-and-using-oracle-hands-on-lab-upgrademigrateconsolidate-to-oracle-12c-hol-virtual-machine/" />2015 HOL VM</a>.</p>
+<p>Note that I have ignored following errors when connecting with oracle account:</p>
+<pre>
+mount: only root can do that
+mount: only root can do that
+</pre>
+<p>and following errors when connecting with root account:</p>
+<pre>
+/sbin/mount.vboxsf: mounting failed with the error: Protocol error
+/sbin/mount.vboxsf: mounting failed with the error: Protocol error
+</pre>
