@@ -1,0 +1,494 @@
+<p>This post documents how to install Oracle Client 12.2.0.1 on Oracle Linux 7.4.</p>
+<p>I have checked official installation documentation: <a href="https://docs.oracle.com/en/database/oracle/oracle-database/12.2/lacli/index.html">Database Client Installation Guide on Linux</a> but I have not found information about the different installation types that can you find in the OUI response file:</p>
+<pre>
+#             The following choices are available. The value should contain
+#             only one of these choices.
+#               - InstantClient
+#               - Administrator
+#               - Runtime
+#               - Custom
+</pre>
+<p>The configuration I have used is the following:</p>
+<pre>
+# cat /etc/os-release 
+NAME="Oracle Linux Server"
+VERSION="7.4"
+ID="ol"
+VERSION_ID="7.4"
+PRETTY_NAME="Oracle Linux Server 7.4"
+ANSI_COLOR="0;31"
+CPE_NAME="cpe:/o:oracle:linux:7:4:server"
+HOME_URL="https://linux.oracle.com/"
+BUG_REPORT_URL="https://bugzilla.oracle.com/"
+
+ORACLE_BUGZILLA_PRODUCT="Oracle Linux 7"
+ORACLE_BUGZILLA_PRODUCT_VERSION=7.4
+ORACLE_SUPPORT_PRODUCT="Oracle Linux"
+ORACLE_SUPPORT_PRODUCT_VERSION=7.4
+</pre>
+<p>This machine is a minimal Oracle Linux installation: it has no existing Oracle Database software (not even MySQL or even gcc):</p>
+<pre>
+# cat /etc/oraInst.loc
+cat: /etc/oraInst.loc: No such file or directory
+# id oracle
+id: oracle: no such user
+# id mysql
+id: mysql: no such user
+# yum info gcc
+Loaded plugins: ulninfo
+Available Packages
+Name        : gcc
+Arch        : x86_64
+Version     : 4.8.5
+Release     : 16.0.3.el7_4.2
+Size        : 16 M
+Repo        : ol7_latest/x86_64
+Summary     : Various compilers (C, C++, Objective-C, Java, ...)
+URL         : http://gcc.gnu.org
+License     : GPLv3+ and GPLv3+ with exceptions and GPLv2+ with exceptions and LGPLv2+ and BSD
+Description : The gcc package contains the GNU Compiler Collection version 4.8.
+            : You'll need this package in order to compile C code.
+
+# 
+</pre>
+<p>I have decided to make installation easier by using the pre-installation RPM because it is available on Oracle Linux:</p>
+<pre>
+# yum -y install oracle-database-server-12cR2-preinstall
+</pre>
+<p>RPM full installation log is <a href="http://pierreforstmanndotcom.wordpress.com/oc12201-preinstall-rpm-log">here</a>.</p>
+<p>I have created the required directories for ORACLE_HOME, ORACLE_BASE and Oracle inventory:</p>
+<pre>
+# mkdir /opt/oc12201
+# chown oracle:dba /opt/oc12201
+# mkdir /opt/base
+# chown oracle:dba /opt/base
+# mkdir /opt/oraInventory
+# chown oracle:oinstall /opt/oraInventory
+</pre>
+<p>
+I have switched to oracle user account (that has been created by the preinstallation RPM), downloaded and unzipped the Oracle Client installation media:</p>
+<pre>
+$ unzip linuxx64_12201_client.zip
+</pre>
+<p>I have run following script to install Oracle Client in "Admininistrator" installation type because I want to test <a href="https://docs.oracle.com/cd/E11882_01/appdev.112/e10825/pc_01int.htm#g10729">Pro*C</a> feature:</p>
+<pre>
+set -x
+cd client
+DISTRIB=`pwd`
+./runInstaller -silent \
+ -responseFile $DISTRIB//response/client_install.rsp   \
+   oracle.install.client.installType=Administrator     \
+   UNIX_GROUP_NAME=dba                                 \
+   INVENTORY_LOCATION=/opt/oraInventory                \
+   SELECTED_LANGUAGES=en                               \
+   ORACLE_HOME=/opt/oc12201                            \
+   ORACLE_BASE=/opt/base                               \
+   waitForCompletion=true
+</pre>
+<p>Running this script has generated following output:</p>
+<pre>
+++ cd client
++++ pwd
+++ DISTRIB=/home/oracle/stage/client
+++ ./runInstaller -silent -responseFile /home/oracle/stage/client//response/client_install.rsp oracle.install.client.installType=Administrator UNIX_GROUP_NAME=dba INVENTORY_LOCATION=/opt/oraInventory SELECTED_LANGUAGES=en ORACLE_HOME=/opt/oc12201 ORACLE_BASE=/opt/base waitForCompletion=true
+Starting Oracle Universal Installer...
+
+Checking Temp space: must be greater than 415 MB.   Actual 5091 MB    Passed
+Checking swap space: must be greater than 150 MB.   Actual 1227 MB    Passed
+Preparing to launch Oracle Universal Installer from /tmp/OraInstall2018-03-16_08-21-59PM. Please wait ...
+[WARNING] [INS-32018] The selected Oracle home is outside of Oracle base.
+   ACTION: Oracle recommends installing Oracle software within the Oracle base directory. Adjust the Oracle home or Oracle base accordingly.
+[WARNING] [INS-13014] Target environment does not meet some optional requirements.
+   CAUSE: Some of the optional prerequisites are not met. See logs for details. installActions2018-03-16_08-21-59PM.log
+   ACTION: Identify the list of failed prerequisite checks from the log: installActions2018-03-16_08-21-59PM.log. Then either from the log file or from installation manual find the appropriate configuration to meet the prerequisites and fix it manually.
+You can find the log of this install session at:
+ /opt/oraInventory/logs/installActions2018-03-16_08-21-59PM.log
+The installation of Oracle Client 12c was successful.
+Please check '/opt/oraInventory/logs/silentInstall2018-03-16_08-21-59PM.log' for more details.
+
+As a root user, execute the following script(s):
+	1. /opt/oraInventory/orainstRoot.sh
+
+
+
+Successfully Setup Software.
+</pre>
+<p>I have ignored following failed prerequisites:</p>
+<pre>
+INFO: INFO: ------------------List of failed Tasks------------------
+INFO: INFO: *********************************************
+INFO: INFO: Swap Size: This is a prerequisite condition to test whether sufficient total swap space is available on the system.
+INFO: INFO: Severity:IGNORABLE
+INFO: INFO: OverallStatus:VERIFICATION_FAILED
+INFO: INFO: -----------------End of failed Tasks List----------------
+</pre>
+<p>I have run root.sh:</p>
+<pre>
+# /opt/oraInventory/orainstRoot.sh
+Changing permissions of /opt/oraInventory.
+Adding read,write permissions for group.
+Removing read,write,execute permissions for world.
+
+Changing groupname of /opt/oraInventory to dba.
+The execution of the script is complete.
+# 
+</pre>
+<p>I have checked this Oracle Client installation:</p>
+<pre>
+$ export ORACLE_HOME=/opt/oc12201
+$ PATH=$ORACLE_HOME/bin:$PATH
+$ which sqlplus
+/opt/oc12201/bin/sqlplus
+$ sqlplus -v
+
+SQL*Plus: Release 12.2.0.1.0 Production
+
+$ $ORACLE_HOME/OPatch/opatch lsinv
+Oracle Interim Patch Installer version 12.2.0.1.6
+Copyright (c) 2018, Oracle Corporation.  All rights reserved.
+
+
+Oracle Home       : /opt/oc12201
+Central Inventory : /opt/oraInventory
+   from           : /opt/oc12201/oraInst.loc
+OPatch version    : 12.2.0.1.6
+OUI version       : 12.2.0.1.4
+Log file location : /opt/oc12201/cfgtoollogs/opatch/opatch2018-03-16_20-35-12PM_1.log
+
+Lsinventory Output file location : /opt/oc12201/cfgtoollogs/opatch/lsinv/lsinventory2018-03-16_20-35-12PM.txt
+
+--------------------------------------------------------------------------------
+Local Machine Information::
+Hostname: localhost
+ARU platform id: 226
+ARU platform description:: Linux x86-64
+
+Installed Top-level Products (1): 
+
+Oracle Client 12c                                                    12.2.0.1.0
+There are 1 products installed in this Oracle Home.
+
+
+There are no Interim patches installed in this Oracle Home.
+
+
+--------------------------------------------------------------------------------
+
+OPatch succeeded.
+$ cat /etc/oraInst.loc 
+inventory_loc=/opt/oraInventory
+inst_group=dba
+$ 
+</pre>
+<p>I have also checked "proc" executable:</p>
+<pre>
+$ proc
+proc: error while loading shared libraries: libclntsh.so.12.1: cannot open shared object file: No such file or directory
+$ echo $LD_LIBRARY_PATH
+
+$ export LD_LIBRARY_PATH=$ORACLE_HOME/lib
+$ proc
+
+Pro*C/C++: Release 12.2.0.1.0 - Production on Fri Mar 16 20:37:39 2018
+
+Copyright (c) 1982, 2017, Oracle and/or its affiliates.  All rights reserved.
+
+System default option values taken from: /opt/oc12201/precomp/admin/pcscfg.cfg
+
+Option Name    Current Value  Description
+-------------------------------------------------------------------------------
+auto_connect   no             Allow automatic connection to ops$ account
+char_map       charz          Mapping of character arrays and strings
+close_on_commitno             Close all cursors on COMMIT
+cmax           100            CMAX Value for connection pool
+cmin           2              CMIN Value for connection pool
+cincr          1              CINCR Value for connection pool
+ctimeout       0              CTIMEOUT Value for connection pool
+cnowait        0              CNOWAIT Value for connection pool
+common_parser  no             Parse using Common SQL Front End
+code           kr_c           The type of code to be generated
+comp_charset   multi_byte     The character set type the C compiler supports
+config         default        Override system configuration file with another
+cpool          no             Support connection pooling
+cpp_suffix     *none*         Override the default C++ filename suffix
+db2_array      no             Support DB2 array insert/select syntax
+dbms           native         v6/v7/v8 compatibility mode
+def_sqlcode    no             Generate '#define SQLCODE sqlca.sqlcode' macro
+define         __x86_64__     Define a preprocessor symbol
+               *none*                                                           
+duration       transaction    Set pin duration for objects in the cache
+dynamic        oracle         Specify Oracle or ANSI Dynamic SQL Semantics
+errors         yes            Whether error messages are sent to the terminal
+errtype        *none*         Name of the list file for intype file errors
+events         no             Support publish-subscribe event notifications
+fips           none           FIPS flagging of ANSI noncompliant usage
+header         *none*         Specify file extension for Precompiled Headers
+hold_cursor    no             Control holding of cursors in the cursor cache
+implicit_svpt  no             Implicit savepoint prior to buffered insert
+iname          *none*         The name of the input file
+include        *none*         Directory paths for included files
+intype         *none*         The name of the input file for type information
+lines          no             Add #line directives to the generated code
+lname          *none*         Override default list file name
+ltype          short          The amount of data generated in the list file
+maxliteral     1024           Maximum length of a generated string literal
+maxopencursors 10             Maximum number of cached open cursors
+max_row_insert 0              Maximum number of rows to buffer on insert
+mode           oracle         Code conformance to Oracle or ANSI rules
+memforprefetch 0              Prefetch memory limit in bytes
+native_types   no             Support for native float/double
+nls_char       *none*         Specify National Language character variables
+nls_local      no             Control how NLS character semantics are done
+objects        yes            Support object types
+oname          *none*         The name of the output file
+oraca          no             Control the use of the ORACA
+outline        no             Category in which Outlines are created 
+                              [yes/no/]
+outlnprefix    *none*         Outline name prefix
+pagelen        80             The page length of the list file
+parse          full           Control which non-SQL code is parsed
+plan_baseline  no             Module Name of the Plan Baseline 
+                              [/yes/no]
+plan_enabled   yes            Enable or Disable a manually created Plan 
+                              Baseline 
+plan_fixed     yes            Set the Plan Baseline to be fixed or non-fixed
+plan_prefix    none           Prefix name for the Plan Baseline 
+                              [/none]
+plan_run       no             If Yes, create Plan Baselines in the Database
+prefetch       1              Number of rows pre-fetched at cursor OPEN time
+release_cursor no             Control release of cursors from cursor cache
+runoutline     no             If yes, create Outlines in the Database
+select_error   yes            Control flagging of select errors
+sqlcheck       syntax         Amount of compile-time SQL checking
+stmt_cache     0              Size of statement cache
+sys_include    /usr/lib64/gcc/Directory where system header files are found
+               /usr/lib/gcc/x86_64-redhat-linux/4.4.4/include                   
+               /usr/lib/gcc/x86_64-redhat-linux/4.4.7/include                   
+               /usr/lib/gcc/x86_64-redhat-linux/4.1.2/include                   
+               /usr/include                                                     
+               $ORACLE_HOME/precomp/public                                      
+threads        no             Indicates a multi-threaded application
+trim_password  no             If yes, remove leading and trailing spaces from 
+                              password
+type_code      oracle         Use Oracle or ANSI type codes for Dynamic SQL
+unsafe_null    no             Allow a NULL fetch without indicator variable
+userid         *none*         A user name or password [@dbname] connect 
+                              string
+utf16_charset  nchar_charset  The character set form used by UTF16 variables
+varchar        no             Allow the use of implicit VARCHAR structures
+version        recent         Which version of an object is to be returned
+PCC-F-02135, CMD-LINE:  User asked for help
+$ 
+</pre>
+<h2> Installing Oracle Examples </h2>
+<p>To test Pro*C I have also downloaded, unzipped and installed Oracle Examples:</p>
+<pre>
+$ unzip linuxx64_12201_examples.zip
+</pre>
+<p>I have used following script to install Oracle Examples:</p>
+<pre>
+cd examples
+DISTRIB=`pwd`
+./runInstaller -silent \
+ -responseFile $DISTRIB/response/demos_install.rsp   \
+   UNIX_GROUP_NAME=dba                               \
+   SELECTED_LANGUAGES=en                             \
+   ORACLE_HOME=/opt/oc12201                          \
+   ORACLE_BASE=/opt/base                             \
+   waitForCompletion=true
+</pre>
+<p>Running this script has generated following output:</p>
+<pre>
+Starting Oracle Universal Installer...
+
+Checking Temp space: must be greater than 415 MB.   Actual 2404 MB    Passed
+Checking swap space: must be greater than 150 MB.   Actual 1226 MB    Passed
+Preparing to launch Oracle Universal Installer from /tmp/OraInstall2018-03-16_08-55-22PM. Please wait ...
+[WARNING] [INS-32018] The selected Oracle home is outside of Oracle base.
+   ACTION: Oracle recommends installing Oracle software within the Oracle base directory. Adjust the Oracle home or Oracle base accordingly.
+[WARNING] [INS-13014] Target environment does not meet some optional requirements.
+   CAUSE: Some of the optional prerequisites are not met. See logs for details. /opt/oraInventory/logs/installActions2018-03-16_08-55-22PM.log
+   ACTION: Identify the list of failed prerequisite checks from the log: /opt/oraInventory/logs/installActions2018-03-16_08-55-22PM.log. Then either from the log file or from installation manual find the appropriate configuration to meet the prerequisites and fix it manually.
+You can find the log of this install session at:
+ /opt/oraInventory/logs/installActions2018-03-16_08-55-22PM.log
+The installation of Oracle Database 12c Examples was successful.
+Please check '/opt/oraInventory/logs/silentInstall2018-03-16_08-55-22PM.log' for more details.
+Successfully Setup Software.
+
+
+</pre>
+<p>I have ignored above warnings and checked that Oracle Examples installation is registered in Oracle Inventory:</p>
+<pre>
+$ $ORACLE_HOME/OPatch/opatch lsinv
+Oracle Interim Patch Installer version 12.2.0.1.6
+Copyright (c) 2018, Oracle Corporation.  All rights reserved.
+
+
+Oracle Home       : /opt/oc12201
+Central Inventory : /opt/oraInventory
+   from           : /opt/oc12201/oraInst.loc
+OPatch version    : 12.2.0.1.6
+OUI version       : 12.2.0.1.4
+Log file location : /opt/oc12201/cfgtoollogs/opatch/opatch2018-03-16_20-57-33PM_1.log
+
+Lsinventory Output file location : /opt/oc12201/cfgtoollogs/opatch/lsinv/lsinventory2018-03-16_20-57-33PM.txt
+
+--------------------------------------------------------------------------------
+Local Machine Information::
+Hostname: localhost
+ARU platform id: 226
+ARU platform description:: Linux x86-64
+
+Installed Top-level Products (2): 
+
+Oracle Client 12c                                                    12.2.0.1.0
+Oracle Database 12c Examples                                         12.2.0.1.0
+There are 2 products installed in this Oracle Home.
+
+
+There are no Interim patches installed in this Oracle Home.
+
+
+--------------------------------------------------------------------------------
+
+OPatch succeeded.
+$ 
+</pre>
+<h2> Testing Pro*C </h2>
+<p>I have installed gcc:</p>
+<pre>
+# yum -y install gcc
+Loaded plugins: ulninfo
+Resolving Dependencies
+--&gt; Running transaction check
+---&gt; Package gcc.x86_64 0:4.8.5-16.0.3.el7_4.2 will be installed
+--&gt; Processing Dependency: cpp = 4.8.5-16.0.3.el7_4.2 for package: gcc-4.8.5-16.0.3.el7_4.2.x86_64
+--&gt; Processing Dependency: libmpfr.so.4()(64bit) for package: gcc-4.8.5-16.0.3.el7_4.2.x86_64
+--&gt; Processing Dependency: libmpc.so.3()(64bit) for package: gcc-4.8.5-16.0.3.el7_4.2.x86_64
+--&gt; Running transaction check
+---&gt; Package cpp.x86_64 0:4.8.5-16.0.3.el7_4.2 will be installed
+---&gt; Package libmpc.x86_64 0:1.0.1-3.el7 will be installed
+---&gt; Package mpfr.x86_64 0:3.1.1-4.el7 will be installed
+--&gt; Finished Dependency Resolution
+
+Dependencies Resolved
+
+======================================================================================================================================================================================
+ Package                                Arch                                   Version                                               Repository                                  Size
+======================================================================================================================================================================================
+Installing:
+ gcc                                    x86_64                                 4.8.5-16.0.3.el7_4.2                                  ol7_latest                                  16 M
+Installing for dependencies:
+ cpp                                    x86_64                                 4.8.5-16.0.3.el7_4.2                                  ol7_latest                                 5.9 M
+ libmpc                                 x86_64                                 1.0.1-3.el7                                           ol7_latest                                  49 k
+ mpfr                                   x86_64                                 3.1.1-4.el7                                           ol7_latest                                 198 k
+
+Transaction Summary
+======================================================================================================================================================================================
+Install  1 Package (+3 Dependent packages)
+
+Total download size: 22 M
+Installed size: 53 M
+Downloading packages:
+(1/4): cpp-4.8.5-16.0.3.el7_4.2.x86_64.rpm                                                                                                                     | 5.9 MB  00:00:09     
+(2/4): libmpc-1.0.1-3.el7.x86_64.rpm                                                                                                                           |  49 kB  00:00:00     
+(3/4): mpfr-3.1.1-4.el7.x86_64.rpm                                                                                                                             | 198 kB  00:00:00     
+(4/4): gcc-4.8.5-16.0.3.el7_4.2.x86_64.rpm                                                                                                                     |  16 MB  00:00:18     
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+Total                                                                                                                                                 1.2 MB/s |  22 MB  00:00:18     
+Running transaction check
+Running transaction test
+Transaction test succeeded
+Running transaction
+  Installing : mpfr-3.1.1-4.el7.x86_64                                                                                                                                            1/4 
+  Installing : libmpc-1.0.1-3.el7.x86_64                                                                                                                                          2/4 
+  Installing : cpp-4.8.5-16.0.3.el7_4.2.x86_64                                                                                                                                    3/4 
+  Installing : gcc-4.8.5-16.0.3.el7_4.2.x86_64                                                                                                                                    4/4 
+  Verifying  : cpp-4.8.5-16.0.3.el7_4.2.x86_64                                                                                                                                    1/4 
+  Verifying  : mpfr-3.1.1-4.el7.x86_64                                                                                                                                            2/4 
+  Verifying  : gcc-4.8.5-16.0.3.el7_4.2.x86_64                                                                                                                                    3/4 
+  Verifying  : libmpc-1.0.1-3.el7.x86_64                                                                                                                                          4/4 
+
+Installed:
+  gcc.x86_64 0:4.8.5-16.0.3.el7_4.2                                                                                                                                                   
+
+Dependency Installed:
+  cpp.x86_64 0:4.8.5-16.0.3.el7_4.2                                libmpc.x86_64 0:1.0.1-3.el7                                mpfr.x86_64 0:3.1.1-4.el7                               
+
+Complete!
+# 
+</pre>
+<p>I have added to <b>/home/oracle/.bash_profile</b>:</p>
+<pre>
+export ORACLE_HOME=/opt/oc12201
+export PATH=$ORACLE_HOME/bin:$PATH
+export LD_LIBRARY_PATH=$ORACLE_HOME/lib:$LD_LIBRARY_PATH
+</pre>
+<p>I have adapted <b>pcscfg.cfg</b> file to search in the right include directories:</p>
+<pre>
+$ cat /opt/oc12201/precomp/admin/pcscfg.cfg
+sys_include=($ORACLE_HOME/precomp/public,/usr/include,/usr/lib/gcc/x86_64-redhat-linux/4.8.2/include)
+ltype=short
+define=__x86_64__
+</pre>
+<p>I have compiled a demo program <a href="http://pierreforstmanndotcom.wordpress.com/sample10-pc">sample10.pc</a> that works like a mini SQL*Plus from Oracle Examples:</p>
+<pre>
+$ cd $ORACLE_HOME/precomp/demo/proc
+$ make -f demo_proc.mk sample10
+make -f /opt/oc12201/precomp/demo/proc/demo_proc.mk OBJS=sample10.o EXE=sample10 build
+make[1]: Entering directory `/opt/oc12201/precomp/demo/proc'
+make -f /opt/oc12201/precomp/demo/proc/demo_proc.mk PROCFLAGS="" PCCSRC=sample10 I_SYM=include= pc1
+make[2]: Entering directory `/opt/oc12201/precomp/demo/proc'
+proc  iname=sample10 include=. include=/opt/oc12201/precomp/public include=/opt/oc12201/rdbms/public include=/opt/oc12201/rdbms/demo include=/opt/oc12201/plsql/public include=/opt/oc12201/network/public
+
+Pro*C/C++: Release 12.2.0.1.0 - Production on Fri Mar 16 21:46:47 2018
+
+Copyright (c) 1982, 2017, Oracle and/or its affiliates.  All rights reserved.
+
+System default option values taken from: /opt/oc12201/precomp/admin/pcscfg.cfg
+
+make[2]: Leaving directory `/opt/oc12201/precomp/demo/proc'
+/usr/bin/gcc  -O3  -trigraphs -fPIC -DPRECOMP -I. -I/opt/oc12201/precomp/public -I/opt/oc12201/rdbms/public -I/opt/oc12201/rdbms/demo -I/opt/oc12201/plsql/public -I/opt/oc12201/network/public -DLINUX -DORAX86_64 -D_GNU_SOURCE -D_LARGEFILE64_SOURCE=1 -D_LARGEFILE_SOURCE=1 -DSLTS_ENABLE -DSLMXMX_ENABLE -D_REENTRANT -DNS_THREADS -DLONG_IS_64 -DSS_64BIT_SERVER -DCOMP_DIR="" -DLDAP_CM     -m64 -c sample10.c
+/usr/bin/gcc -m64 -o sample10 sample10.o -L/opt/oc12201/lib/ -lclntsh -lclntshcore `cat /opt/oc12201/lib/ldflags`   `cat /opt/oc12201/lib/sysliblist` -ldl -lm  
+make[1]: Leaving directory `/opt/oc12201/precomp/demo/proc'
+$ 
+</pre>
+<p>I have set TWO_TASK environment variable to use an Easy Connect string to an existing 12.2.0.1 database (it looks like you must use TWO_TASK which seems to indicate that code is quite old).<br />
+<br />
+I have run sample10 with:</p>
+<pre>
+$ export TWO_TASK=rh7ttfs0:1521/CDB
+$ ./sample10
+
+username: system
+password: manager
+
+Connected to ORACLE as user system.
+
+SQL&gt; select instance_name, host_name from v$instance;
+
+INSTANCE_NAME    HOST_NAME                      
+
+CDB              rh7ttfs0.localdomain                                             
+
+
+1 row processed.
+
+SQL&gt; exit
+
+Have a good day!
+
+$ 
+</pre>
+<p>Oracle Client including Pro*C installation is OK.</p>
+<p>
+PS: here is <a href="http://pierreforstmanndotcom.wordpress.com/sample10-c">sample10.c</a> which is the C source file generated by Proc*C: it contains very old comments up to 1984 and reference to VAX:</p>
+<pre>
+/***************************************************************
+*      The SQLDA descriptor definition                         *
+*--------------------------------------------------------------*
+*      VAX/3B Version                                          *
+*                                                              *
+* Copyright (c) 1987, 2011, Oracle and/or its affiliates. All rights reserved. 
+***************************************************************/
+</pre>
