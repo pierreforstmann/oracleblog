@@ -1,0 +1,399 @@
+<p>In this article I detail cloning of Oracle Database home on Oracle Linux:</p>
+<li>
+source Oracle Home is Oracle Database 12.1.0.2 with PSU 12.1.0.2.5 from <a href="https://pierreforstmanndotcom.wordpress.com/2016/03/15/installing-and-using-oracle-hands-on-lab-upgrademigrateconsolidate-to-oracle-12c-hol-virtual-machine/" />Oracle OTN HOL virtual machine</a> running Oracle Linux 5.11.
+</li>
+<li>
+target Oracle Home is on a new machine running Oracle Linux 7.2.
+</li>
+<p>
+I have already a blog post about Oracle home cloning but this was <a href="https://pierreforstmanndotcom.wordpress.com/2014/09/30/how-to-move-or-rename-oracle-home/" />cloning on same machine to move or rename Oracle home</a>: this article details cloning on a new machine.<br />
+<br />
+For this article I have used <a href="http://docs.oracle.com/database/121/LADBI/app_cloning.htm#LADBI7852">Cloning Oracle Home from Oracle Database Installation Guide for Linux</a> with some modifications.<br />
+</p>
+<h2>Step 1 install prerequisites on new machine</h2>
+<p>This is not mentioned in Oracle documentation but you must do it otherwise cloning will fail.<br />
+<br />
+On Oracle Linux this is easily done: you only need to install Oracle preinstallation RPM (assuming this machine has direct Internet connection and default YUM configuration is not changed). So I have run:</p>
+<pre>
+# yum -y install oracle-rdbms-server-12cR1-preinstall
+</pre>
+<p>If you don't use Oracle Linux you can also use similar approach on CentOS or Red Hat after <a href="https://pierreforstmanndotcom.wordpress.com/2016/01/07/how-i-simplified-oracle-database-12-1-0-2-installation-on-centos-7-2-with-oracle-preinstallation-rpm/" />modifying Oracle preinstallation RPM</a>.<br />
+<br />
+You should also add in <b>/etc/hosts</b> local host name to avoid following error:</p>
+<pre>
+java.net.UnknownHostException: co7tosf1.localdomain: co7tosf1.localdomain
+        at java.net.InetAddress.getLocalHost(InetAddress.java:1409)
+        at oracle.sysman.oii.oiin.OiinNetOps.computeNICList(OiinNetOps.java:105)
+        at oracle.sysman.oii.oiin.OiinNetOps.(OiinNetOps.java:76)
+        at oracle.sysman.oii.oiin.OiinNetOps.getNetOps(OiinNetOps.java:90)
+        at oracle.sysman.oii.oiix.OiixNetOps.getFullHostName(OiixNetOps.java:49)
+        at oracle.install.library.util.MachineInfo.getFullHostName(MachineInfo.java:174)
+        at oracle.install.library.util.PlatformInfo.getFullHostName(PlatformInfo.java:136)
+        at oracle.install.ivw.common.util.OracleCloner.validateArguments(OracleCloner.java:116)
+        at oracle.install.ivw.common.util.OracleCloner.processArguments(OracleCloner.java:73)
+        at oracle.install.commons.util.Application.startup(Application.java:698)
+        at oracle.install.commons.util.Application.startup(Application.java:675)
+        at oracle.install.commons.base.driver.common.Cloner.startup(Cloner.java:101)
+        at oracle.install.ivw.common.util.OracleCloner.startup(OracleCloner.java:90)
+        at oracle.install.ivw.common.util.OracleCloner.main(OracleCloner.java:210)
+</pre>
+<p>I have added to <b>/etc/hosts</b>:</p>
+<pre>
+# tail -n 1 /etc/hosts
+192.168.56.24 ol7tosf1 ol7tosf1.localdomain
+</pre>
+<h2>Step 2 create tar file of source Oracle home directory</h2>
+<p>I have done it differently from Oracle documentation because I want to show that you can also clone Oracle Home to a different directory name.<br />
+<br />
+To do this I have run tar command with relative path to avoir hard-coding Oracle home directory in tar file:</p>
+<pre>
+oracle@hol:~$ . oraenv
+ORACLE_SID = [oracle] ? CDB2
+The Oracle base remains unchanged with value /u01/app/oracle
+oracle@hol:~$ cd $ORACLE_HOME
+oracle@hol:/u01/app/oracle/product/12.1.0.2$ pwd
+/u01/app/oracle/product/12.1.0.2
+oracle@hol:/u01/app/oracle/product/12.1.0.2$ tar cf /oradata/stage/dbhome.tar .
+oracle@hol:/u01/app/oracle/product/12.1.0.2$ du -sh /oradata/stage/dbhome.tar
+5.8G    /oradata/stage/dbhome.tar
+</pre>
+<p>Note the size of the tar file: almost 6 GB for Linux x86 64 bit.</p>
+<h2>Step 3 transfer tar file to target machine</h2>
+<p>I have used scp from new machine:</p>
+<pre>
+[oracle@ol7tosf1 ~]$ cd /tmp
+[oracle@ol7tosf1 tmp]$ scp oracle@192.168.56.20:/oradata/stage/dbhome.tar .
+The authenticity of host '192.168.56.20 (192.168.56.20)' can't be established.
+RSA key fingerprint is a5:17:3e:ec:ac:30:5f:ae:bd:e1:6b:ce:59:d6:4a:88.
+Are you sure you want to continue connecting (yes/no)? yes
+Warning: Permanently added '192.168.56.20' (RSA) to the list of known hosts.
+oracle@192.168.56.20's password:
+dbhome.tar                                                                         100% 5850MB  31.0MB/s   03:09
+</pre>
+<h2>Step 4 create new target directories</h2>
+<p>On a machine where no Oracle software is installed you should create 3 directories:</p>
+<li> the new Oracle home
+</li>
+<li> the new Oracle base
+</li>
+<li> the new Oracle inventory (if you don't create it Oracle Universal Installer (OUI) will create /home/oracle/oraInventory).
+</li>
+<p>I have run as root:</p>
+<pre>
+[root@ol7tosf1 ~]# mkdir /opt/ora12102
+[root@ol7tosf1 ~]# mkdir /opt/orabase
+[root@ol7tosf1 ~]# mkdir /opt/orainv
+[root@ol7tosf1 ~]# chown oracle:dba /opt/ora*
+</pre>
+<h2> Step 5 extract Oracle home tar file on new machine </h2>
+<p>I have run with oracle account:</p>
+<pre>
+[oracle@ol7tosf1 ~]$ cd /opt/ora12102
+[oracle@ol7tosf1 ora12102]$ tar xf /tmp/dbhome.tar .
+</pre>
+<p>You can also remove Oracle Net files in <b>network/admin</b> and most files in <b>dbs</b> unless you want to reuse them.</p>
+<h2> Step 6 run the clone command </h2>
+<p>The clone command I have used is the Oracle Home perl executable running clone.pl with only 3 arguments:</p>
+<pre>
+$ORACLE_HOME/perl/bin/perl 
+ $ORACLE_HOME/clone/bin/clone.pl 
+  ORACLE_BASE=/opt/orabase ORACLE_HOME=/opt/ora12102 INVENTORY_LOCATION=/opt/orainv
+</pre>
+<p>I have run above command with (note in following output ./runInstaller command is generated by clone.pl perl script):</p>
+<pre>
+[oracle@ol7tosf1 ~]$ export ORACLE_HOME=/opt/ora12102
+[oracle@ol7tosf1 ~]$ $ORACLE_HOME/perl/bin/perl $ORACLE_HOME/clone/bin/clone.pl \
+&gt; ORACLE_BASE=/opt/orabase \
+&gt; ORACLE_HOME=/opt/ora12102 \
+&gt; INVENTORY_LOCATION=/opt/orainv
+./runInstaller -clone -waitForCompletion  "ORACLE_BASE=/opt/orabase" "ORACLE_HOME=/opt/ora12102" "INVENTORY_LOCATION=/opt/orainv" 
+ -silent -paramFile /opt/ora12102/clone/clone_oraparam.ini
+Starting Oracle Universal Installer...
+
+Checking Temp space: must be greater than 500 MB.   Actual 24971 MB    Passed
+Checking swap space: must be greater than 500 MB.   Actual 2047 MB    Passed
+Preparing to launch Oracle Universal Installer from /tmp/OraInstall2016-03-15_06-59-20PM. Please wait ...
+You can find the log of this install session at:
+ /opt/orainv/logs/cloneActions2016-03-15_06-59-20PM.log
+..................................................   5% Done.
+..................................................   10% Done.
+..................................................   15% Done.
+..................................................   20% Done.
+..................................................   25% Done.
+..................................................   30% Done.
+..................................................   35% Done.
+..................................................   40% Done.
+..................................................   45% Done.
+..................................................   50% Done.
+..................................................   55% Done.
+..................................................   60% Done.
+..................................................   65% Done.
+..................................................   70% Done.
+..................................................   75% Done.
+..................................................   80% Done.
+..................................................   85% Done.
+..........
+Copy files in progress.
+
+Copy files successful.
+
+Link binaries in progress.
+
+Link binaries successful.
+
+Setup files in progress.
+
+Setup files successful.
+
+Setup Inventory in progress.
+
+Setup Inventory successful.
+
+Finish Setup successful.
+The cloning of OraHome1 was successful.
+Please check '/opt/orainv/logs/cloneActions2016-03-15_06-59-20PM.log' for more details.
+
+Setup Oracle Base in progress.
+
+Setup Oracle Base successful.
+..................................................   95% Done.
+
+As a root user, execute the following script(s):
+        1. /opt/orainv/orainstRoot.sh
+        2. /opt/ora12102/root.sh
+
+
+
+..................................................   100% Done.
+</pre>
+<p>In the above output, you need to make sure that all steps are successful and that you get the message "The cloning of OraHome1 was succesful".</p>
+<h2> Step 7 run scripts as root </h2>
+<pre>
+[root@ol7tosf1 ~]# /opt/orainv/orainstRoot.sh
+Changing permissions of /opt/orainv.
+Adding read,write permissions for group.
+Removing read,write,execute permissions for world.
+
+Changing groupname of /opt/orainv to oinstall.
+The execution of the script is complete.
+[root@ol7tosf1 ~]# /opt/ora12102/root.sh
+Check /opt/ora12102/install/root_ol7tosf1.localdomain_2016-03-15_19-02-28.log for the output of root script
+[root@ol7tosf1 ~]# cat /opt/ora12102/install/root_ol7tosf1.localdomain_2016-03-15_19-02-28.log
+Performing root user operation.
+
+The following environment variables are set as:
+    ORACLE_OWNER= oracle
+    ORACLE_HOME=  /opt/ora12102
+   Copying dbhome to /usr/local/bin ...
+   Copying oraenv to /usr/local/bin ...
+   Copying coraenv to /usr/local/bin ...
+
+
+Creating /etc/oratab file...
+Entries will be added to the /etc/oratab file as needed by
+Database Configuration Assistant when a database is created
+Finished running generic part of root script.
+Now product-specific root actions will be performed.
+[root@ol7tosf1 ~]#
+</pre>
+<h2> Step 8 check cloned Oracle home</h2>
+<pre>
+[oracle@ol7tosf1 ~]$  $ORACLE_HOME/OPatch/opatch lsinv
+Oracle Interim Patch Installer version 12.1.0.1.9
+Copyright (c) 2016, Oracle Corporation.  All rights reserved.
+
+
+Oracle Home       : /opt/ora12102
+Central Inventory : /opt/orainv
+   from           : /opt/ora12102/oraInst.loc
+OPatch version    : 12.1.0.1.9
+OUI version       : 12.1.0.2.0
+Log file location : /opt/ora12102/cfgtoollogs/opatch/opatch2016-03-15_19-03-01PM_1.log
+
+Lsinventory Output file location : /opt/ora12102/cfgtoollogs/opatch/lsinv/lsinventory2016-03-15_19-03-01PM.txt
+
+--------------------------------------------------------------------------------
+Local Machine Information::
+Hostname: ol7tosf1
+ARU platform id: 226
+ARU platform description:: Linux x86-64
+
+Installed Top-level Products (1):
+
+Oracle Database 12c                                                  12.1.0.2.0
+There are 1 products installed in this Oracle Home.
+
+
+Interim patches (2) :
+
+Patch  21539301     : applied on Mon Nov 09 20:58:05 CET 2015
+Unique Patch ID:  19298399
+   Created on 31 Aug 2015, 06:56:59 hrs PST8PDT
+   Bugs fixed:
+     21539301
+
+Patch  21359755     : applied on Wed Nov 04 22:18:33 CET 2015
+Unique Patch ID:  19194568
+Patch description:  "Database Patch Set Update : 12.1.0.2.5 (21359755)"
+   Created on 21 Oct 2015, 02:52:58 hrs PST8PDT
+Sub-patch  20831110; "Database Patch Set Update : 12.1.0.2.4 (20831110)"
+Sub-patch  20299023; "Database Patch Set Update : 12.1.0.2.3 (20299023)"
+Sub-patch  19769480; "Database Patch Set Update : 12.1.0.2.2 (19769480)"
+   Bugs fixed:
+     19189525, 19075256, 19865345, 19791273, 19280225, 18845653, 19248799
+     19243521, 18988834, 19238590, 21281532, 18921743, 20245930, 19134173
+     19571367, 20476175, 20925795, 19018206, 20387265, 19149990, 18849537
+     19183343, 19703301, 19001390, 18202441, 19189317, 19644859, 19390567
+     19358317, 19279273, 19706965, 19068970, 19619732, 18607546, 20348653
+     18940497, 19670108, 19649152, 18948177, 19315691, 19676905, 18964978
+     20165574, 19035573, 19176326, 20413820, 20558005, 19176223, 19532017
+     20134339, 19074147, 18411216, 20361671, 20425790, 18966843, 20294666
+     19371175, 19307662, 19195895, 19154375, 19468991, 19174521, 19520602
+     19382851, 19658708, 20093776, 17835294, 19068610, 19791377, 20746251
+     20048359, 19143550, 19185876, 19627012, 20281121, 19577410, 19001359
+     19518079, 18610915, 18674024, 18306996, 19309466, 19081128, 19915271
+     20122715, 20284155, 18791688, 21442094, 19303936, 19597439, 20235511
+     18964939, 19430401, 19044962, 19409212, 20657441, 19684504, 19024808
+     19028800, 19065556, 19723336, 19077215, 21421886, 19524384, 19048007
+     18288842, 18952989, 16870214, 19928926, 19180770, 19197175, 19730508
+     19012119, 19067244, 20074391, 19841800, 19512341, 14643995, 20331945
+     19587324, 19065677, 19547370, 19637186, 21225209, 20397490, 18967382
+     19174430, 18674047, 19054077, 19708632, 19536415, 19289642, 19335438
+     17365043, 18856999, 20471920, 19468347, 21620471, 16359751, 18990693
+     19439759, 19769480, 19272708, 19978542, 19329654, 20402832, 19873610
+     19304354, 19052488, 19291380, 18681056, 19896336, 19076343, 19561643
+     18618122, 20440930, 18456643, 19699191, 18909599, 19487147, 18250893
+     19016730, 18743542, 20347562, 16619249, 18354830, 19687159, 19174942
+     20424899, 19989009, 20688221, 20441797, 19157754, 19058490, 19032777
+     19399918, 18885870, 19434529, 19018447, 18417036, 20919320, 19284031
+     19022470, 20474192, 22062026, 19385656, 19501299, 17274537, 20899461
+     19440586, 19606174, 18436647, 19023822, 19178851, 19124589, 19805359
+     19597583, 19155797, 19393542, 19050649
+
+
+
+--------------------------------------------------------------------------------
+
+OPatch succeeded.
+[oracle@ol7tosf1 ~]$ $ORACLE_HOME/OPatch/opatch lspatches
+21539301;
+21359755;Database Patch Set Update : 12.1.0.2.5 (21359755)
+
+OPatch succeeded.
+</pre>
+<p>Note that the cloned Oracle home keeps original patch application date.</p>
+<p>At this step one can also try <a href="http://docs.oracle.com/database/121/ADMIN/create.htm#ADMIN11073">to create manually a database</a>: because this will run a lot of SQL scripts I think this a good way to test the new Oracle home.<br />
+<br />
+Here are the steps I have run to create a database named TEST under <b>/tmp</b> (I have removed output from catalog.sql, catproc.sql and utlrp.sql):</p>
+<pre>
+[oracle@ol7tosf1 dbs]$ pwd
+/opt/ora12102/dbs
+[oracle@ol7tosf1 dbs]$ cat initTEST.ora
+db_name=TEST
+memory_max_target=512M
+control_files=/tmp/TEST.ctl
+db_create_file_dest=/tmp
+[oracle@ol7tosf1 dbs]$ export ORACLE_SID=TEST
+[oracle@ol7tosf1 dbs]$ export PATH=$ORACLE_HOME/bin:$PATH
+[oracle@ol7tosf1 dbs]$ sqlplus / as sysdba
+
+SQL*Plus: Release 12.1.0.2.0 Production on Tue Mar 15 19:08:42 2016
+
+Copyright (c) 1982, 2014, Oracle.  All rights reserved.
+
+Connected to an idle instance.
+
+SQL&gt; startup nomount;
+ORACLE instance started.
+
+Total System Global Area  536870912 bytes
+Fixed Size                  2926472 bytes
+Variable Size             478152824 bytes
+Database Buffers           50331648 bytes
+Redo Buffers                5459968 bytes
+SQL&gt; create database TEST;
+
+Database created.
+
+SQL&gt; @?/rdbms/admin/catalog.sql
+
+SQL&gt; @?/rdbms/admin/catproc.sql
+
+SQL&gt; @?/rdbms/admin/utlrp.sql
+
+SQL&gt;  select comp_name, version, status from dba_registry;
+
+COMP_NAME                                VERSION                        STATUS
+---------------------------------------- ------------------------------ -----------
+Oracle XML Database                      12.1.0.2.0                     VALID
+Oracle Database Catalog Views            12.1.0.2.0                     VALID
+Oracle Database Packages and Types       12.1.0.2.0                     VALID
+</pre>
+<p>Last step is to apply the PSU:</p>
+<pre>
+[oracle@ol7tosf1 dbs]$ $ORACLE_HOME/OPatch/datapatch -verbose
+SQL Patching tool version 12.1.0.2.0 on Tue Mar 15 19:46:59 2016
+Copyright (c) 2015, Oracle.  All rights reserved.
+
+Log file for this invocation: /opt/orabase/cfgtoollogs/sqlpatch/sqlpatch_9725_2016_03_15_19_46_59/sqlpatch_invocation.log
+
+Connecting to database...OK
+Bootstrapping registry and package to current versions...done
+Determining current state...done
+
+Current state of SQL patches:
+Patch 21539301 ():
+  Installed in the binary registry only
+Bundle series PSU:
+  ID 5 in the binary registry and not installed in the SQL registry
+
+Adding patches to installation queue and performing prereq checks...
+Installation queue:
+  Nothing to roll back
+  The following patches will be applied:
+    21359755 (Database Patch Set Update : 12.1.0.2.5 (21359755))
+    21539301 ()
+
+Installing patches...
+Patch installation complete.  Total patches installed: 2
+
+Validating logfiles...
+Patch 21359755 apply: SUCCESS
+  logfile: /opt/orabase/cfgtoollogs/sqlpatch/21359755/19194568/21359755_apply_TEST_2016Mar15_19_47_26.log (no errors)
+Patch 21539301 apply: SUCCESS
+  logfile: /opt/orabase/cfgtoollogs/sqlpatch/21539301/19298399/21539301_apply_TEST_2016Mar15_19_47_28.log (no errors)
+SQL Patching tool complete on Tue Mar 15 19:47:33 2016
+[oracle@ol7tosf1 dbs]$
+
+
+[oracle@ol7tosf1 scripts]$ sqlplus / as sysdba @lpsu
+
+SQL*Plus: Release 12.1.0.2.0 Production on Tue Mar 15 19:49:14 2016
+
+Copyright (c) 1982, 2014, Oracle.  All rights reserved.
+
+
+Connected to:
+Oracle Database 12c Enterprise Edition Release 12.1.0.2.0 - 64bit Production
+With the Partitioning, OLAP, Advanced Analytics and Real Application Testing options
+
+SQL&gt; set linesize 120
+SQL&gt; column action_time format a15
+SQL&gt; column action format a10
+SQL&gt; column version format a10
+SQL&gt; column description format a50
+SQL&gt; select to_char(action_time,'DD-MON-YYYY') as action_time_2, patch_id, patch_uid, action, version,  description
+  2  from dba_registry_sqlpatch
+  3  order by action_time;
+
+ACTION_TIME   PATCH_ID  PATCH_UID ACTION     VERSION    DESCRIPTION
+----------- ---------- ---------- ---------- ---------- --------------------------------------------------
+15-MAR-2016   21359755   19194568 APPLY      12.1.0.2   Database Patch Set Update : 12.1.0.2.5 (21359755)
+15-MAR-2016   21539301   19298399 APPLY      12.1.0.2
+
+SQL&gt; Disconnected from Oracle Database 12c Enterprise Edition Release 12.1.0.2.0 - 64bit Production
+With the Partitioning, OLAP, Advanced Analytics and Real Application Testing options
+</pre>
+<h2>Conclusion</h2>
+<p>I think that Oracle home cloning is the fastest way to install Oracle Database: even faster than silent installation because you only need to relink once whatever the number of patches you need to install.</p>
+<p>It could be made even feaster and easier: most of these steps can be automatized in a RPM with the right scripts: this is what <a href="http://arkzoyd.com/oracledb-rpm1/" />Gregory Guillou </a>has done. But if you don't want to create your own RPM you can try <a href="https://docs.oracle.com/database/121/CWADD/rapidhome.htm#CWADD92402">Rapid Home provisioning</a> a new 12c feature (but this seems to require more work than building its own RPM).</p>
