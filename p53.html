@@ -1,0 +1,558 @@
+<p>In this blog article I document how to apply Oracle Database 12.1.0.2 PSU 5 using out-of-place method for a Data Guard configuration:<br />
+<br />
+- primary and standby database are using ASM with Grid Infrastructure (GI) (GI will not be patched)<br />
+<br />
+- primary and standby database are running Oracle Database 12.1.0.2 that will be patched to 12.1.0.2 PSU 5.</p>
+<p>The configuration I have used is the following:</p>
+<li>
+VirtualBox 5.0.20
+</li>
+<li>
+Oracle Linux 6.5
+</li>
+<li>
+Oracle Database 12.1.0.2 Entreprise Edition
+</li>
+<li>
+Oracle Database 12.1.0.2 PSU 5
+</li>
+<li>
+Databases are non-CDB databases
+</li>
+<p>
+Here is the primary node configuration:</p>
+<pre>
+$ crsctl stat res -t
+--------------------------------------------------------------------------------
+Name           Target  State        Server                   State details      
+--------------------------------------------------------------------------------
+Local Resources
+--------------------------------------------------------------------------------
+ora.DATA.dg
+               ONLINE  ONLINE       ol6twsa0                 STABLE
+ora.FRA.dg
+               ONLINE  ONLINE       ol6twsa0                 STABLE
+ora.LISTENER.lsnr
+               ONLINE  ONLINE       ol6twsa0                 STABLE
+ora.asm
+               ONLINE  ONLINE       ol6twsa0                 Started,STABLE
+ora.ons
+               OFFLINE OFFLINE      ol6twsa0                 STABLE
+--------------------------------------------------------------------------------
+Cluster Resources
+--------------------------------------------------------------------------------
+ora.cdb0.db
+      1        ONLINE  ONLINE       ol6twsa0                 Open,STABLE
+ora.cssd
+      1        ONLINE  ONLINE       ol6twsa0                 STABLE
+ora.diskmon
+      1        OFFLINE OFFLINE                               STABLE
+ora.evmd
+      1        ONLINE  ONLINE       ol6twsa0                 STABLE
+--------------------------------------------------------------------------------
+$ . oraenv
+ORACLE_SID = [+ASM] ? CDB0
+The Oracle base remains unchanged with value /u01/app/oracle
+$ $ORACLE_HOME/OPatch/opatch lsinv
+Oracle Interim Patch Installer version 12.1.0.1.3
+Copyright (c) 2016, Oracle Corporation.  All rights reserved.
+
+
+Oracle Home       : /u01/app/12.1.0.2/db
+Central Inventory : /u01/app/oracle/oraInventory
+   from           : /u01/app/12.1.0.2/db/oraInst.loc
+OPatch version    : 12.1.0.1.3
+OUI version       : 12.1.0.2.0
+Log file location : /u01/app/12.1.0.2/db/cfgtoollogs/opatch/opatch2016-06-07_20-08-04PM_1.log
+
+Lsinventory Output file location : /u01/app/12.1.0.2/db/cfgtoollogs/opatch/lsinv/lsinventory2016-06-07_20-08-04PM.txt
+
+--------------------------------------------------------------------------------
+Installed Top-level Products (1):
+
+Oracle Database 12c                                                  12.1.0.2.0
+There are 1 products installed in this Oracle Home.
+
+
+There are no Interim patches installed in this Oracle Home.
+
+
+--------------------------------------------------------------------------------
+
+OPatch succeeded.
+$
+</pre>
+<p>Here is standby node configuration:</p>
+<pre>
+$ crsctl stat res -t
+--------------------------------------------------------------------------------
+Name           Target  State        Server                   State details
+--------------------------------------------------------------------------------
+Local Resources
+--------------------------------------------------------------------------------
+ora.DATA.dg
+               ONLINE  ONLINE       ol6twsa1                 STABLE
+ora.FRA.dg
+               ONLINE  ONLINE       ol6twsa1                 STABLE
+ora.LISTENER.lsnr
+               ONLINE  ONLINE       ol6twsa1                 STABLE
+ora.asm
+               ONLINE  ONLINE       ol6twsa1                 Started,STABLE
+ora.ons
+               OFFLINE OFFLINE      ol6twsa1                 STABLE
+--------------------------------------------------------------------------------
+Cluster Resources
+--------------------------------------------------------------------------------
+ora.cdb1.db
+      1        ONLINE  INTERMEDIATE ol6twsa1                 Mounted (Closed),STA
+                                                             BLE
+ora.cssd
+      1        ONLINE  ONLINE       ol6twsa1                 STABLE
+ora.diskmon
+      1        OFFLINE OFFLINE                               STABLE
+ora.evmd
+      1        ONLINE  ONLINE       ol6twsa1                 STABLE
+--------------------------------------------------------------------------------
+$ . oraenv
+ORACLE_SID = [+ASM] ? CDB1
+The Oracle base remains unchanged with value /u01/app/oracle
+$ $ORACLE_HOME/OPatch/opatch lsinv
+Oracle Interim Patch Installer version 12.1.0.1.3
+Copyright (c) 2016, Oracle Corporation.  All rights reserved.
+
+
+Oracle Home       : /u01/app/12.1.0.2/db
+Central Inventory : /u01/app/oracle/oraInventory
+   from           : /u01/app/12.1.0.2/db/oraInst.loc
+OPatch version    : 12.1.0.1.3
+OUI version       : 12.1.0.2.0
+Log file location : /u01/app/12.1.0.2/db/cfgtoollogs/opatch/opatch2016-06-07_20-16-39PM_1.log
+
+Lsinventory Output file location : /u01/app/12.1.0.2/db/cfgtoollogs/opatch/lsinv/lsinventory2016-06-07_20-16-39PM.txt
+
+--------------------------------------------------------------------------------
+Installed Top-level Products (1):
+
+Oracle Database 12c                                                  12.1.0.2.0
+There are 1 products installed in this Oracle Home.
+
+
+There are no Interim patches installed in this Oracle Home.
+
+
+--------------------------------------------------------------------------------
+
+OPatch succeeded.
+</pre>
+<p>Here is the Data Guard configuration:</p>
+<pre>
+$ dgmgrl /
+DGMGRL for Linux: Version 12.1.0.2.0 - 64bit Production
+
+Copyright (c) 2000, 2013, Oracle. All rights reserved.
+
+Welcome to DGMGRL, type "help" for information.
+Connected as SYSDG.
+DGMGRL&gt; show configuration;
+
+Configuration - cdb
+
+  Protection Mode: MaxPerformance
+  Members:
+  cdb0 - Primary database
+    cdb1 - Physical standby database
+
+Fast-Start Failover: DISABLED
+
+Configuration Status:
+SUCCESS   (status updated 23 seconds ago)
+
+DGMGRL&gt; 
+</pre>
+<p>Current Oracle Home  (OH) is <b>/u01/app/12.1.0.2/db</b> and new OH is <b>/u01/app/12.1.0.2.5/db</b>.</p>
+<p>I have adapted <a href="http://docs.oracle.com/database/121/SBYDB/upgrades.htm#SBYDB4932">Upgrading Oracle Database with a Physical Standby Database in Place </a> from Data Guard Concepts And Administration with some modifications.<br />
+<br />
+This procedure is using the fundamental standby database upgrade rule:<br />
+<br />
+<i>the physical standby database(s) will be upgraded when the redo generated by the primary database as it is upgraded is applied.</i><br />
+</br></p>
+<p>For steps 1 and 2 I have used and adapted <a href="https://pierreforstmanndotcom.wordpress.com/2016/03/17/cloning-oracle-database-home-12-1-0-2-on-new-oracle-linux-machine/" />Cloning Oracle Home 12.1.0.2</a> article.</p>
+<h2>Step 1: Clone an existing 12.1.0.2 PSU 5 OH to primary node</h2>
+<h2>Step 2: Clone an existing 12.1.0.2 PSU 5 OH to standby node</h2>
+<h2>Step 3: Copy tnsnames.ora, database password files and Data Guard Broker (DGB) configuration files from current OH to new OH on primary and standby node</h2>
+<p>First I have moved standby database SPFILE to ASM because it was still on file system:</p>
+<pre>
+$ sqlplus / as sysdba
+
+SQL*Plus: Release 12.1.0.2.0 Production on Mon Jun 20 18:08:09 2016
+
+Copyright (c) 1982, 2014, Oracle.  All rights reserved.
+
+
+Connected to:
+Oracle Database 12c Enterprise Edition Release 12.1.0.2.0 - 64bit Production
+With the Partitioning, Automatic Storage Management, OLAP, Advanced Analytics
+and Real Application Testing options
+
+SYS@CDB1&gt;create pfile='/tmp/initCDB1.ora' from spfile;
+
+File created.
+
+SYS@CDB1&gt;create spfile='+DATA/CDB1/spfileCDB1.ora' from pfile='/tmp/initCDB1.ora';
+
+File created.
+
+SYS@CDB1&gt;Disconnected from Oracle Database 12c Enterprise Edition Release 12.1.0.2.0 - 64bit Production
+With the Partitioning, Automatic Storage Management, OLAP, Advanced Analytics
+and Real Application Testing options
+$ . oraenv
+ORACLE_SID = [+ASM1] ? +ASM
+The Oracle base remains unchanged with value /u01/app/oracle
+$ asmcmd ls +DATA/CDB1/spfileCDB1.ora
+spfileCDB1.ora
+$ asmcmd ls -l +DATA/CDB1/spfileCDB1.ora
+Type           Redund  Striped  Time             Sys  Name
+PARAMETERFILE  UNPROT  COARSE   JUN 20 18:00:00  N    spfileCDB1.ora =&gt; +DATA/CDB1/PARAMETERFILE/spfile.272.915041303
+$
+</pre>
+<p>Note that before copying DGB configuration files I have also stopped database instances to avoid a possible temporary DGB configuration mismatch.<br />
+<br />
+I have run on primary node:</p>
+<pre>
+$ export ORACLE_HOME=/u01/app/12.1.0.2.5/db
+$ cp /u01/app/12.1.0.2/db/network/admin/tnsnames.ora  $ORACLE_HOME/network/admin/tnsnames.ora
+$ cp /u01/app/12.1.0.2/db/dbs/orapwCDB0 $ORACLE_HOME/dbs
+$ ls -al /u01/app/12.1.0.2/db/dbs/*dr*
+-rw-r----- 1 oracle dba 12288 Jul 16  2015 /u01/app/12.1.0.2/db/dbs/dr1CDB0.dat
+-rw-r----- 1 oracle dba 12288 Jul 16  2015 /u01/app/12.1.0.2/db/dbs/dr2CDB0.dat
+$ srvctl stop database -d CDB0
+$ cp /u01/app/12.1.0.2/db/dbs/*dr* $ORACLE_HOME/dbs
+</pre>
+<p>I have run on standby node:</p>
+<pre>
+$ export ORACLE_HOME=/u01/app/12.1.0.2.5/db
+$ cp /u01/app/12.1.0.2/db/network/admin/tnsnames.ora  $ORACLE_HOME/network/admin/tnsnames.ora
+$ cp /u01/app/12.1.0.2/db/dbs/orapwCDB1  $ORACLE_HOME/dbs
+$ ls -al /u01/app/12.1.0.2/db/dbs/*dr*
+-rw-r----- 1 oracle dba 12288 Jul 16  2015 /u01/app/12.1.0.2/db/dbs/dr1CDB1.dat
+-rw-r----- 1 oracle dba 12288 Jul 16  2015 /u01/app/12.1.0.2/db/dbs/dr2CDB1.dat
+$ srvctl stop database -d CDB1
+$ cp /u01/app/12.1.0.2/db/dbs/*dr* $ORACLE_HOME/dbs
+</pre>
+<p>I have not moved initCDB0.ora and initCDB1.ora to new OH because they are only needed if you need to start database instances without srvctl.</p>
+<h2>Step 4: switch standby database to new OH</h2>
+<p>I have switched Oracle Home and SPFILE for standby database with:</p>
+<pre>
+$ srvctl stop database -d CDB1
+$ srvctl modify database -d CDB1 -spfile +DATA/CDB1/spfileCDB1.ora -oraclehome  /u01/app/12.1.0.2.5/db
+$ srvctl config database -d CDB1
+Database unique name: CDB1
+Database name: CDB1
+Oracle home: /u01/app/12.1.0.2.5/db
+Oracle user: oracle
+Spfile: +DATA/CDB1/spfileCDB1.ora
+Password file:
+Domain:
+Start options: mount
+Stop options: immediate
+Database role: PHYSICAL_STANDBY
+Management policy: AUTOMATIC
+Disk Groups: DATA,FRA
+Services:
+OSDBA group: dba
+OSOPER group:
+Database instance: CDB1
+$ srvctl start database -d CDB1
+$ srvctl status database -d CDB1
+Database is running.
+</pre>
+<p>Note that GI has updated <b>/etc/oratab</b>:</p>
+<pre>
+$ tail -n 1 /etc/oratab
+CDB1:/u01/app/12.1.0.2.5/db:N           # line added by Agent
+</pre>
+<h2>Step 5: switch primary instance to new OH</h2>
+<pre>
+$ srvctl stop database -d CDB0
+$ srvctl config database -d CDB0
+Database unique name: CDB0
+Database name: CDB0
+Oracle home: /u01/app/12.1.0.2/db
+Oracle user: oracle
+Spfile: +DATA/CDB0/PARAMETERFILE/spfile.258.867160539
+Password file:
+Domain:
+Start options: open
+Stop options: immediate
+Database role: PRIMARY
+Management policy: AUTOMATIC
+Disk Groups: FRA,DATA
+Services:
+OSDBA group:
+OSOPER group:
+Database instance: CDB0
+$ srvctl modify database -d CDB0 -oraclehome /u01/app/12.1.0.2.5/db
+$ srvctl config database -d CDB0
+Database unique name: CDB0
+Database name: CDB0
+Oracle home: /u01/app/12.1.0.2.5/db
+Oracle user: oracle
+Spfile: +DATA/CDB0/PARAMETERFILE/spfile.258.867160539
+Password file:
+Domain:
+Start options: open
+Stop options: immediate
+Database role: PRIMARY
+Management policy: AUTOMATIC
+Disk Groups: FRA,DATA
+Services:
+OSDBA group: dba
+OSOPER group:
+Database instance: CDB0
+$ srvctl start database -d CDB0
+$ srvctl status database -d CDB0
+Database is running.
+</pre>
+<p>Note that GI has updated <b>/etc/oratab</b>:</p>
+<pre>
+$ tail -n 1 /etc/oratab
+CDB0:/u01/app/12.1.0.2.5/db:N           # line added by Agent
+</pre>
+<h2>Step 6: check that Redo Apply is still enabled and working</h2>
+<pre>
+$ . oraenv
+ORACLE_SID = [CDB0] ? CDB0
+The Oracle base remains unchanged with value /u01/app/oracle
+$ dgmgrl /
+DGMGRL for Linux: Version 12.1.0.2.0 - 64bit Production
+
+Copyright (c) 2000, 2013, Oracle. All rights reserved.
+
+Welcome to DGMGRL, type "help" for information.
+Connected as SYSDG.
+DGMGRL&gt; show configuration;
+
+Configuration - cdb
+
+  Protection Mode: MaxPerformance
+  Members:
+  cdb0 - Primary database
+    cdb1 - Physical standby database
+
+Fast-Start Failover: DISABLED
+
+Configuration Status:
+SUCCESS   (status updated 7 seconds ago)
+
+DGMGRL&gt; show database cdb0;
+
+Database - cdb0
+
+  Role:               PRIMARY
+  Intended State:     TRANSPORT-ON
+  Instance(s):
+    CDB0
+
+Database Status:
+SUCCESS
+
+DGMGRL&gt; show database cdb1;
+
+Database - cdb1
+
+  Role:               PHYSICAL STANDBY
+  Intended State:     APPLY-ON
+  Transport Lag:      0 seconds (computed 1 second ago)
+  Apply Lag:          0 seconds (computed 1 second ago)
+  Average Apply Rate: 2.00 KByte/s
+  Real Time Query:    OFF
+  Instance(s):
+    CDB1
+
+Database Status:
+SUCCESS
+
+DGMGRL&gt; exit
+</pre>
+<h2>Step 7: run SQL patching script on primary database</h2>
+<p>In my environment this has taken about 13 minutes:</p>
+<pre>
+$ $ORACLE_HOME/OPatch/datapatch -verbose
+SQL Patching tool version 12.1.0.2.0 on Mon Jun 20 18:18:06 2016
+Copyright (c) 2015, Oracle.  All rights reserved.
+
+Log file for this invocation: /u01/app/oracle/cfgtoollogs/sqlpatch/sqlpatch_4649_2016_06_20_18_18_06/sqlpatch_invocation.log
+
+Connecting to database...OK
+Bootstrapping registry and package to current versions...done
+Determining current state...done
+
+Current state of SQL patches:
+Patch 21539301 ():
+  Installed in the binary registry only
+Bundle series PSU:
+  ID 5 in the binary registry and not installed in the SQL registry
+
+Adding patches to installation queue and performing prereq checks...
+Installation queue:
+  Nothing to roll back
+  The following patches will be applied:
+    21359755 (Database Patch Set Update : 12.1.0.2.5 (21359755))
+    21539301 ()
+
+Installing patches...
+Patch installation complete.  Total patches installed: 2
+
+Validating logfiles...
+Patch 21359755 apply: SUCCESS
+  logfile: /u01/app/oracle/cfgtoollogs/sqlpatch/21359755/19194568/21359755_apply_CDB0_2016Jun20_18_30_52.log (no errors)
+Patch 21539301 apply: SUCCESS
+  logfile: /u01/app/oracle/cfgtoollogs/sqlpatch/21539301/19298399/21539301_apply_CDB0_2016Jun20_18_31_12.log (no errors)
+SQL Patching tool complete on Mon Jun 20 18:31:36 2016
+</pre>
+<h3>Step 8: check on primary database that PSU has been applied</h3>
+<pre>
+$ sqlplus / @lpsu
+
+SQL*Plus: Release 12.1.0.2.0 Production on Mon Jun 20 18:43:31 2016
+
+Copyright (c) 1982, 2014, Oracle.  All rights reserved.
+
+Last Successful login time: Mon Jun 20 2016 18:43:15 +02:00
+
+Connected to:
+Oracle Database 12c Enterprise Edition Release 12.1.0.2.0 - 64bit Production
+With the Partitioning, Automatic Storage Management, OLAP, Advanced Analytics
+and Real Application Testing options
+OPS$ORACLE@CDB0&gt;set linesize 120
+OPS$ORACLE@CDB0&gt;column action_time format a15
+OPS$ORACLE@CDB0&gt;column action format a10
+OPS$ORACLE@CDB0&gt;column version format a12
+OPS$ORACLE@CDB0&gt;column description format a50
+OPS$ORACLE@CDB0&gt;column comp_name format a40
+OPS$ORACLE@CDB0&gt;select name, cdb from v$database;
+
+NAME      CDB
+--------- ---
+CDB0      NO
+
+OPS$ORACLE@CDB0&gt;select to_char(action_time,'DD-MON-YYYY') as action_time_2, patch_id, patch_uid, action, version,  description
+  2  from dba_registry_sqlpatch
+  3  order by action_time;
+
+ACTION_TIME_2          PATCH_ID  PATCH_UID ACTION     VERSION      DESCRIPTION
+-------------------- ---------- ---------- ---------- ------------ --------------------------------------------------
+20-JUN-2016            21359755   19194568 APPLY      12.1.0.2     Database Patch Set Update : 12.1.0.2.5 (21359755)
+20-JUN-2016            21539301   19298399 APPLY      12.1.0.2
+
+OPS$ORACLE@CDB0&gt;
+</pre>
+<h2>Step 9: check on standby database that PSU has been applied</h2>
+<p>Instead of using Active Data Guard (which requires an additional license) I have used snapshot standby feature<br />
+to open the standby database temporarily in read and write mode and to check DBA_REGISTRY and DBA_REGISTRY_SQLPATCH (note that dga is a database account having SYSDG privilege):</p>
+<pre>
+$ . oraenv
+ORACLE_SID = [+ASM] ? CDB1
+The Oracle base remains unchanged with value /u01/app/oracle
+$ dgmgrl dga/dga@CDB1
+DGMGRL for Linux: Version 12.1.0.2.0 - 64bit Production
+
+Copyright (c) 2000, 2013, Oracle. All rights reserved.
+
+Welcome to DGMGRL, type "help" for information.
+Connected as SYSDG.
+DGMGRL&gt; convert database cdb1 to snapshot standby;
+Converting database "cdb1" to a Snapshot Standby database, please wait...
+Database "cdb1" converted successfully
+DGMGRL&gt; exit
+</pre>
+<p>Now standby database is open and I can connect without SYSDBA privilege:</p>
+<pre>
+$ sqlplus /
+
+SQL*Plus: Release 12.1.0.2.0 Production on Mon Jun 20 18:47:37 2016
+
+Copyright (c) 1982, 2014, Oracle.  All rights reserved.
+
+Last Successful login time: Mon Jun 20 2016 18:43:32 +02:00
+
+Connected to:
+Oracle Database 12c Enterprise Edition Release 12.1.0.2.0 - 64bit Production
+With the Partitioning, Automatic Storage Management, OLAP, Advanced Analytics
+and Real Application Testing options
+
+OPS$ORACLE@CDB1&gt;select name, db_unique_name, database_role from v$database;
+
+NAME      DB_UNIQUE_NAME                 DATABASE_ROLE
+--------- ------------------------------ ----------------
+CDB0      CDB1                           SNAPSHOT STANDBY
+
+OPS$ORACLE@CDB1&gt;@lpsu
+OPS$ORACLE@CDB1&gt;set linesize 120
+OPS$ORACLE@CDB1&gt;column action_time format a15
+OPS$ORACLE@CDB1&gt;column action format a10
+OPS$ORACLE@CDB1&gt;column version format a12
+OPS$ORACLE@CDB1&gt;column description format a50
+OPS$ORACLE@CDB1&gt;column comp_name format a40
+OPS$ORACLE@CDB1&gt;select name, cdb from v$database;
+
+NAME      CDB
+--------- ---
+CDB0      NO
+
+OPS$ORACLE@CDB1&gt;select to_char(action_time,'DD-MON-YYYY') as action_time_2, patch_id, patch_uid, action, version,  description
+  2  from dba_registry_sqlpatch
+  3  order by action_time;
+
+ACTION_TIME_2          PATCH_ID  PATCH_UID ACTION     VERSION      DESCRIPTION
+-------------------- ---------- ---------- ---------- ------------ --------------------------------------------------
+20-JUN-2016            21359755   19194568 APPLY      12.1.0.2     Database Patch Set Update : 12.1.0.2.5 (21359755)
+20-JUN-2016            21539301   19298399 APPLY      12.1.0.2
+
+OPS$ORACLE@CDB1&gt;
+</pre>
+<p>I have switched standby database back to physical standby role and checked that redo apply is still working:</p>
+<pre>
+$ dgmgrl dga/dga@CDB1
+DGMGRL for Linux: Version 12.1.0.2.0 - 64bit Production
+
+Copyright (c) 2000, 2013, Oracle. All rights reserved.
+
+Welcome to DGMGRL, type "help" for information.
+Connected as SYSDG.
+DGMGRL&gt; convert database cdb1 to physical standby;
+Converting database "cdb1" to a Physical Standby database, please wait...
+Database "cdb1" converted successfully
+DGMGRL&gt; show configuration;
+
+Configuration - cdb
+
+  Protection Mode: MaxPerformance
+  Members:
+  cdb0 - Primary database
+    cdb1 - Physical standby database
+
+Fast-Start Failover: DISABLED
+
+Configuration Status:
+SUCCESS   (status updated 0 seconds ago)
+
+DGMGRL&gt; show database cdb1;
+
+Database - cdb1
+
+  Role:               PHYSICAL STANDBY
+  Intended State:     APPLY-ON
+  Transport Lag:      0 seconds (computed 1 second ago)
+  Apply Lag:          0 seconds (computed 1 second ago)
+  Average Apply Rate: 11.00 KByte/s
+  Real Time Query:    OFF
+  Instance(s):
+    CDB1
+
+Database Status:
+SUCCESS
+
+DGMGRL&gt;
+</pre>
+<p>Both databases have been successfully upgraded to Oracle Database 12.1.0.2 PSU 5.</p>
