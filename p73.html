@@ -1,0 +1,548 @@
+<p><a href="https://docs.oracle.com/en/database/oracle/oracle-database/12.2/ostmg/overview-acfs-advm.html#GUID-C91D3A8E-F329-44BE-97B7-8AB41897D8E1">ACFS</a> is neither an Oracle 12.2 new feature nor an Oracle 12.1 new feature: it is actually an  <a href="https://docs.oracle.com/cd/E11882_01/server.112/e41360/chapter1.htm#NEWFT249">Oracle 11.2 new feature</a>.</p>
+<p>ACFS stands for ASM Cluster File System. Oracle Restart (also knowns as single node Grid Infrastructure) is not a cluster solution, it is a software layer to manage resources like ASM disk groups, Oracle Net listeners and database instances on a <u>single</u> machine. How does ACFS work with Oracle Restart ? Oracle Restart does support ACFS however <a href="https://docs.oracle.com/en/database/oracle/oracle-database/12.2/ostmg/acfs-advanced-topics.html#GUID-C249903F-8CE1-4BE1-9D7A-3B065BF5AC54"> Oracle Restart does not take into account ACFS resources</a>.</p>
+<p>Note that ACFS is layered on ASM through the <a href="https://docs.oracle.com/en/database/oracle/oracle-database/12.2/ostmg/overview-advm.html#GUID-B7A61F3B-C22A-4021-A846-F5EA749E79FF">Oracle ADVM interface</a>.</p>
+<p>In this blog article I intend to show how to code Linux scripts to do what Oracle Restart does not do for ACFS.</p>
+<h2> Linux, Oracle and device configuration used</h2>
+<p>For this blog post I have used:</p>
+<pre>
+$ cat /etc/os-release 
+NAME="Oracle Linux Server"
+VERSION="7.3"
+ID="ol"
+VERSION_ID="7.3"
+PRETTY_NAME="Oracle Linux Server 7.3"
+ANSI_COLOR="0;31"
+CPE_NAME="cpe:/o:oracle:linux:7:3:server"
+HOME_URL="https://linux.oracle.com/"
+BUG_REPORT_URL="https://bugzilla.oracle.com/"
+
+ORACLE_BUGZILLA_PRODUCT="Oracle Linux 7"
+ORACLE_BUGZILLA_PRODUCT_VERSION=7.3
+ORACLE_SUPPORT_PRODUCT="Oracle Linux"
+ORACLE_SUPPORT_PRODUCT_VERSION=7.3
+
+$ $ORACLE_HOME/OPatch/opatch lsinv
+Oracle Interim Patch Installer version 12.2.0.1.6
+Copyright (c) 2018, Oracle Corporation.  All rights reserved.
+
+
+Oracle Home       : /u01/gi12201
+Central Inventory : /u01/orainv
+   from           : /u01/gi12201/oraInst.loc
+OPatch version    : 12.2.0.1.6
+OUI version       : 12.2.0.1.4
+Log file location : /u01/gi12201/cfgtoollogs/opatch/opatch2018-01-27_17-51-43PM_1.log
+
+Lsinventory Output file location : /u01/gi12201/cfgtoollogs/opatch/lsinv/lsinventory2018-01-27_17-51-43PM.txt
+
+--------------------------------------------------------------------------------
+Local Machine Information::
+Hostname: ol7ttsa1
+ARU platform id: 226
+ARU platform description:: Linux x86-64
+
+Installed Top-level Products (1): 
+
+Oracle Grid Infrastructure 12c                                       12.2.0.1.0
+There are 1 products installed in this Oracle Home.
+
+
+There are no Interim patches installed in this Oracle Home.
+
+
+--------------------------------------------------------------------------------
+
+OPatch succeeded.
+
+
+$ cat /etc/udev/rules.d/99-oracle-asmdevices.rules 
+KERNEL=="sd?1", SUBSYSTEM=="block", PROGRAM=="/lib/udev/scsi_id -g -u -d /dev/$parent", RESULT=="1ATA_VBOX_HARDDISK_VBfa23f4a6-da11d28e", SYMLINK+="asm-disk1", OWNER="oracle", GROUP="dba", MODE="0660"
+KERNEL=="sd?1", SUBSYSTEM=="block", PROGRAM=="/lib/udev/scsi_id -g -u -d /dev/$parent", RESULT=="1ATA_VBOX_HARDDISK_VBcfa5c59e-15ba04c4", SYMLINK+="asm-disk2", OWNER="oracle", GROUP="dba", MODE="0660" 
+$ sqlplus / as sysdba
+
+SQL*Plus: Release 12.2.0.1.0 Production on Sat Jan 27 17:53:46 2018
+
+Copyright (c) 1982, 2016, Oracle.  All rights reserved.
+
+
+Connected to:
+Oracle Database 12c Enterprise Edition Release 12.2.0.1.0 - 64bit Production
+
+SYS@+ASM&gt;column path format a20
+SYS@+ASM&gt;select name, path from v$asm_disk;
+
+NAME			       PATH
+------------------------------ --------------------
+DATA_0000		       /dev/asm-disk1
+RECO_0000		       /dev/asm-disk2
+
+SYS@+ASM&gt;
+</pre>
+<p>Note that neither ASMLib nor ASM FD are used to manage ASM disks.</p>
+<p>Commands with # prompt have been with run with Linux root account and commands with $ prompt have been run with Linux oracle account.</p>
+<p>On this machine I have 2 ASM disk groups and 1 database:</p>
+<pre>
+$ crsctl stat res -t
+--------------------------------------------------------------------------------
+Name           Target  State        Server                   State details       
+--------------------------------------------------------------------------------
+Local Resources
+--------------------------------------------------------------------------------
+ora.DATA.dg
+               ONLINE  ONLINE       ol7ttsa1                 STABLE
+ora.LISTENER.lsnr
+               ONLINE  ONLINE       ol7ttsa1                 STABLE
+ora.RECO.dg
+               ONLINE  ONLINE       ol7ttsa1                 STABLE
+ora.asm
+               ONLINE  ONLINE       ol7ttsa1                 Started,STABLE
+ora.ons
+               OFFLINE OFFLINE      ol7ttsa1                 STABLE
+--------------------------------------------------------------------------------
+Cluster Resources
+--------------------------------------------------------------------------------
+ora.cssd
+      1        ONLINE  ONLINE       ol7ttsa1                 STABLE
+ora.db1.db
+      1        ONLINE  ONLINE       ol7ttsa1                 Open,HOME=/u01/db122
+                                                             01,STABLE
+ora.diskmon
+      1        OFFLINE OFFLINE                               STABLE
+ora.evmd
+      1        ONLINE  ONLINE       ol7ttsa1                 STABLE
+--------------------------------------------------------------------------------
+</pre>
+<h2> First ACFS configuration </h2>
+<p>First I have run acfsload to load into Linux kernel Oracle modules needed by ACFS:</p>
+<pre>
+# . oraenv
+ORACLE_SID = [root] ? +ASM
+The Oracle base has been set to /u01/base
+[root@ol7ttsa1 ~]# which acfsload
+/u01/gi12201/bin/acfsload
+[root@ol7ttsa1 ~]# acfsload start
+ACFS-9391: Checking for existing ADVM/ACFS installation.
+ACFS-9392: Validating ADVM/ACFS installation files for operating system.
+ACFS-9393: Verifying ASM Administrator setup.
+ACFS-9308: Loading installed ADVM/ACFS drivers.
+ACFS-9154: Loading 'oracleoks.ko' driver.
+ACFS-9154: Loading 'oracleadvm.ko' driver.
+ACFS-9154: Loading 'oracleacfs.ko' driver.
+ACFS-9327: Verifying ADVM/ACFS devices.
+ACFS-9156: Detecting control device '/dev/asm/.asm_ctl_spec'.
+ACFS-9156: Detecting control device '/dev/ofsctl'.
+ACFS-9322: completed
+[root@ol7ttsa1 ~]# lsmod | grep pra
+[root@ol7ttsa1 ~]# lsmod | grep ora
+oracleacfs           4616192  0 
+oracleadvm            782336  0 
+oracleoks             655360  2 oracleacfs,oracleadvm
+</pre>
+<p>I have created an ASM volume:</p>
+<pre>
+$ . oraenv
+ORACLE_SID = [oracle] ? +ASM
+The Oracle base has been set to /u01/base
+$ asmcmd volcreate -G data -s 10G volume1
+$ asmcmd volinfo -G data volume1
+Diskgroup Name: DATA
+
+	 Volume Name: VOLUME1
+	 Volume Device: /dev/asm/volume1-405
+	 State: ENABLED
+	 Size (MB): 10240
+	 Resize Unit (MB): 64
+	 Redundancy: UNPROT
+	 Stripe Columns: 8
+	 Stripe Width (K): 1024
+	 Usage: 
+	 Mountpath: 
+</pre>
+<p>I have created an ACFS file system:</p>
+<pre>
+$ /sbin/mkfs -t acfs /dev/asm/volume1-405
+mkfs.acfs: version                   = 12.2.0.1.0
+mkfs.acfs: on-disk version           = 46.0
+mkfs.acfs: volume                    = /dev/asm/volume1-405
+mkfs.acfs: volume size               = 10737418240  (  10.00 GB )
+mkfs.acfs: Format complete.
+</pre>
+<p>I have mounted this volume as an ACFS file system:</p>
+<pre>
+# mkdir -p /acfsmounts/acfs1
+[root@ol7ttsa1 ~]# chown oracle:dba /acfsmounts/acfs1
+[root@ol7ttsa1 ~]# mount -t acfs /dev/asm/volume1-405 /acfsmounts/acfs1
+[root@ol7ttsa1 ~]# df -h /acfsmounts/acfs1
+Filesystem            Size  Used Avail Use% Mounted on
+/dev/asm/volume1-405   10G  265M  9.8G   3% /acfsmounts/acfs1
+</pre>
+<p>I have checked lsblk output:</p>
+<pre>
+$ lsblk 
+NAME            MAJ:MIN    RM  SIZE RO TYPE MOUNTPOINT
+sda               8:0       0   40G  0 disk 
+├─sda1            8:1       0    1G  0 part /boot
+└─sda2            8:2       0   39G  0 part 
+  ├─ol-root     251:0       0 35.1G  0 lvm  /
+  └─ol-swap     251:1       0  3.9G  0 lvm  [SWAP]
+sdb               8:16      0   40G  0 disk 
+└─sdb1            8:17      0   40G  0 part 
+sdc               8:32      0   10G  0 disk 
+└─sdc1            8:33      0   10G  0 part 
+sr0              11:0       1 1024M  0 rom  
+asm!volume1-405 250:207361  0   10G  0 disk /acfsmounts/acfs1
+</pre>
+<p>I have rebooted the machine:</p>
+<pre>
+# systemctl reboot
+Connection to ol7ttsa1 closed by remote host.
+Connection to ol7ttsa1 closed.
+</pre>
+<p>I have checked that Oracle Restart looks OK:</p>
+<pre>
+-------------------------------------------------------------------------------
+Name           Target  State        Server                   State details       
+--------------------------------------------------------------------------------
+Local Resources
+--------------------------------------------------------------------------------
+ora.DATA.dg
+               ONLINE  ONLINE       ol7ttsa1                 STABLE
+ora.LISTENER.lsnr
+               ONLINE  ONLINE       ol7ttsa1                 STABLE
+ora.RECO.dg
+               ONLINE  ONLINE       ol7ttsa1                 STABLE
+ora.asm
+               ONLINE  ONLINE       ol7ttsa1                 Started,STABLE
+ora.ons
+               OFFLINE OFFLINE      ol7ttsa1                 STABLE
+--------------------------------------------------------------------------------
+Cluster Resources
+--------------------------------------------------------------------------------
+ora.cssd
+      1        ONLINE  ONLINE       ol7ttsa1                 STABLE
+ora.db1.db
+      1        ONLINE  ONLINE       ol7ttsa1                 Open,HOME=/u01/db122
+                                                             01,STABLE
+ora.diskmon
+      1        OFFLINE OFFLINE                               STABLE
+ora.evmd
+      1        ONLINE  ONLINE       ol7ttsa1                 STABLE
+--------------------------------------------------------------------------------
+</pre>
+<p>I have checked that ACFS file system is missing:</p>
+<pre>
+$ df 
+Filesystem          1K-blocks     Used Available Use% Mounted on
+devtmpfs              1871592        0   1871592   0% /dev
+tmpfs                 1891012   659456   1231556  35% /dev/shm
+tmpfs                 1891012     8568   1882444   1% /run
+tmpfs                 1891012        0   1891012   0% /sys/fs/cgroup
+/dev/mapper/ol-root  36805060 28218948   8586112  77% /
+/dev/sda1             1038336   176476    861860  17% /boot
+tmpfs                  378204        0    378204   0% /run/user/54321
+tmpfs                  378204        0    378204   0% /run/user/0
+$ 
+</pre>
+<p>I have checked that no ACFS Linux modules have been loaded:</p>
+<pre>
+$ lsmod | grep ora
+$ 
+</pre>
+<p>I have tried to mount the ACFS file system:</p>
+<pre>
+# mount -t acfs /dev/asm/volume1-405 /acfsmounts/acfs1
+mount.acfs: CLSU-00100: operating system function: open64 failed with error data: 2
+mount.acfs: CLSU-00101: operating system error message: No such file or directory
+mount.acfs: CLSU-00103: error location: OOF_1
+mount.acfs: CLSU-00104: additional error information: open64 (/dev/ofsctl)
+mount.acfs: ACFS-00502: Failed to communicate with the ACFS driver.  Verify the ACFS driver has been loaded.
+</pre>
+<p>To fix this I have first reloaded ACFS drivers:</p>
+<pre>
+# . oraenv
+ORACLE_SID = [root] ? +ASM
+The Oracle base has been set to /u01/base
+# acfsload start
+ACFS-9391: Checking for existing ADVM/ACFS installation.
+ACFS-9392: Validating ADVM/ACFS installation files for operating system.
+ACFS-9393: Verifying ASM Administrator setup.
+ACFS-9308: Loading installed ADVM/ACFS drivers.
+ACFS-9154: Loading 'oracleoks.ko' driver.
+ACFS-9154: Loading 'oracleadvm.ko' driver.
+ACFS-9154: Loading 'oracleacfs.ko' driver.
+ACFS-9327: Verifying ADVM/ACFS devices.
+ACFS-9156: Detecting control device '/dev/asm/.asm_ctl_spec'.
+ACFS-9156: Detecting control device '/dev/ofsctl'.
+ACFS-9322: completed
+</pre>
+<p>I have checked the status of the ASM volume:</p>
+<pre>
+$ asmcmd volinfo -G data volume1
+Diskgroup Name: DATA
+
+	 Volume Name: VOLUME1
+	 Volume Device: UNKNOWN
+	 State: DISABLED
+	 Size (MB): 10240
+	 Resize Unit (MB): 64
+	 Redundancy: UNPROT
+	 Stripe Columns: 8
+	 Stripe Width (K): 1024
+	 Usage: ACFS
+	 Mountpath: /acfsmounts/acfs1 
+</pre>
+<p>The ASM volume does exist but is disabled.<br />
+<br />
+I have tried to enable the ASM volume:</p>
+<pre>
+$ asmcmd volenable -G data volume1
+$ asmcmd volinfo -G data volume1
+Diskgroup Name: DATA
+
+	 Volume Name: VOLUME1
+	 Volume Device: /dev/asm/volume1-405
+	 State: ENABLED
+	 Size (MB): 10240
+	 Resize Unit (MB): 64
+	 Redundancy: UNPROT
+	 Stripe Columns: 8
+	 Stripe Width (K): 1024
+	 Usage: ACFS
+	 Mountpath: /acfsmounts/acfs1 
+ 
+</pre>
+<p>I have noted that enabling the volume triggers the device file creation:</p>
+<pre>
+$ ls -al /dev/asm/volume1-405 
+brwxrwx---. 1 root dba 250, 207361 Jan 27 18:13 /dev/asm/volume1-405
+</pre>
+<p>However at this point it is not possible to mount related ACFS file system (and I don't know why):</p>
+<pre>
+# mount -t acfs /dev/asm/volume1-405 /acfsmounts/acfs1/
+mount.acfs: CLSU-00100: operating system function: open64 failed with error data: 1
+mount.acfs: CLSU-00101: operating system error message: Operation not permitted
+mount.acfs: CLSU-00103: error location: OOF_1
+mount.acfs: CLSU-00104: additional error information: open64 (/dev/asm/volume1-405)
+mount.acfs: ACFS-02017: Failed to open volume /dev/asm/volume1-405. Verify the volume exists.
+</pre>
+<h2>Using systemctl scripts to manage ACFS resources</h2>
+<p>Here is the systemctl script to start Oracle Restart:</p>
+<pre>
+# cat oracle-ohasd.service
+# Copyright (c) 2016, Oracle and/or its affiliates. All rights reserved.
+#
+# Oracle OHASD startup
+
+[Unit]
+Description=Oracle High Availability Services
+After=syslog.target network-online.target remote-fs.target
+
+[Service]
+ExecStart=/etc/init.d/init.ohasd run &amp;gt/dev/null 2&amp;gt&amp;1 &amp;lt/dev/null
+ExecStop=/etc/init.d/init.ohasd stop &amp;gt/dev/null 2&amp;gt&amp;1 &amp;lt/dev/null
+TimeoutStopSec=60min
+Type=simple
+Restart=always
+
+# Do not kill any processes except init.ohasd after ExecStop, unless the
+# stop command times out.
+KillMode=process
+SendSIGKILL=yes
+
+[Install]
+WantedBy=multi-user.target graphical.target
+</pre>
+<h3>Step 1: create a systemctl script to run acfsload </h3>
+<p>In <b>/etc/systemd/system</b> I have created a script named <b>acfsload.service</b>:</p>
+<pre>
+[Unit]
+After=syslog.target 
+Before=oracle-ohasd.service
+
+[Service]
+ExecStart=/u01/gi12201/bin/acfsload start -s
+
+[Install]
+WantedBy=default.target
+</pre>
+<p>I have enabled it with:</p>
+<pre>
+# systemctl daemon-reload
+# systemctl enable acfsload.service
+Created symlink from /etc/systemd/system/default.target.wants/acfsload.service to /etc/systemd/system/acfsload.service.
+</pre>
+<h3> Step 2: create a systemctl script to enable the ASM volume to be used by ACFS </h3>
+<p>In <b>/etc/systemd/system</b> I have created a script named <b>oracle-acfsvolenable.service</b>:</p>
+<pre>
+[Unit]
+Requires=oracle-ohasd.service
+After=oracle-ohasd.service
+
+[Service]
+ExecStart=/home/oracle/scripts/acfsvolenable.sh
+
+[Install]
+WantedBy=default.target
+</pre>
+<p>I have enabled it:</p>
+<pre>
+# systemctl daemon-reload
+# systemctl enable oracle-acfsvolenable.service
+Created symlink from /etc/systemd/system/default.target.wants/oracle-oracle-acfsvolenable.service to /etc/systemd/system/oracle-acfsvolenable.service.
+</pre>
+<p>I have coded <b>acfsvolenable.sh</b>:</p>
+<pre>
+#!/bin/sh
+#
+# acfsvolenable.sh
+#
+# -----------------------------------------------------------
+# wait for ASM instance 
+while [ 1 ]
+do
+ ASM_OK=$(ps -eaf | grep asm_pmon | grep -v grep | wc -l)
+ if [ $ASM_OK -eq 1 ]
+ then
+   break
+ fi
+ sleep 1
+done
+echo "ASM instance ready."
+#
+su - oracle -c /home/oracle/scripts/acfsvolenable_asgiowner.sh
+</pre>
+<p>I have given executable privilege:</p>
+<pre>
+# chmod u+x /home/oracle/scripts/acfsvolenable.sh
+</pre>
+<p>I have also coded <b>acfsvolenable_asgiowner.sh</b>: it must be a separate script because it must not be run by root but as Grid Infrastructure software owner (in my case this is oracle Linux account):</p>
+<pre>
+#!/bin/sh
+#
+# acfsvolenable_asgiowner.sh
+#
+# must be run with Grid Infrastructure owner
+#
+DGN=DATA
+VN=volume1
+export ORAENV_ASK=NO
+export ORACLE_SID=+ASM
+. oraenv 
+asmcmd volenable -G $DGN $VN 
+RC=$?
+if [ $? -eq  0 ]
+then
+ echo "In diskgroup $DGN volume $VN enabled."
+else
+ echo "failed to enable in diskgroup $DGN volume $VN."
+fi
+exit $RC
+</pre>
+<p>I have changed ownership and privileges for this script:</p>
+<pre>
+# chown oracle:dba /home/oracle/scripts/acfsvolenable_asgiowner.sh
+# chmod u+x /home/oracle/scripts/acfsvolenable_asgiowner.sh
+</pre>
+<h3> Step 3: create the systemctl script to mount the ASM volume </h3>
+<p>I have coded <b>oracle-acfsmount.service</b>:</p>
+<pre>
+[Unit]
+Requires=oracle-acfsvolenable.service
+After=oracle-acfsvolenable.service 
+
+[Service]
+ExecStart=/home/oracle/scripts/acfsmount.sh
+
+[Install]
+WantedBy=default.target
+</pre>
+<p>I have run:</p>
+<pre>
+# systemctl daemon-reload
+# systemctl enable oracle-acfsmount.service
+Created symlink from /etc/systemd/system/default.target.wants/oracle-acfsmount.service to /etc/systemd/system/oracle-acfsmount.service.
+</pre>
+<p>I have coded <b>acfsmount.sh</b>:</p>
+<pre>
+#!/bin/sh
+#
+# acfsmount.sh
+#
+# must be run with root account
+#
+# ---------------------------------------------------
+# wait for acfsvolenable.sh
+#
+BD=/dev/asm/volume1-405
+while [ 1 ]
+do
+ if [ -b $BD ]
+ then
+  break
+ fi
+ sleep 1
+done 
+echo "$BD ready."
+mount -t acfs $BD /acfsmounts/acfs1 
+</pre>
+<p>I have given executable privilege for this script:</p>
+<pre>
+chmod u+x /home/oracle/scripts/acfsmount.sh
+</pre>
+<p>To test my scripts I have rebooted my Linux machine with:</p>
+<pre>
+# systemctl reboot
+</pre>
+<p>I have checked related syslog messages:</p>
+<pre>
+Jan 27 19:02:27 ol7ttsa1 logger: exec /u01/gi12201/perl/bin/perl -I/u01/gi12201/perl/lib /u01/gi12201/bin/crswrapexece.pl /u01/gi12201/crs/install/s_crsconfig_ol7ttsa1_env.txt /u01/gi12201/bin/ohasd.bin "reboot"
+Jan 27 19:02:27 ol7ttsa1 systemd: Started Postfix Mail Transport Agent.
+Jan 27 19:02:27 ol7ttsa1 systemd: Reached target Multi-User System.
+Jan 27 19:02:27 ol7ttsa1 systemd: Starting Multi-User System.
+Jan 27 19:02:27 ol7ttsa1 systemd: Starting Update UTMP about System Runlevel Changes...
+Jan 27 19:02:27 ol7ttsa1 systemd: Started Update UTMP about System Runlevel Changes.
+Jan 27 19:02:30 ol7ttsa1 kdumpctl: kexec: loaded kdump kernel
+Jan 27 19:02:30 ol7ttsa1 kdumpctl: Starting kdump: [OK]
+Jan 27 19:02:30 ol7ttsa1 systemd: Started Crash recovery kernel arming.
+Jan 27 19:02:30 ol7ttsa1 systemd: Startup finished in 402ms (kernel) + 2.864s (initrd) + 12.067s (userspace) = 15.335s.
+Jan 27 19:02:37 ol7ttsa1 su: (to oracle) root on none
+Jan 27 19:02:37 ol7ttsa1 systemd: Started Session c3 of user oracle.
+Jan 27 19:02:37 ol7ttsa1 systemd: Starting Session c3 of user oracle.
+Jan 27 19:02:37 ol7ttsa1 journal: Oracle Clusterware: 2018-01-27 19:02:37.823#012[(1340)]CRS-8500:Oracle Clusterware OHASD process is starting with operating system process ID 1340
+Jan 27 19:02:37 ol7ttsa1 clsecho: /etc/init.d/init.ohasd: Writing 1340 to oracle-ohasd tasks
+Jan 27 19:02:37 ol7ttsa1 init.ohasd: /etc/init.d/init.ohasd: Writing 1340 to oracle-ohasd tasks
+Jan 27 19:02:58 ol7ttsa1 acfsvolenable.sh: ASM instance ready.
+Jan 27 19:02:58 ol7ttsa1 su: (to oracle) root on none
+Jan 27 19:02:58 ol7ttsa1 systemd: Started Session c4 of user oracle.
+Jan 27 19:02:58 ol7ttsa1 systemd: Starting Session c4 of user oracle.
+Jan 27 19:02:58 ol7ttsa1 acfsvolenable.sh: The Oracle base has been set to /u01/base
+Jan 27 19:02:59 ol7ttsa1 kernel: asm_rbal_+asm: sending ioctl 2285 to a partition!
+Jan 27 19:02:59 ol7ttsa1 kernel: asm_rbal_+asm: sending ioctl 2285 to a partition!
+Jan 27 19:02:59 ol7ttsa1 kernel: asm_rbal_+asm: sending ioctl 2285 to a partition!
+Jan 27 19:02:59 ol7ttsa1 kernel: asm_rbal_+asm: sending ioctl 2285 to a partition!
+Jan 27 19:03:05 ol7ttsa1 acfsmount.sh: /dev/asm/volume1-405 ready.
+Jan 27 19:03:06 ol7ttsa1 acfsvolenable.sh: In diskgroup DATA volume volume1 enabled.
+Jan 27 19:03:11 ol7ttsa1 kernel: ora_rbal_db1: sending ioctl 2285 to a partition!
+Jan 27 19:03:11 ol7ttsa1 kernel: ora_rbal_db1: sending ioctl 2285 to a partition!
+Jan 27 19:03:52 ol7ttsa1 systemd: Created slice user-0.slice.
+Jan 27 19:03:52 ol7ttsa1 systemd: Starting user-0.slice.
+Jan 27 19:03:52 ol7ttsa1 systemd: Started Session 1 of user root.
+Jan 27 19:03:52 ol7ttsa1 systemd-logind: New session 1 of user root.
+Jan 27 19:03:52 ol7ttsa1 systemd: Starting Session 1 of user root.
+</pre>
+<p>Even if acfsmount.sh seems to be completed before acfsvolenable.sh, I don't think this is the case.<br />
+<br />
+I have checked that df shows that the ACFS file system is now automatically mounted:</p>
+<pre>
+Filesystem           1K-blocks     Used Available Use% Mounted on
+devtmpfs               1871592        0   1871592   0% /dev
+tmpfs                  1891012   659456   1231556  35% /dev/shm
+tmpfs                  1891012     8780   1882232   1% /run
+tmpfs                  1891012        0   1891012   0% /sys/fs/cgroup
+/dev/mapper/ol-root   36805060 28545272   8259788  78% /
+/dev/sda1              1038336   176476    861860  17% /boot
+tmpfs                   378204        0    378204   0% /run/user/54321
+/dev/asm/volume1-405  10485760   271356  10214404   3% /acfsmounts/acfs1
+tmpfs                   378204        0    378204   0% /run/user/0
+</pre>
+<p>This shows that it is possible to use Linux shell scripts to manage ACFS resources for Oracle Restart.</p>
