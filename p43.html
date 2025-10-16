@@ -1,0 +1,476 @@
+<p>You can use <a href="https://pierreforstmanndotcom.wordpress.com/2014/07/22/how-to-install-oracle-database-12-1-0-2-and-create-a-12-1-0-2-database-in-silent-mode/">DBCA</a> or <a href="https://docs.oracle.com/database/121/ADMIN/cdb_create.htm#ADMIN13521">manual scripts</a> to create a container database (CDB).<br />
+However in both cases these tools will create a database with all database options like JServer, APEX, etc. I don't think that it is possible to use DBCA in graphical mode to create a database without any option. I don't know if you can use CREATE DATABASE SQL statement with <b>catcdb.sql</b> to create such a database.</p>
+<p>Mike Dietrich has published on his <a href="https://blogs.oracle.com/UPGRADE/entry/cdbs_with_less_options_now">upgrade blog</a> a way to create a CDB without any database option using DBCA with a mix of graphical steps and manual editing of generated files: this way of doing is supported by Oracle Corp.</p>
+<p>In this blog post I show that it is possible to use DBCA in command line mode to create a CDB without any database option.</p>
+<p>For this article I have used Oracle Database Entreprise Edition 12.1.0.2 (without any PSU) on Oracle Linux 6.4 (VirtualBox 5.0.4).</p>
+<p>I have coded a script named <b>dbca.sh</b> which does the following:</p>
+<ul>
+<ul>
+<li>runs DBCA in silent mode to generate the different database creation scripts in <b>$ORACLE_BASE/admin/&lt;DB&gt;/scripts</b></li>
+<li>removes all database options statements from &lt;<b>DB&gt;.sql</b></li>
+<li>modifies <b>&lt;DB&gt;.sql</b> to avoid SYS password prompt for orapwd command</li>
+<li>modifies <b>CreateDBCatalog.sql</b> to remove Workspace Manager option</li>
+<li>adds sysPassword and systemPassword SQL*Plus variables to <b>$SQLPATH/login.sql</b> to avoid modifying other SQL scripts</li>
+<li>modifies <b>postDBCreation.sql</b> to fix a bug for ASM SPFILE file name which is not correctly set:
+<pre>SYS@CNODB&gt;create spfile='+DATA' FROM pfile='/u01/app/oracle/admin/CNODB/scripts/init.ora';
+
+File created.
+
+</pre>
+<p>At next instance startup fails:</p>
+<pre>SYS@CNODB&gt;startup ;
+ORA-01078: failure in processing system parameters
+ORA-01565: error in identifying file '+DATA/CNODB/spfileCNODB.ora'
+ORA-17503: ksfdopn:2 Failed to open file +DATA/CNODB/spfileCNODB.ora
+ORA-15056: additional error message
+ORA-17503: ksfdopn:2 Failed to open file +DATA/CNODB/spfilecnodb.ora
+ORA-15173: entry 'spfilecnodb.ora' does not exist in directory 'CNODB'
+ORA-06512: at line 4
+</pre>
+<p>My script <b>dbca.sh</b> has following prerequisites:</li>
+<li>ORACLE_HOME, ORACLE_BASE and SQLPATH must be defined</li>
+<li><b>$SQLPATH/login.sql</b> must be writable</li>
+</ul>
+</ul>
+<p>Following items are hard-coded:</p>
+<ul>
+<li>Database is using ASM storage</li>
+<li>No pluggable database is created</li>
+<li>RAC database is not taken into account</li>
+<p>
+The script source code is <a href="https://pierreforstmanndotcom.wordpress.com/dbca-sh/">here</a>.</p>
+<p>Here is the script output (it has taken about 35 minutes to created the database in my environment):
+</ul>
+<p>&nbsp;</p>
+<pre>$ ./dbca.sh -dbname CDB -cset AL32UTF8 -password oracle -dgname DATA -rgname FRA -mempc 20
+Database creation script generation
+1% complete
+3% complete
+7% complete
+8% complete
+10% complete
+12% complete
+13% complete
+14% complete
+15% complete
+17% complete
+23% complete
+28% complete
+33% complete
+35% complete
+36% complete
+37% complete
+39% complete
+40% complete
+50% complete
+53% complete
+54% complete
+60% complete
+67% complete
+71% complete
+75% complete
+82% complete
+89% complete
+90% complete
+93% complete
+96% complete
+100% complete
+Look at the log file "/u01/app/oracle/admin/CDB/scripts/CDB.log" for further details.
+You should Add this entry in the /etc/oratab: CDB:/u01/app/12.1.0.2/db:Y
+
+SQL*Plus: Release 12.1.0.2.0 Production on Wed Nov 11 12:00:23 2015
+
+Copyright (c) 1982, 2014, Oracle.  All rights reserved.
+
+
+
+Connected to an idle instance.
+SYS@CDB&gt;spool /u01/app/oracle/admin/CDB/scripts/CreateDB.log append
+SYS@CDB&gt;startup nomount pfile="/u01/app/oracle/admin/CDB/scripts/init.ora";
+ORACLE instance started.
+
+Total System Global Area  830472192 bytes
+Fixed Size                  2929840 bytes
+Variable Size             624954192 bytes
+Database Buffers          197132288 bytes
+Redo Buffers                5455872 bytes
+SYS@CDB&gt;CREATE DATABASE "CDB"
+  2  MAXINSTANCES 8
+  3  MAXLOGHISTORY 1
+  4  MAXLOGFILES 16
+  5  MAXLOGMEMBERS 3
+  6  MAXDATAFILES 1024
+  7  DATAFILE SIZE 700M AUTOEXTEND ON NEXT  10240K MAXSIZE UNLIMITED
+  8  EXTENT MANAGEMENT LOCAL
+  9  SYSAUX DATAFILE SIZE 550M AUTOEXTEND ON NEXT  10240K MAXSIZE UNLIMITED
+ 10  SMALLFILE DEFAULT TEMPORARY TABLESPACE TEMP TEMPFILE SIZE 20M AUTOEXTEND ON NEXT  640K MAXSIZE UNLIMITED
+ 11  SMALLFILE UNDO TABLESPACE "UNDOTBS1" DATAFILE  SIZE 200M AUTOEXTEND ON NEXT  5120K MAXSIZE UNLIMITED
+ 12  CHARACTER SET AL32UTF8
+ 13  NATIONAL CHARACTER SET AL16UTF16
+ 14  LOGFILE GROUP 1  SIZE 50M,
+ 15  GROUP 2  SIZE 50M,
+ 16  GROUP 3  SIZE 50M
+ 17  USER SYS IDENTIFIED BY "&amp;&amp;sysPassword" USER SYSTEM IDENTIFIED BY "&amp;&amp;systemPassword"
+ 18  enable pluggable database;
+
+Database created.
+
+SYS@CDB&gt;set linesize 2048;
+SYS@CDB&gt;column ctl_files NEW_VALUE ctl_files;
+SYS@CDB&gt;select concat('control_files=''', concat(replace(value, ', ', ''','''), '''')) ctl_files from v$parameter where name ='control_files';
+
+CTL_FILES
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+control_files='+DATA/CDB/CONTROLFILE/current.288.895492833','+FRA/CDB/CONTROLFILE/current.258.895492833'
+
+SYS@CDB&gt;host echo &amp;ctl_files &gt;&gt;/u01/app/oracle/admin/CDB/scripts/init.ora;
+
+SYS@CDB&gt;spool off
+SYS@CDB&gt;@/u01/app/oracle/admin/CDB/scripts/CreateDBFiles.sql
+SYS@CDB&gt;SET VERIFY OFF
+SYS@CDB&gt;connect "SYS"/"&amp;&amp;sysPassword" as SYSDBA
+Connected.
+SYS@CDB&gt;set echo on
+SYS@CDB&gt;spool /u01/app/oracle/admin/CDB/scripts/CreateDBFiles.log append
+SYS@CDB&gt;CREATE SMALLFILE TABLESPACE "USERS" LOGGING  DATAFILE  SIZE 5M AUTOEXTEND ON NEXT  1280K MAXSIZE UNLIMITED  EXTENT MANAGEMENT LOCAL  SEGMENT SPACE MANAGEMENT  AUTO;
+
+Tablespace created.
+
+SYS@CDB&gt;ALTER DATABASE DEFAULT TABLESPACE "USERS";
+
+Database altered.
+
+SYS@CDB&gt;spool off
+SYS@CDB&gt;@/u01/app/oracle/admin/CDB/scripts/CreateDBCatalog.sql
+SYS@CDB&gt;SET VERIFY OFF
+SYS@CDB&gt;connect "SYS"/"&amp;&amp;sysPassword" as SYSDBA
+Connected.
+SYS@CDB&gt;set echo on
+SYS@CDB&gt;spool /u01/app/oracle/admin/CDB/scripts/CreateDBCatalog.log append
+SYS@CDB&gt;alter session set "_oracle_script"=true;
+
+Session altered.
+
+SYS@CDB&gt;alter pluggable database pdb$seed close;
+
+Pluggable database altered.
+
+SYS@CDB&gt;alter pluggable database pdb$seed open;
+
+Pluggable database altered.
+
+SYS@CDB&gt;host perl /u01/app/12.1.0.2/db/rdbms/admin/catcon.pl -n 1 -l /u01/app/oracle/admin/CDB/scripts -b catalog /u01/app/12.1.0.2/db/rdbms/admin/catalog.sql;
+catcon: ALL catcon-related output will be written to /u01/app/oracle/admin/CDB/scripts/catalog_catcon_13257.lst
+catcon: See /u01/app/oracle/admin/CDB/scripts/catalog*.log files for output generated by scripts
+catcon: See /u01/app/oracle/admin/CDB/scripts/catalog_*.lst files for spool files, if any
+catcon.pl: completed successfully
+
+SYS@CDB&gt;host perl /u01/app/12.1.0.2/db/rdbms/admin/catcon.pl -n 1 -l /u01/app/oracle/admin/CDB/scripts -b catproc /u01/app/12.1.0.2/db/rdbms/admin/catproc.sql;
+catcon: ALL catcon-related output will be written to /u01/app/oracle/admin/CDB/scripts/catproc_catcon_13342.lst
+catcon: See /u01/app/oracle/admin/CDB/scripts/catproc*.log files for output generated by scripts
+catcon: See /u01/app/oracle/admin/CDB/scripts/catproc_*.lst files for spool files, if any
+catcon.pl: completed successfully
+
+SYS@CDB&gt;host perl /u01/app/12.1.0.2/db/rdbms/admin/catcon.pl -n 1 -l /u01/app/oracle/admin/CDB/scripts -b catoctk /u01/app/12.1.0.2/db/rdbms/admin/catoctk.sql;
+catcon: ALL catcon-related output will be written to /u01/app/oracle/admin/CDB/scripts/catoctk_catcon_14163.lst
+catcon: See /u01/app/oracle/admin/CDB/scripts/catoctk*.log files for output generated by scripts
+catcon: See /u01/app/oracle/admin/CDB/scripts/catoctk_*.lst files for spool files, if any
+catcon.pl: completed successfully
+
+SYS@CDB&gt;
+SYS@CDB&gt;host perl /u01/app/12.1.0.2/db/rdbms/admin/catcon.pl -n 1 -l /u01/app/oracle/admin/CDB/scripts -b pupbld -u SYSTEM/&amp;&amp;systemPassword /u01/app/12.1.0.2/db/sqlplus/admin/pupbld.sql;
+catcon: ALL catcon-related output will be written to /u01/app/oracle/admin/CDB/scripts/pupbld_catcon_14227.lst
+catcon: See /u01/app/oracle/admin/CDB/scripts/pupbld*.log files for output generated by scripts
+catcon: See /u01/app/oracle/admin/CDB/scripts/pupbld_*.lst files for spool files, if any
+catcon.pl: completed successfully
+
+SYS@CDB&gt;connect "SYSTEM"/"&amp;&amp;systemPassword"
+Connected.
+SYSTEM@CDB&gt;set echo on
+SYSTEM@CDB&gt;spool /u01/app/oracle/admin/CDB/scripts/sqlPlusHelp.log append
+SYSTEM@CDB&gt;host perl /u01/app/12.1.0.2/db/rdbms/admin/catcon.pl -n 1 -l /u01/app/oracle/admin/CDB/scripts -b hlpbld -u SYSTEM/&amp;&amp;systemPassword -a 1  /u01/app/12.1.0.2/db/sqlplus/admin/help/hlpbld.sql 1helpus.sql;
+catcon: ALL catcon-related output will be written to /u01/app/oracle/admin/CDB/scripts/hlpbld_catcon_14320.lst
+catcon: See /u01/app/oracle/admin/CDB/scripts/hlpbld*.log files for output generated by scripts
+catcon: See /u01/app/oracle/admin/CDB/scripts/hlpbld_*.lst files for spool files, if any
+catcon.pl: completed successfully
+
+SYSTEM@CDB&gt;spool off
+SYSTEM@CDB&gt;spool off
+not spooling currently
+SYSTEM@CDB&gt;--
+SYSTEM@CDB&gt;--
+SYSTEM@CDB&gt;--
+SYSTEM@CDB&gt;--
+SYSTEM@CDB&gt;--
+SYSTEM@CDB&gt;--
+SYSTEM@CDB&gt;--
+SYSTEM@CDB&gt;--
+SYSTEM@CDB&gt;--
+SYSTEM@CDB&gt;@/u01/app/oracle/admin/CDB/scripts/CreateClustDBViews.sql
+SYSTEM@CDB&gt;SET VERIFY OFF
+SYSTEM@CDB&gt;connect "SYS"/"&amp;&amp;sysPassword" as SYSDBA
+Connected.
+SYS@CDB&gt;set echo on
+SYS@CDB&gt;spool /u01/app/oracle/admin/CDB/scripts/CreateClustDBViews.log append
+SYS@CDB&gt;host perl /u01/app/12.1.0.2/db/rdbms/admin/catcon.pl -n 1 -l /u01/app/oracle/admin/CDB/scripts -b catclust /u01/app/12.1.0.2/db/rdbms/admin/catclust.sql;
+catcon: ALL catcon-related output will be written to /u01/app/oracle/admin/CDB/scripts/catclust_catcon_14387.lst
+catcon: See /u01/app/oracle/admin/CDB/scripts/catclust*.log files for output generated by scripts
+catcon: See /u01/app/oracle/admin/CDB/scripts/catclust_*.lst files for spool files, if any
+catcon.pl: completed successfully
+
+SYS@CDB&gt;spool off
+SYS@CDB&gt;connect "SYS"/"&amp;&amp;sysPassword" as SYSDBA
+Connected.
+SYS@CDB&gt;set echo on
+SYS@CDB&gt;spool /u01/app/oracle/admin/CDB/scripts/postDBCreation.log append
+SYS@CDB&gt;grant sysdg to sysdg;
+
+Grant succeeded.
+
+SYS@CDB&gt;grant sysbackup to sysbackup;
+
+Grant succeeded.
+
+SYS@CDB&gt;grant syskm to syskm;
+
+Grant succeeded.
+
+SYS@CDB&gt;host echo "SPFILE='+DATA/CDB/spfileCDB.ora'" &gt; /u01/app/12.1.0.2/db/dbs/initCDB.ora
+
+SYS@CDB&gt;@/u01/app/oracle/admin/CDB/scripts/lockAccount.sql
+SYS@CDB&gt;SET VERIFY OFF
+SYS@CDB&gt;connect "SYS"/"&amp;&amp;sysPassword" as SYSDBA
+Connected.
+SYS@CDB&gt;set echo on
+SYS@CDB&gt;spool /u01/app/oracle/admin/CDB/scripts/lockAccount.log append
+SYS@CDB&gt;alter session set "_oracle_script"=true;
+
+Session altered.
+
+SYS@CDB&gt;alter pluggable database pdb$seed close;
+
+Pluggable database altered.
+
+SYS@CDB&gt;alter pluggable database pdb$seed open;
+
+Pluggable database altered.
+
+SYS@CDB&gt;BEGIN
+  2   FOR item IN ( SELECT USERNAME FROM DBA_USERS WHERE ACCOUNT_STATUS IN ('OPEN', 'LOCKED', 'EXPIRED') AND USERNAME NOT IN (
+  3  'SYS','SYSTEM') )
+  4   LOOP
+  5    dbms_output.put_line('Locking and Expiring: ' || item.USERNAME);
+  6    execute immediate 'alter user ' ||
+  7           sys.dbms_assert.enquote_name(
+  8           sys.dbms_assert.schema_name(
+  9           item.USERNAME),false) || ' password expire account lock' ;
+ 10   END LOOP;
+ 11  END;
+ 12  /
+
+PL/SQL procedure successfully completed.
+
+SYS@CDB&gt;alter session set container=pdb$seed;
+
+Session altered.
+
+SYS@CDB&gt;BEGIN
+  2   FOR item IN ( SELECT USERNAME FROM DBA_USERS WHERE ACCOUNT_STATUS IN ('OPEN', 'LOCKED', 'EXPIRED') AND USERNAME NOT IN (
+  3  'SYS','SYSTEM') )
+  4   LOOP
+  5    dbms_output.put_line('Locking and Expiring: ' || item.USERNAME);
+  6    execute immediate 'alter user ' ||
+  7           sys.dbms_assert.enquote_name(
+  8           sys.dbms_assert.schema_name(
+  9           item.USERNAME),false) || ' password expire account lock' ;
+ 10   END LOOP;
+ 11  END;
+ 12  /
+
+PL/SQL procedure successfully completed.
+
+SYS@CDB&gt;alter session set container=cdb$root;
+
+Session altered.
+
+SYS@CDB&gt;spool off
+SYS@CDB&gt;@/u01/app/oracle/admin/CDB/scripts/postDBCreation.sql
+SYS@CDB&gt;SET VERIFY OFF
+SYS@CDB&gt;spool /u01/app/oracle/admin/CDB/scripts/postDBCreation.log append
+SYS@CDB&gt;host perl /u01/app/12.1.0.2/db/rdbms/admin/catcon.pl -n 1 -l /u01/app/oracle/admin/CDB/scripts -b catbundleapply /u01/app/12.1.0.2/db/rdbms/admin/catbundleapply.sql;
+catcon: ALL catcon-related output will be written to /u01/app/oracle/admin/CDB/scripts/catbundleapply_catcon_14464.lst
+catcon: See /u01/app/oracle/admin/CDB/scripts/catbundleapply*.log files for output generated by scripts
+catcon: See /u01/app/oracle/admin/CDB/scripts/catbundleapply_*.lst files for spool files, if any
+catcon.pl: completed successfully
+
+SYS@CDB&gt;connect "SYS"/"&amp;&amp;sysPassword" as SYSDBA
+Connected.
+SYS@CDB&gt;set echo on
+SYS@CDB&gt;create spfile='+DATA/CDB/spfileCDB.ora' FROM pfile='/u01/app/oracle/admin/CDB/scripts/init.ora';
+
+File created.
+
+SYS@CDB&gt;connect "SYS"/"&amp;&amp;sysPassword" as SYSDBA
+Connected.
+SYS@CDB&gt;host perl /u01/app/12.1.0.2/db/rdbms/admin/catcon.pl -n 1 -l /u01/app/oracle/admin/CDB/scripts -b utlrp /u01/app/12.1.0.2/db/rdbms/admin/utlrp.sql;
+catcon: ALL catcon-related output will be written to /u01/app/oracle/admin/CDB/scripts/utlrp_catcon_14535.lst
+catcon: See /u01/app/oracle/admin/CDB/scripts/utlrp*.log files for output generated by scripts
+catcon: See /u01/app/oracle/admin/CDB/scripts/utlrp_*.lst files for spool files, if any
+catcon.pl: completed successfully
+
+SYS@CDB&gt;select comp_id, status from dba_registry;
+
+COMP_ID                        STATUS
+------------------------------ --------------------------------------------
+XDB                            VALID
+CATALOG                        VALID
+CATPROC                        VALID
+RAC                            OPTION OFF
+
+SYS@CDB&gt;shutdown immediate;
+Database closed.
+Database dismounted.
+ORACLE instance shut down.
+SYS@CDB&gt;connect "SYS"/"&amp;&amp;sysPassword" as SYSDBA
+Connected to an idle instance.
+SYS@CDB&gt;startup ;
+ORACLE instance started.
+
+Total System Global Area  830472192 bytes
+Fixed Size                  2929840 bytes
+Variable Size             633342800 bytes
+Database Buffers          188743680 bytes
+Redo Buffers                5455872 bytes
+Database mounted.
+Database opened.
+SYS@CDB&gt;spool off
+SYS@CDB&gt;exit;
+Disconnected from Oracle Database 12c Enterprise Edition Release 12.1.0.2.0 - 64bit Production
+With the Partitioning, Automatic Storage Management, OLAP, Advanced Analytics
+and Real Application Testing options
+
+CDB successfully created..
+
+</pre>
+<p>Because <b>/etc/oratab</b> is writable, dbca.sh has updated it:</p>
+<pre>$ tail -2 /etc/oratab
++ASM:/u01/app/12.1.0.2/grid:N           # line added by Agent
+CDB:/u01/app/12.1.0.2/db:N # added by dbca.sh
+$
+</pre>
+<p><b>login.sql</b> has been restored by dbca.sh:</p>
+<pre>$ cat login.sql
+set sqlprompt "&amp;&amp;_USER@&amp;&amp;_CONNECT_IDENTIFIER&gt;"
+</pre>
+<p>I have checked the created database with following SQL statements:</p>
+<pre>SYS@CDB&gt;select name, cdb from v$database;
+
+NAME      CDB
+--------- ---
+CDB       YES
+
+SYS@CDB&gt;select comp_id, comp_name, version, status from dba_registry;
+
+COMP_ID         COMP_NAME                                VERSION    STATUS
+--------------- ---------------------------------------- ---------- ----------
+XDB             Oracle XML Database                      12.1.0.2.0 VALID
+CATALOG         Oracle Database Catalog Views            12.1.0.2.0 VALID
+CATPROC         Oracle Database Packages and Types       12.1.0.2.0 VALID
+RAC             Oracle Real Application Clusters         12.1.0.2.0 OPTION OFF
+
+SYS@CDB&gt;show pdbs
+
+    CON_ID CON_NAME                       OPEN MODE  RESTRICTED
+---------- ------------------------------ ---------- ----------
+         2 PDB$SEED                       READ ONLY  NO
+SYS@CDB&gt;select * from v$pwfile_users;
+
+USERNAME                       SYSDB SYSOP SYSAS SYSBA SYSDG SYSKM     CON_ID
+------------------------------ ----- ----- ----- ----- ----- ----- ----------
+SYS                            TRUE  TRUE  FALSE FALSE FALSE FALSE          0
+SYSDG                          FALSE FALSE FALSE FALSE TRUE  FALSE          1
+SYSBACKUP                      FALSE FALSE FALSE TRUE  FALSE FALSE          1
+SYSKM                          FALSE FALSE FALSE FALSE FALSE TRUE           1
+
+SYS@CDB&gt;
+</pre>
+<p>Note that XDB is a mandatory component in Oracle Database 12c.</p>
+<p>Database password file has been created in $ORACLE_HOME/dbs:</p>
+<pre>$ ls -al $ORACLE_HOME/dbs/orapwCDB
+-rw-r----- 1 oracle oinstall 7680 Nov 11 12:34 /u01/app/12.1.0.2/db/dbs/orapwCDB
+</pre>
+<p>Oracle Restart local registry has also been updated by dbca.sh:</p>
+<pre>$ srvctl config database -d CDB
+Database unique name: CDB
+Database name:
+Oracle home: /u01/app/12.1.0.2/db
+Oracle user: oracle
+Spfile: +DATA/CDB/spfileCDB.ora
+Password file:
+Domain:
+Start options: open
+Stop options: immediate
+Database role: PRIMARY
+Management policy: AUTOMATIC
+Disk Groups: DATA,FRA
+Services:
+OSDBA group:
+OSOPER group:
+Database instance: CDB
+</pre>
+<p>I have created a pluggable database (PDB)with:</p>
+<pre>SYS@CDB&gt;create pluggable database PDB
+  2  admin user pdba identified by oracle
+  3  default tablespace ts_pdb;
+
+Pluggable database created.
+
+SYS@CDB&gt;alter pluggable database pdb open;
+
+Pluggable database altered.
+
+SYS@CDB&gt;show pdbs
+
+    CON_ID CON_NAME                       OPEN MODE  RESTRICTED
+---------- ------------------------------ ---------- ----------
+         2 PDB$SEED                       READ ONLY  NO
+         3 PDB                            READ WRITE NO
+SYS@CDB&gt;
+</pre>
+<p>I have also checked that corresponding database service has been registered to Grid Infrastructure listener:</p>
+<pre>$ . oraenv
+ORACLE_SID = [CDB] ? +ASM
+The Oracle base remains unchanged with value /u01/app/oracle
+$ lsnrctl status
+
+LSNRCTL for Linux: Version 12.1.0.2.0 - Production on 11-NOV-2015 12:40:25
+
+Copyright (c) 1991, 2014, Oracle.  All rights reserved.
+
+Connecting to (DESCRIPTION=(ADDRESS=(PROTOCOL=IPC)(KEY=EXTPROC1521)))
+STATUS of the LISTENER
+------------------------
+Alias                     LISTENER
+Version                   TNSLSNR for Linux: Version 12.1.0.2.0 - Production
+Start Date                11-NOV-2015 08:53:35
+Uptime                    0 days 3 hr. 46 min. 49 sec
+Trace Level               off
+Security                  ON: Local OS Authentication
+SNMP                      OFF
+Listener Parameter File   /u01/app/12.1.0.2/grid/network/admin/listener.ora
+Listener Log File         /u01/app/oracle/diag/tnslsnr/ol6twsa/listener/alert/log.xml
+Listening Endpoints Summary...
+  (DESCRIPTION=(ADDRESS=(PROTOCOL=ipc)(KEY=EXTPROC1521)))
+  (DESCRIPTION=(ADDRESS=(PROTOCOL=tcp)(HOST=ol6twsa)(PORT=1521)))
+Services Summary...
+Service "+ASM" has 1 instance(s).
+  Instance "+ASM", status READY, has 1 handler(s) for this service...
+Service "CDB" has 1 instance(s).
+  Instance "CDB", status READY, has 1 handler(s) for this service...
+Service "CDBXDB" has 1 instance(s).
+  Instance "CDB", status READY, has 1 handler(s) for this service...
+Service "pdb" has 1 instance(s).
+  Instance "CDB", status READY, has 1 handler(s) for this service...
+The command completed successfully
+</pre>
+<p>Remember that in this container database you cannot create or plug a PDB that is using a database option that is not installed in the root container.</p>
