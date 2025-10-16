@@ -1,0 +1,580 @@
+<p>If you failover the primary database to its physical standby the failed primary cannot immediately be used as new physical standby database.</p>
+<p>For example <a href="http://www.dataguardbook.com/" />Oracle Data Guard 11G Handbook</a> (issued in 2009 and covering mainly Oracle 10.2 and Oracle 11.1) says page 329 in section <i>Bringing Back The Old Primary</i> in chapter <i>Switchover and Failover</i> :<br />
+<i><br />
+If you did not follow our suggestion and enable Flashed Database before you had to failover, your only choice is to delete the original primary database (even if it is in perfect condition) and recreate it following the procedures outlined in Chapter 2.<br />
+</i></p>
+<p>However since <a href="http://docs.oracle.com/cd/B28359_01/server.111/b28294/scenarios.htm#BACJCDGH">Oracle 11.1</a> there is a another way to convert a failed primary database into a physical standby database: this procedure is using old primary database RMAN backups and does not require that Flashback Database is enabled. It means that you don't need to recreate the new physical standby database using the new primary database backup and to transfer this backup from new primary node to new standby node: this can save a lot of time for large databases when primary and standby nodes are not in the same data center.<br />
+Of course it is required that the primay node is ready to be used as new standby node: the machine is up and running, storage is not damaged and a <u>recent</u> database backup is available.</p>
+<p>I did not test this procedure with Oracle 11.1 but I have successfully tested it with Oracle 11.2.<br />
+<br />
+In this blog post I detail how this can be done with Oracle Database 12.1.0.2.<br />
+The Oracle documentation I have used is <a href="http://docs.oracle.com/database/121/SBYDB/scenarios.htm#SBYDB4899">here</a>: the main difference is that my Data Guard configuration is using the Data Guard Broker.</p>
+<p>The configuration I have used is made up of <b>CDB0</b> primary database running on ol6twsa0 and <b>CDB1</b> physical standby database running on ol6twsa1:</p>
+<pre>
+DGMGRL&gt; show configuration;
+
+Configuration - cdb
+
+  Protection Mode: MaxPerformance
+  Members:
+  cdb0 - Primary database
+    cdb1 - Physical standby database
+
+Fast-Start Failover: DISABLED
+
+Configuration Status:
+SUCCESS   (status updated 53 seconds ago)
+
+DGMGRL&gt; show database cdb0;
+
+Database - cdb0
+
+  Role:               PRIMARY
+  Intended State:     TRANSPORT-ON
+  Instance(s):
+    CDB0
+
+Database Status:
+SUCCESS
+
+DGMGRL&gt; show database cdb1;
+
+Database - cdb1
+
+  Role:               PHYSICAL STANDBY
+  Intended State:     APPLY-ON
+  Transport Lag:      0 seconds (computed 0 seconds ago)
+  Apply Lag:          0 seconds (computed 0 seconds ago)
+  Average Apply Rate: 6.00 KByte/s
+  Real Time Query:    OFF
+  Instance(s):
+    CDB1
+
+Database Status:
+SUCCESS
+
+DGMGRL&gt;
+
+</pre>
+<h2>Step 1 : failover to physical standby database </h2>
+<p>I have connected to physical standby CDB1 with dga account which has the SYSDG privilege:</p>
+<pre>
+[oracle@ol6twsa1 ~]$ dgmgrl dga/dga@cdb1
+DGMGRL for Linux: Version 12.1.0.2.0 - 64bit Production
+
+Copyright (c) 2000, 2013, Oracle. All rights reserved.
+
+Welcome to DGMGRL, type "help" for information.
+Connected as SYSDG.
+DGMGRL&gt; failover to cdb1;
+Performing failover NOW, please wait...
+Failover succeeded, new primary is "cdb1"
+DGMGRL&gt;
+</pre>
+<p>CDB1 alert log is <a href="https://pierreforstmanndotcom.wordpress.com/s1_cdb1_06072016/" />here</a>.</p>
+<p>This is a complete failover because I did not use the immediate clause in FAILOVER command.<br />
+<br />
+"ALTER DATABASE FAILOVER TO cdb1" has been run and has generated following steps:</p>
+<li>Redo Apply has been stopped
+</li>
+<li>Terminal Recovery
+</li>
+<li>ALTER DATABASE SWITCHOVER TO PRIMARY
+</li>
+<p>And ALTER DATABASE OPEN has been run.<br />
+<br />
+Note that this a zero data loss failover because primary was up and running and standby could connect to it and get all needed redo from primary:<br />
+I could have used switchover but my scenario needs a failover.</p>
+<p>CDB0 alert log does not say much because it is up and running during failover:</p>
+<pre>
+Wed Jul 06 08:57:10 2016
+TT00: Attempting destination LOG_ARCHIVE_DEST_2 network reconnect (3135)
+TT00: Destination LOG_ARCHIVE_DEST_2 network reconnect abandoned
+Wed Jul 06 08:57:10 2016
+Errors in file /u01/app/oracle/diag/rdbms/cdb0/CDB0/trace/CDB0_tt00_3302.trc:
+ORA-03135: connection lost contact
+Error 3135 for archive log file 1 to 'cdb1'
+Wed Jul 06 08:57:10 2016
+Errors in file /u01/app/oracle/diag/rdbms/cdb0/CDB0/trace/CDB0_tt00_3302.trc:
+ORA-03135: connection lost contact
+LNS: Failed to archive log 1 thread 1 sequence 140 (3135)
+Wed Jul 06 08:57:10 2016
+Errors in file /u01/app/oracle/diag/rdbms/cdb0/CDB0/trace/CDB0_tt00_3302.trc:
+ORA-03135: connection lost contact
+Wed Jul 06 08:57:17 2016
+Using STANDBY_ARCHIVE_DEST parameter default value as USE_DB_RECOVERY_FILE_DEST
+Wed Jul 06 08:57:17 2016
+ALTER SYSTEM SET log_archive_dest_2='' SCOPE=BOTH;
+Wed Jul 06 08:57:17 2016
+********************************************************************
+LGWR: Resetting 'active' archival for destination LOG_ARCHIVE_DEST_2
+********************************************************************
+Wed Jul 06 08:57:18 2016
+ALTER SYSTEM SET log_archive_dest_state_2='ENABLE' SCOPE=BOTH;
+</pre>
+<p>Data Guard Broker says now that former primary database is not usable any more:</p>
+<pre>
+DGMGRL&gt; show configuration;
+
+Configuration - cdb
+
+  Protection Mode: MaxPerformance
+  Members:
+  cdb1 - Primary database
+    cdb0 - Physical standby database (disabled)
+      ORA-16661: the standby database needs to be reinstated
+
+Fast-Start Failover: DISABLED
+
+Configuration Status:
+SUCCESS   (status updated 30 seconds ago)
+
+DGMGRL&gt;
+</pre>
+<h2> Step 2: Determine the SCN at which CDB1 the old standby database became the new primary database </h2>
+<p>I have connected to CDB1 with OPS$ORACLE account as old standby database has now primary role and is open:</p>
+<pre>
+OPS$ORACLE@CDB1&gt;select name, db_unique_name, database_role from v$database;
+
+NAME      DB_UNIQUE_NAME                 DATABASE_ROLE
+--------- ------------------------------ ----------------
+CDB0      CDB1                           PRIMARY
+
+OPS$ORACLE@CDB1&gt; SELECT TO_CHAR(STANDBY_BECAME_PRIMARY_SCN) FROM V$DATABASE;
+
+TO_CHAR(STANDBY_BECAME_PRIMARY_SCN)
+----------------------------------------
+6023246
+
+OPS$ORACLE@CDB1&gt;
+</pre>
+<h2> Step 3:   Restore and recover the former primay database CDB0 </h2>
+<p>The above SCN must be used in the <i>point-in-time recovery to recover the old primary to that same point.</i><br />
+<br />
+Note that <i>unlike a reinstantiation that uses Flashback Database, this procedure adds one to <code>standby_became_primary_scn</code></i>.</p>
+<pre>
+[oracle@ol6twsa0 ~]$ srvctl stop database -d CDB0
+[oracle@ol6twsa0 ~]$ srvctl start database -d CDB0 -o mount
+[oracle@ol6twsa0 ~]$ rman target /
+
+Recovery Manager: Release 12.1.0.2.0 - Production on Wed Jul 6 09:12:01 2016
+
+Copyright (c) 1982, 2014, Oracle and/or its affiliates.  All rights reserved.
+
+connected to target database: CDB0 (DBID=890600873, not open)
+
+RMAN&gt; run {
+2&gt; set until scn 6023247;
+3&gt; restore database;
+4&gt; recover database;
+5&gt; }
+
+executing command: SET until clause
+
+Starting restore at 06-JUL-16
+using target database control file instead of recovery catalog
+allocated channel: ORA_DISK_1
+channel ORA_DISK_1: SID=32 device type=DISK
+
+channel ORA_DISK_1: starting datafile backup set restore
+channel ORA_DISK_1: specifying datafile(s) to restore from backup set
+channel ORA_DISK_1: restoring datafile 00001 to +DATA/CDB0/DATAFILE/system.261.867160141
+channel ORA_DISK_1: restoring datafile 00003 to +DATA/CDB0/DATAFILE/sysaux.266.867160105
+channel ORA_DISK_1: restoring datafile 00004 to +DATA/CDB0/DATAFILE/undotbs1.264.867160189
+channel ORA_DISK_1: restoring datafile 00006 to +DATA/CDB0/DATAFILE/users.265.867160185
+channel ORA_DISK_1: reading from backup piece +FRA/CDB0/BACKUPSET/2016_07_05/nnndf0_tag20160705t194641_0.386.916429605
+channel ORA_DISK_1: piece handle=+FRA/CDB0/BACKUPSET/2016_07_05/nnndf0_tag20160705t194641_0.386.916429605 tag=TAG20160705T194641
+channel ORA_DISK_1: restored backup piece 1
+channel ORA_DISK_1: restore complete, elapsed time: 00:02:16
+Finished restore at 06-JUL-16
+
+Starting recover at 06-JUL-16
+using channel ORA_DISK_1
+
+starting media recovery
+
+archived log for thread 1 with sequence 134 is already on disk as file +FRA/CDB0/ARCHIVELOG/2016_07_05/thread_1_seq_134.384.916429775
+archived log for thread 1 with sequence 135 is already on disk as file +FRA/CDB0/ARCHIVELOG/2016_07_05/thread_1_seq_135.332.916430695
+archived log for thread 1 with sequence 136 is already on disk as file +FRA/CDB0/ARCHIVELOG/2016_07_05/thread_1_seq_136.333.916430847
+archived log for thread 1 with sequence 137 is already on disk as file +FRA/CDB0/ARCHIVELOG/2016_07_06/thread_1_seq_137.330.916474295
+archived log for thread 1 with sequence 138 is already on disk as file +FRA/CDB0/ARCHIVELOG/2016_07_06/thread_1_seq_138.383.916476951
+archived log for thread 1 with sequence 139 is already on disk as file +FRA/CDB0/ARCHIVELOG/2016_07_06/thread_1_seq_139.382.916476965
+archived log file name=+FRA/CDB0/ARCHIVELOG/2016_07_05/thread_1_seq_134.384.916429775 thread=1 sequence=134
+archived log file name=+FRA/CDB0/ARCHIVELOG/2016_07_05/thread_1_seq_135.332.916430695 thread=1 sequence=135
+archived log file name=+FRA/CDB0/ARCHIVELOG/2016_07_05/thread_1_seq_136.333.916430847 thread=1 sequence=136
+archived log file name=+FRA/CDB0/ARCHIVELOG/2016_07_06/thread_1_seq_137.330.916474295 thread=1 sequence=137
+media recovery complete, elapsed time: 00:00:35
+Finished recover at 06-JUL-16
+
+RMAN&gt;
+</pre>
+<h2> Step 4: Convert the former primary database CDB0 to a physical standby database</h2>
+<pre>
+[oracle@ol6twsa0 ~]$ sqlplus / as sysdba
+
+SQL*Plus: Release 12.1.0.2.0 Production on Wed Jul 6 09:16:30 2016
+
+Copyright (c) 1982, 2014, Oracle.  All rights reserved.
+
+
+Connected to:
+Oracle Database 12c Enterprise Edition Release 12.1.0.2.0 - 64bit Production
+With the Partitioning, Automatic Storage Management, OLAP, Advanced Analytics
+and Real Application Testing options
+
+SYS@CDB0&gt;select name, db_unique_name, database_role from v$database;
+
+NAME      DB_UNIQUE_NAME                 DATABASE_ROLE
+--------- ------------------------------ ----------------
+CDB0      CDB0                           PRIMARY
+
+SYS@CDB0&gt;alter database convert to physical standby;
+
+Database altered.
+
+SYS@CDB0&gt;Disconnected from Oracle Database 12c Enterprise Edition Release 12.1.0.2.0 - 64bit Production
+With the Partitioning, Automatic Storage Management, OLAP, Advanced Analytics
+and Real Application Testing options
+[oracle@ol6twsa0 ~]$
+</pre>
+<p>CDB0 alert log says:</p>
+<pre>
+Wed Jul 06 09:18:19 2016
+alter database convert to physical standby
+Wed Jul 06 09:18:19 2016
+ALTER DATABASE CONVERT TO PHYSICAL STANDBY (CDB0)
+Wed Jul 06 09:18:19 2016
+Clearing standby activation ID 891183184 (0x351e6050)
+The primary database controlfile was created using the
+'MAXLOGFILES 16' clause.
+There is space for up to 13 standby redo logfiles
+Use the following SQL commands on the standby database to create
+standby redo logfiles that match the primary database:
+ALTER DATABASE ADD STANDBY LOGFILE 'srl1.f' SIZE 52428800;
+ALTER DATABASE ADD STANDBY LOGFILE 'srl2.f' SIZE 52428800;
+ALTER DATABASE ADD STANDBY LOGFILE 'srl3.f' SIZE 52428800;
+ALTER DATABASE ADD STANDBY LOGFILE 'srl4.f' SIZE 52428800;
+Using STANDBY_ARCHIVE_DEST parameter default value as USE_DB_RECOVERY_FILE_DEST
+Starting background process TMON
+ARCH: STARTING ARCH PROCESSES
+Wed Jul 06 09:18:19 2016
+Starting background process ARC0
+TMON started with pid=31, OS id=6434
+Wed Jul 06 09:18:19 2016
+ARC0 started with pid=32, OS id=6436
+ARC0: Archival started
+ARCH: STARTING ARCH PROCESSES COMPLETE
+Physical Standby Database mounted.
+CONVERT TO PHYSICAL STANDBY: Complete - Database mounted as physical standby
+Wed Jul 06 09:18:19 2016
+ARC0: STARTING ARCH PROCESSESCompleted: alter database convert to physical standby
+
+Starting background process ARC1
+Starting background process ARC2
+Wed Jul 06 09:18:19 2016
+ARC1 started with pid=33, OS id=6438
+Starting background process ARC3
+Wed Jul 06 09:18:19 2016
+ARC2 started with pid=34, OS id=6440
+ARC1: Archival started
+ARC2: Archival started
+Wed Jul 06 09:18:19 2016
+ARC1: Becoming the 'no FAL' ARCH
+Wed Jul 06 09:18:19 2016
+ARC2: Becoming the heartbeat ARCH
+ARC2: Becoming the active heartbeat ARCH
+Wed Jul 06 09:18:19 2016
+ARC3 started with pid=35, OS id=6442
+Wed Jul 06 09:18:19 2016
+ARC3: Archival started
+ARC0: STARTING ARCH PROCESSES COMPLETE
+
+</pre>
+<p>I have stopped and restarted new physical database instance:</p>
+<pre>
+[oracle@ol6twsa0 ~]$ srvctl stop database -d CDB0
+[oracle@ol6twsa0 ~]$ srvctl start database -d CDB0 -o mount
+[oracle@ol6twsa0 ~]$
+</pre>
+<h2>Step 5: Open the new physical database instance CDB0 in read only mode</h2>
+<p><i>The goal of this step is to synchronize the control file with the database by using a dictionary check.</i></p>
+<pre>
+SYS@CDB0&gt;select name, db_unique_name, database_role, open_mode from v$database;
+
+NAME      DB_UNIQUE_NAME                 DATABASE_ROLE    OPEN_MODE
+--------- ------------------------------ ---------------- --------------------
+CDB0      CDB0                           PHYSICAL STANDBY MOUNTED
+
+SYS@CDB0&gt;alter database open read only;
+
+Database altered.
+
+SYS@CDB0&gt;select name, db_unique_name, database_role, open_mode from v$database;
+
+NAME      DB_UNIQUE_NAME                 DATABASE_ROLE    OPEN_MODE
+--------- ------------------------------ ---------------- --------------------
+CDB0      CDB0                           PHYSICAL STANDBY READ ONLY
+
+SYS@CDB0&gt;
+</pre>
+<p>CDB0 alert log says:</p>
+<pre>
+Wed Jul 06 09:21:38 2016
+alter database open read only
+Wed Jul 06 09:21:38 2016
+Data Guard Broker initializing...
+Data Guard Broker initialization complete
+AUDIT_TRAIL initialization parameter is changed to OS, as DB is NOT compatible for database opened with read-only access
+Ping without log force is disabled
+.
+Wed Jul 06 09:21:39 2016
+SMON: enabling cache recovery
+Wed Jul 06 09:21:40 2016
+Dictionary check beginning
+Dictionary check complete
+Database Characterset is AL32UTF8
+No Resource Manager plan active
+replication_dependency_tracking turned off (no async multimaster replication found)
+Physical standby database opened for read only access.
+Completed: alter database open read only
+</pre>
+<h2> Step 6: Mount the new physical standby CDB0 again to avoid Active Data Guard use</h2>
+<pre>
+[oracle@ol6twsa0 ~]$ srvctl stop database -d CDB0
+[oracle@ol6twsa0 ~]$ srvctl start database -d CDB0 -o mount
+[oracle@ol6twsa0 ~]$
+</pre>
+<h2>Step 7: reconfigure new standby database CDB0 in Data Guard Broker configuration</h2>
+<p>In short I have run the commands:</p>
+<pre>
+remove database cdb0;
+add database cdb0 as connect identifier is CDB0;
+enable database cdb0;
+</pre>
+<p>Here is the full output of above commands:</p>
+<pre>
+[oracle@ol6twsa1 ~]$ dgmgrl /
+DGMGRL for Linux: Version 12.1.0.2.0 - 64bit Production
+
+Copyright (c) 2000, 2013, Oracle. All rights reserved.
+
+Welcome to DGMGRL, type "help" for information.
+Connected as SYSDG.
+DGMGRL&gt; show configuration;
+
+Configuration - cdb
+
+  Protection Mode: MaxPerformance
+  Members:
+  cdb1 - Primary database
+    cdb0 - Physical standby database (disabled)
+      ORA-16661: the standby database needs to be reinstated
+
+Fast-Start Failover: DISABLED
+
+Configuration Status:
+SUCCESS   (status updated 23 seconds ago)
+
+DGMGRL&gt; remove database cdb0;
+Warning: ORA-16620: one or more databases could not be reached for a delete operation
+
+Removed database "cdb0" from the configuration
+
+DGMGRL&gt; add database cdb0 as connect identifier is CDB0;
+Database "cdb0" added
+DGMGRL&gt; show configuration;
+
+Configuration - cdb
+
+  Protection Mode: MaxPerformance
+  Members:
+  cdb1 - Primary database
+    cdb0 - Physical standby database (disabled)
+
+Fast-Start Failover: DISABLED
+
+Configuration Status:
+SUCCESS   (status updated 24 seconds ago)
+
+DGMGRL&gt; enable database cdb0;
+Enabled.
+DGMGRL&gt; show configuration;
+
+Configuration - cdb
+
+  Protection Mode: MaxPerformance
+  Members:
+  cdb1 - Primary database
+    cdb0 - Physical standby database
+
+Fast-Start Failover: DISABLED
+
+Configuration Status:
+SUCCESS   (status updated 4 seconds ago)
+
+DGMGRL&gt; show database cdb0;
+
+Database - cdb0
+
+  Role:               PHYSICAL STANDBY
+  Intended State:     APPLY-ON
+  Transport Lag:      0 seconds (computed 0 seconds ago)
+  Apply Lag:          0 seconds (computed 0 seconds ago)
+  Average Apply Rate: 152.00 KByte/s
+  Real Time Query:    OFF
+  Instance(s):
+    CDB0
+
+Database Status:
+SUCCESS
+
+DGMGRL&gt; show database cdb1;
+
+Database - cdb1
+
+  Role:               PRIMARY
+  Intended State:     TRANSPORT-ON
+  Instance(s):
+    CDB1
+
+Database Status:
+SUCCESS
+
+DGMGRL&gt;
+
+</pre>
+<p>CDB1 alert log is <a href="https://pierreforstmanndotcom.wordpress.com/s7_cdb1_06072016/" />here</a>.</p>
+<p>CDB0 alert log is <a href="https://pierreforstmanndotcom.wordpress.com/s7_cdb0_06072016/" />here</a></p>
+<h2>Step 8: Switchover </h2>
+<p>This not a mandatory step but it is good way to check that the Data Guard configuration is working as expected.</p>
+<pre>
+DGMGRL&gt; switchover to cdb0;
+Performing switchover NOW, please wait...
+New primary database "cdb0" is opening...
+Oracle Clusterware is restarting database "cdb1" ...
+Switchover succeeded, new primary is "cdb0"
+DGMGRL&gt; show configuration;
+
+Configuration - cdb
+
+  Protection Mode: MaxPerformance
+  Members:
+  cdb0 - Primary database
+    cdb1 - Physical standby database
+      Error: ORA-16700: the standby database has diverged from the primary database
+
+Fast-Start Failover: DISABLED
+
+Configuration Status:
+ERROR   (status updated 1 second ago)
+
+DGMGRL&gt; show configuration;
+
+Configuration - cdb
+
+  Protection Mode: MaxPerformance
+  Members:
+  cdb0 - Primary database
+    cdb1 - Physical standby database
+      Error: ORA-16700: the standby database has diverged from the primary database
+
+Fast-Start Failover: DISABLED
+
+Configuration Status:
+ERROR   (status updated 26 seconds ago)
+
+DGMGRL&gt; show database cdb1;
+
+Database - cdb1
+
+  Role:               PHYSICAL STANDBY
+  Intended State:     APPLY-ON
+  Transport Lag:      0 seconds (computed 2 seconds ago)
+  Apply Lag:          0 seconds (computed 2 seconds ago)
+  Average Apply Rate: 8.00 KByte/s
+  Real Time Query:    OFF
+  Instance(s):
+    CDB1
+
+Database Status:
+SUCCESS
+
+DGMGRL&gt; show configuration;
+
+Configuration - cdb
+
+  Protection Mode: MaxPerformance
+  Members:
+  cdb0 - Primary database
+    cdb1 - Physical standby database
+      Error: ORA-16700: the standby database has diverged from the primary database
+
+Fast-Start Failover: DISABLED
+
+Configuration Status:
+ERROR   (status updated 44 seconds ago)
+
+DGMGRL&gt;
+</pre>
+<p>There is an unexpected error "ORA-16700: the standby database has diverged from the primary database" but it's only a temporary one:</p>
+<pre>
+DGMGRL&gt; show configuration;
+
+Configuration - cdb
+
+  Protection Mode: MaxPerformance
+  Members:
+  cdb0 - Primary database
+    cdb1 - Physical standby database
+      Error: ORA-16700: the standby database has diverged from the primary database
+
+Fast-Start Failover: DISABLED
+
+Configuration Status:
+ERROR   (status updated 44 seconds ago)
+
+DGMGRL&gt; show database cdb0;
+
+Database - cdb0
+
+  Role:               PRIMARY
+  Intended State:     TRANSPORT-ON
+  Instance(s):
+    CDB0
+
+Database Status:
+SUCCESS
+
+DGMGRL&gt; show database cdb1;
+
+Database - cdb1
+
+  Role:               PHYSICAL STANDBY
+  Intended State:     APPLY-ON
+  Transport Lag:      0 seconds (computed 0 seconds ago)
+  Apply Lag:          0 seconds (computed 0 seconds ago)
+  Average Apply Rate: 9.00 KByte/s
+  Real Time Query:    OFF
+  Instance(s):
+    CDB1
+
+Database Status:
+SUCCESS
+
+DGMGRL&gt; show configuration;
+
+Configuration - cdb
+
+  Protection Mode: MaxPerformance
+  Members:
+  cdb0 - Primary database
+    cdb1 - Physical standby database
+
+Fast-Start Failover: DISABLED
+
+Configuration Status:
+SUCCESS   (status updated 15 seconds ago)
+
+DGMGRL&gt;
+</pre>
+<p>CDB0 and CDB1 are now back to original Data Guard configuration.</p>
