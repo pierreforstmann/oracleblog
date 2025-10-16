@@ -1,0 +1,224 @@
+<h3> What is Oracle RAC One Node ?</h3>
+<p><i>Oracle Real Application Clusters One Node (Oracle RAC One Node) is a single instance of an Oracle Real Application Clusters (Oracle RAC) database that runs on one node in a cluster.</i></p>
+<p>RAC One Node is not a new feature of Oracle Database 12.2 but is a <a href="https://docs.oracle.com/cd/E18283_01/rac.112/e16795/whatsnew.htm#insertedID1">11.2 new feature.</a></p>
+<p>In this blog article I want mainly to document how you can create a RAC One Node using DBCA in silent mode and details some default settings created by DBCA,</p>
+<p>I have used the <a href="https://pierreforstmanndotcom.wordpress.com/2017/03/24/how-to-install-oracle-rac-12-2-0-1-in-silent-mode-on-red-hat-linux-7-3-with-virtualbox-part-1/" />2 node RAC 12.2.0.1 cluster built with Red Hat Linux 7.3 </a> and I have run following DBCA command:</p>
+<pre>
+dbca -silent \
+  -createDatabase \
+  -RACONENODE \
+  -RACONENODESERVICENAME RONS \
+  -nodelist rh7ttcn1,rh7ttcn2 \
+  -sid RON   \
+  -gdbName RON \
+  -characterSet AL32UTF8 \
+  -storageType ASM \
+  -diskGroupName DATA \
+  -recoveryGroupName FRA \
+  -emConfiguration NONE \
+  -memoryPercentage 20 \
+  -SysPassword oracle \
+  -SystemPassword oracle \
+  -templateName General_Purpose.dbc
+</pre>
+<p>Running above command has generated following output:</p>
+<pre>
+[WARNING] [DBT-06208] The 'SYS' password entered does not conform to the Oracle recommended standards.
+   CAUSE: 
+a. Oracle recommends that the password entered should be at least 8 characters in length, contain at least 1 uppercase character, 1 lower case character and 1 digit [0-9].
+b.The password entered is a keyword that Oracle does not recommend to be used as password
+   ACTION: Specify a strong password. If required refer Oracle documentation for guidelines.
+[WARNING] [DBT-06208] The 'SYSTEM' password entered does not conform to the Oracle recommended standards.
+   CAUSE: 
+a. Oracle recommends that the password entered should be at least 8 characters in length, contain at least 1 uppercase character, 1 lower case character and 1 digit [0-9].
+b.The password entered is a keyword that Oracle does not recommend to be used as password
+   ACTION: Specify a strong password. If required refer Oracle documentation for guidelines.
+[WARNING] [DBT-06801] Specified Fast Recovery Area size (8,016 MB) is less than the recommended value.
+   CAUSE: Fast Recovery Area size should at least be three times the database size (2,897 MB).
+   ACTION: Specify Fast Recovery Area Size to be at least three times the database size.
+[WARNING] [DBT-09102] Target environment does not meet some optional requirements.
+   CAUSE: Some of the optional prerequisites are not met. See logs for details. /u01/base/cfgtoollogs/dbca/trace.log_2017-08-31_10-38-27-AM
+   ACTION: Find the appropriate configuration from the log file or from the installation guide to meet the prerequisites and fix this manually.
+Copying database files
+1% complete
+2% complete
+15% complete
+27% complete
+Creating and starting Oracle instance
+29% complete
+32% complete
+36% complete
+40% complete
+41% complete
+43% complete
+45% complete
+Creating cluster database views
+47% complete
+63% complete
+Completing Database Creation
+64% complete
+65% complete
+68% complete
+70% complete
+72% complete
+Executing Post Configuration Actions
+100% complete
+Look at the log file "/u01/base/cfgtoollogs/dbca/RON/RON.log" for further details.
+</pre>
+<p>I have ignored following warnings: </p>
+<pre>
+INFO: Package: gcc-c++-4.8.2: This is a prerequisite condition to test whether the package "gcc-c++-4.8.2" is available on the system.
+INFO: /dev/shm mounted as temporary file system: Checks whether /dev/shm is mounted correctly as temporary file system
+</pre>
+<p>I have checked cluster contiguration for this new database:</p>
+<pre>
+$ srvctl config database -d RON
+Database unique name: RON
+Database name: RON
+Oracle home: /u01/db12201
+Oracle user: oracle
+Spfile: +DATA/RON/PARAMETERFILE/spfile.291.953462725
+Password file: +DATA/RON/PASSWORD/pwdron.279.953462449
+Domain: 
+Start options: open
+Stop options: immediate
+Database role: PRIMARY
+Management policy: AUTOMATIC
+Server pools: 
+Disk Groups: FRA,DATA
+Mount point paths: 
+Services: RONS
+Type: RACOneNode
+Online relocation timeout: 30
+Instance name prefix: RON
+Candidate servers: rh7ttcn1,rh7ttcn2
+OSDBA group: dba
+OSOPER group: 
+Database instances: RON_1
+CSS critical: no
+CPU count: 0
+Memory target: 0
+Maximum memory: 0
+Default network number for database services: 
+Database is administrator managed
+</pre>
+<p>Note that the RAC One Node database instance name is similar to RAC database instance name but with an additional underscore.<br />
+<br />
+RAC One Node database shares some parameters with a RAC database:</p>
+<pre>
+&gt; select name, value from v$parameter where name in ('cluster_database','cluster_database_instances','cluster_interconnects');
+
+NAME			       VALUE
+------------------------------ ------------------------------
+cluster_interconnects
+cluster_database	       TRUE
+cluster_database_instances     2
+</pre>
+<p>RAC One database has also one redo thread for each database instance number:</p>
+<pre>
+&gt; select thread#, group# from v$log;
+
+   THREAD#     GROUP#
+---------- ----------
+	 1	    1
+	 1	    2
+	 2	    3
+	 2	    4
+</pre>
+<p>RAC One database has also one undo tablespace for each database instance number: </p>
+<pre>
+&gt; select tablespace_name, contents from dba_tablespaces where contents = 'UNDO';
+
+TABLESPACE_NAME 	       CONTENTS
+------------------------------ ---------------------
+UNDOTBS1		       UNDO
+UNDOTBS2		       UNDO
+</pre>
+<p>
+I have checked the database resource status and related crsctl output (I have edited crsctl output to only display data for the new database):</p>
+<pre>
+$ srvctl status database -d RON
+Instance RON_1 is running on node rh7ttcn1
+Online relocation: INACTIVE
+$ . oraenv
+ORACLE_SID = [CDBRAC1] ? +ASM1
+The Oracle base remains unchanged with value /u01/base
+$ crsctl stat res -t
+--------------------------------------------------------------------------------
+Name           Target  State        Server                   State details       
+--------------------------------------------------------------------------------
+(...)
+--------------------------------------------------------------------------------
+Cluster Resources
+--------------------------------------------------------------------------------
+(...)
+ora.ron.db
+      1        ONLINE  ONLINE       rh7ttcn1                 Open,HOME=/u01/db122
+                                                             01,STABLE
+ora.ron.rons.svc
+      1        ONLINE  ONLINE       rh7ttcn1                 STABLE
+(...)
+</pre>
+<p>I have checked default settings for the RAC One Node database service:</p>
+<pre>
+$ srvctl config service -s RONS -db RON
+Service name: RONS
+Server pool: 
+Cardinality: 1
+Service role: PRIMARY
+Management policy: AUTOMATIC
+DTP transaction: false
+AQ HA notifications: false
+Global: false
+Commit Outcome: false
+Failover type: 
+Failover method: 
+TAF failover retries: 
+TAF failover delay: 
+Failover restore: NONE
+Connection Load Balancing Goal: LONG
+Runtime Load Balancing Goal: NONE
+TAF policy specification: NONE
+Edition: 
+Pluggable database name: 
+Maximum lag time: ANY
+SQL Translation Profile: 
+Retention: 86400 seconds
+Replay Initiation Time: 300 seconds
+Drain timeout: 
+Stop option: 
+Session State Consistency: DYNAMIC
+GSM Flags: 0
+Service is enabled
+Preferred instances: RON_2
+Available instances: 
+CSS critical: no
+</pre>
+<p></p>
+<h3> Database Instance Relocation </h3>
+<p><i>Using Oracle RAC One Node online database relocation, you can relocate the Oracle RAC One Node instance to another server, if the current server is running short on resources or requires maintenance operations, such as operating system patches. Oracle recommends to use either Oracle Fast Application Notification or Transparent Application Failover to minimize the impact of a relocation on the client. </i></p>
+<p>I have relocated database instance to cluster node 2 with:</p>
+<pre>
+$ srvctl relocate database -d RON -n rh7ttcn2
+</pre>
+<p>This has taken less than 1 minute in my environment. During this time frame I have checked database status with:</p>
+<pre>
+$ srvctl status database -d RON
+Instance RON_1 is running on node rh7ttcn1
+Online relocation: ACTIVE
+Source instance: RON_1 on rh7ttcn1
+Destination instance: RON_2 on rh7ttcn2
+$ srvctl status database -d RON
+Instance RON_2 is running on node rh7ttcn2
+Online relocation: ACTIVE
+</pre>
+<p>After successfull instance relocation database status is the following:</p>
+<pre>
+$ srvctl status database -d RON
+Instance RON_2 is running on node rh7ttcn2
+Online relocation: INACTIVE
+</pre>
+<p>For a detailed introduction to RAC One Node, you can read <a href="http://allthingsoracle.com/rac-one-node/" />Aman Sharma article</a><br />
+(although this article refers to Oracle Database 11.2 it also applies to Oracle Database 12.2 because I have not found  any new feature<br />
+for Oracle RAC One Node in Oracle 12.1 or 12.2 documentation). </p>
+<p>About session management during database relocation I recommend to read <a href="https://bdrouvot.wordpress.com/2013/05/16/taf-is-not-working-on-rac-one-node-in-case-of-node-failure-well-it-depends/" />Bertrand Drouvot article</a>.</p>
