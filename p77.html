@@ -1,0 +1,442 @@
+<p>Oracle Corp. has released on OTN an <a href="http://www.oracle.com/technetwork/database/database-technologies/clusterware/downloads/docker-4418413.html">interim patch for Grid Infrastructure 12.2.0.1 on Linux</a>. This patch is a fix needed for Oracle RAC in docker. In this blog article I am not going to install Oracle in docker but I am only going to install this interim patch in following Oracle Restart configuration:</p>
+<li> Oracle Linux 7.3 </li>
+<li> Oracle Grid Infrastructure (GI) 12.2.0.1 </li>
+<li> Oracle Database 12.2.0.1 </li>
+<li> Grid Infrastructure owner is the same as Oracle Database owner (oracle account).</li>
+<p>
+I have used patch <b>README.html</b> instructions when possible.<br />
+</p>
+<h2> Step 1: check opatch version </h2>
+<p>In GI environment I have run:</p>
+<pre>
+$ $ORACLE_HOME/OPatch/opatch version
+OPatch Version: 12.2.0.1.6
+
+OPatch succeeded.
+</pre>
+<p>Patch README says that OPatch 12.2.0.1.5 is needed: so this is OK.<br />
+<br />
+However patch README says also that emocmrsp is needed to create an OCM response file but there is no emocmrsp binary GI Home:</p>
+<pre>
+$ ls -al $ORACLE_HOME/OPatch/ocm
+total 4
+drwxr-xr-x.  2 oracle oinstall   24 Jan 26  2017 .
+drwxr-xr-x. 12 oracle oinstall 4096 Jan 26  2017 ..
+-rw-r--r--.  1 oracle oinstall    0 Jun 15  2016 generic.zip
+$ find $ORACLE_HOME -name emocmrsp
+$
+</pre>
+<h2> Step 2: check GI Home inventory </h2>
+<pre>
+$ $ORACLE_HOME/OPatch/opatch lsinventory -oh $ORACLE_HOME
+Oracle Interim Patch Installer version 12.2.0.1.6
+Copyright (c) 2018, Oracle Corporation.  All rights reserved.
+
+Oracle Home       : /u01/gi12201
+Central Inventory : /u01/orainv
+   from           : /u01/gi12201/oraInst.loc
+OPatch version    : 12.2.0.1.6
+OUI version       : 12.2.0.1.4
+Log file location : /u01/gi12201/cfgtoollogs/opatch/opatch2018-06-30_13-00-50PM_1.log
+
+Lsinventory Output file location : /u01/gi12201/cfgtoollogs/opatch/lsinv/lsinventory2018-06-30_13-00-50PM.txt
+
+--------------------------------------------------------------------------------
+Local Machine Information::
+Hostname: ol7ttsa0
+ARU platform id: 226
+ARU platform description:: Linux x86-64
+
+Installed Top-level Products (1): 
+
+Oracle Grid Infrastructure 12c                                       12.2.0.1.0
+There are 1 products installed in this Oracle Home.
+
+
+There are no Interim patches installed in this Oracle Home.
+
+
+--------------------------------------------------------------------------------
+
+OPatch succeeded.
+$ 
+</pre>
+<h2> Step 3: unzip patch </h2>
+<p>I have unzipped patch zip file in /stage directory:</p>
+<pre>
+$ unzip p27383741_122010_Linux-x86-64.zip 
+</pre>
+<h2> Step 4: check patch conflict </h2>
+<p>I have sitchwed to user root (to avoid OPATCHAUTO-72046 error messages):</p>
+<pre>
+# /u01/gi12201/OPatch/opatchauto apply /stage/27383741/27383741/ -analyze
+
+System initialization log file is /u01/gi12201/cfgtoollogs/opatchautodb/systemconfig2018-06-30_01-19-36PM.log.
+
+Session log file is /u01/gi12201/cfgtoollogs/opatchauto/opatchauto2018-06-30_01-19-41PM.log
+The id for this session is 76WA
+[init:init] Executing OPatchAutoBinaryAction action on home /u01/db12201
+
+Executing OPatch prereq operations to verify patch applicability on SIDB Home........
+
+[init:init] OPatchAutoBinaryAction action completed on home /u01/db12201 successfully
+[init:init] Executing SIDBPrereqAction action on home /u01/db12201
+
+Executing prereq operations before applying on SIDB Home........
+
+[init:init] SIDBPrereqAction action completed on home /u01/db12201 successfully
+[init:init] Executing OPatchAutoBinaryAction action on home /u01/gi12201
+
+Executing OPatch prereq operations to verify patch applicability on SIHA Home........
+
+[init:init] OPatchAutoBinaryAction action completed on home /u01/gi12201 successfully
+[init:init] Executing SIHAPrereqAction action on home /u01/gi12201
+
+Executing prereq operations before applying on SIHA Home........
+
+[init:init] SIHAPrereqAction action completed on home /u01/gi12201 successfully
+OPatchAuto successful.
+
+--------------------------------Summary--------------------------------
+
+Analysis for applying patches has completed successfully:
+
+Host:ol7ttsa0
+SIDB Home:/u01/db12201
+
+
+==Following patches were SUCCESSFULLY analyzed to be applied:
+
+Patch: /stage/27383741/27383741/
+Log: /u01/db12201/cfgtoollogs/opatchauto/core/opatch/opatch2018-06-30_13-19-47PM_1.log
+
+
+Host:ol7ttsa0
+SIHA Home:/u01/gi12201
+
+
+==Following patches were SUCCESSFULLY analyzed to be applied:
+
+Patch: /stage/27383741/27383741/
+Log: /u01/gi12201/cfgtoollogs/opatchauto/core/opatch/opatch2018-06-30_13-20-15PM_1.log
+
+
+#
+</pre>
+<h2> Step 5: apply the patch </h2>
+<p>In the same root session I have just run (without any setting for ORACLE_HOME or GRID_HOME):</p>
+<pre>
+# /u01/gi12201/OPatch/opatchauto apply /stage/27383741 
+
+System initialization log file is /u01/gi12201/cfgtoollogs/opatchautodb/systemconfig2018-06-30_01-23-52PM.log.
+
+Session log file is /u01/gi12201/cfgtoollogs/opatchauto/opatchauto2018-06-30_01-23-56PM.log
+The id for this session is 2GYB
+[init:init] Executing OPatchAutoBinaryAction action on home /u01/db12201
+
+Executing OPatch prereq operations to verify patch applicability on SIDB Home........
+
+[init:init] OPatchAutoBinaryAction action completed on home /u01/db12201 successfully
+[init:init] Executing SIDBPrereqAction action on home /u01/db12201
+
+Executing prereq operations before applying on SIDB Home........
+
+[init:init] SIDBPrereqAction action completed on home /u01/db12201 successfully
+[init:init] Executing OPatchAutoBinaryAction action on home /u01/gi12201
+
+Executing OPatch prereq operations to verify patch applicability on SIHA Home........
+
+[init:init] OPatchAutoBinaryAction action completed on home /u01/gi12201 successfully
+[init:init] Executing SIHAPrereqAction action on home /u01/gi12201
+
+Executing prereq operations before applying on SIHA Home........
+
+[init:init] SIHAPrereqAction action completed on home /u01/gi12201 successfully
+[shutdown:prepare-shutdown] Executing SIDBPrepareShutDownAction action on home /u01/db12201
+
+Preparing SIDB Home to bring down database service........
+
+[shutdown:prepare-shutdown] SIDBPrepareShutDownAction action completed on home /u01/db12201 successfully
+[shutdown:shutdown] Executing SIDBShutDownAction action on home /u01/db12201
+
+Stopping the database service on SIDB Home for patching........
+
+Following database is been stopped and will be restarted later during the session: db0
+
+[shutdown:shutdown] SIDBShutDownAction action completed on home /u01/db12201 successfully
+[shutdown:shutdown] Executing SIHAShutDownAction action on home /u01/gi12201
+
+Performing prepatch operations on SIHA Home........
+
+Prepatch operation log file location: /u01/base/crsdata/ol7ttsa0/crsconfig/hapatch_2018-06-30_01-25-18PM.log 
+
+[shutdown:shutdown] SIHAShutDownAction action completed on home /u01/gi12201 successfully
+[offline:binary-patching] Executing OPatchAutoBinaryAction action on home /u01/db12201
+
+Start applying binary patches on SIDB Home........
+
+[offline:binary-patching] OPatchAutoBinaryAction action completed on home /u01/db12201 successfully
+[offline:binary-patching] Executing OPatchAutoBinaryAction action on home /u01/gi12201
+
+Start applying binary patches on SIHA Home........
+
+[offline:binary-patching] OPatchAutoBinaryAction action completed on home /u01/gi12201 successfully
+[startup:startup] Executing SIHAStartupAction action on home /u01/gi12201
+
+Performing postpatch operations on SIHA Home........
+
+Postpatch operation log file location: /u01/base/crsdata/ol7ttsa0/crsconfig/hapatch_2018-06-30_01-27-55PM.log 
+
+[startup:startup] SIHAStartupAction action completed on home /u01/gi12201 successfully
+[startup:startup] Executing SIDBStartupAction action on home /u01/db12201
+
+Starting the database service on SIDB Home........
+
+[startup:startup] SIDBStartupAction action completed on home /u01/db12201 successfully
+[startup:finalize] Executing SIDBFinalizeStartAction action on home /u01/db12201
+
+No step execution required.........
+
+[startup:finalize] SIDBFinalizeStartAction action completed on home /u01/db12201 successfully
+[online:product-patching] Executing SIDBOnlineAction action on home /u01/db12201
+
+Trying to apply SQL patches on SIDB Home.
+
+[online:product-patching] SIDBOnlineAction action completed on home /u01/db12201 successfully
+[finalize:finalize] Executing OracleHomeLSInventoryGrepAction action on home /u01/gi12201
+
+Verifying patches applied on SIHA Home.
+
+[finalize:finalize] OracleHomeLSInventoryGrepAction action completed on home /u01/gi12201 successfully
+[finalize:finalize] Executing OracleHomeLSInventoryGrepAction action on home /u01/db12201
+
+Verifying patches applied on SIDB Home.
+
+[finalize:finalize] OracleHomeLSInventoryGrepAction action completed on home /u01/db12201 successfully
+OPatchAuto successful.
+
+--------------------------------Summary--------------------------------
+
+Patching is completed successfully. Please find the summary as follows:
+
+Host:ol7ttsa0
+SIDB Home:/u01/db12201
+Summary:
+
+==Following patches were SUCCESSFULLY applied:
+
+Patch: /stage/27383741/27383741
+Log: /u01/db12201/cfgtoollogs/opatchauto/core/opatch/opatch2018-06-30_13-25-36PM_1.log
+
+
+Host:ol7ttsa0
+SIHA Home:/u01/gi12201
+Summary:
+
+==Following patches were SUCCESSFULLY applied:
+
+Patch: /stage/27383741/27383741
+Log: /u01/gi12201/cfgtoollogs/opatchauto/core/opatch/opatch2018-06-30_13-26-15PM_1.log
+
+# 
+</pre>
+<h2> Step 6: check that patch has been applied </h2>
+<p>I have checked that GI is up and running:</p>
+<pre>
+$ . oraenv
+ORACLE_SID = [oracle] ? +ASM 
+The Oracle base has been set to /u01/base
+$ crsctl stat res -t
+--------------------------------------------------------------------------------
+Name           Target  State        Server                   State details       
+--------------------------------------------------------------------------------
+Local Resources
+--------------------------------------------------------------------------------
+ora.DATA.dg
+               ONLINE  ONLINE       ol7ttsa0                 STABLE
+ora.LISTENER.lsnr
+               ONLINE  ONLINE       ol7ttsa0                 STABLE
+ora.RECO.dg
+               ONLINE  ONLINE       ol7ttsa0                 STABLE
+ora.asm
+               ONLINE  ONLINE       ol7ttsa0                 Started,STABLE
+ora.ons
+               OFFLINE OFFLINE      ol7ttsa0                 STABLE
+--------------------------------------------------------------------------------
+Cluster Resources
+--------------------------------------------------------------------------------
+ora.cssd
+      1        ONLINE  ONLINE       ol7ttsa0                 STABLE
+ora.db0.db
+      1        ONLINE  ONLINE       ol7ttsa0                 Open,HOME=/u01/db122
+                                                             01,STABLE
+ora.diskmon
+      1        OFFLINE OFFLINE                               STABLE
+ora.evmd
+      1        ONLINE  ONLINE       ol7ttsa0                 STABLE
+--------------------------------------------------------------------------------
+$ 
+</pre>
+<p>I have checked that patch has been applied to GI Home:</p>
+<pre>
+$ $ORACLE_HOME/OPatch/opatch lsinventory -oh $ORACLE_HOME
+Oracle Interim Patch Installer version 12.2.0.1.6
+Copyright (c) 2018, Oracle Corporation.  All rights reserved.
+
+
+Oracle Home       : /u01/gi12201
+Central Inventory : /u01/orainv
+   from           : /u01/gi12201/oraInst.loc
+OPatch version    : 12.2.0.1.6
+OUI version       : 12.2.0.1.4
+Log file location : /u01/gi12201/cfgtoollogs/opatch/opatch2018-06-30_13-30-35PM_1.log
+
+Lsinventory Output file location : /u01/gi12201/cfgtoollogs/opatch/lsinv/lsinventory2018-06-30_13-30-35PM.txt
+
+--------------------------------------------------------------------------------
+Local Machine Information::
+Hostname: ol7ttsa0
+ARU platform id: 226
+ARU platform description:: Linux x86-64
+
+Installed Top-level Products (1): 
+
+Oracle Grid Infrastructure 12c                                       12.2.0.1.0
+There are 1 products installed in this Oracle Home.
+
+
+Interim patches (1) :
+
+Patch  27383741     : applied on Sat Jun 30 13:27:43 CEST 2018
+Unique Patch ID:  21873823
+Patch description:  "OCW Interim patch for 27383741"
+   Created on 18 Jan 2018, 17:32:26 hrs PST8PDT
+   Bugs fixed:
+     25970667, 27187009
+
+
+
+--------------------------------------------------------------------------------
+
+OPatch succeeded.
+$
+</pre>
+<p>I have checked that patch has been applied to Database Home: </p>
+<pre>
+$ . oraenv
+ORACLE_SID = [+ASM] ? DB0
+The Oracle base has been changed from /u01/base to /u01/oracle
+$ $ORACLE_HOME/OPatch/opatch lsinventory -oh $ORACLE_HOME
+Oracle Interim Patch Installer version 12.2.0.1.6
+Copyright (c) 2018, Oracle Corporation.  All rights reserved.
+
+
+Oracle Home       : /u01/db12201
+Central Inventory : /u01/orainv
+   from           : /u01/db12201/oraInst.loc
+OPatch version    : 12.2.0.1.6
+OUI version       : 12.2.0.1.4
+Log file location : /u01/db12201/cfgtoollogs/opatch/opatch2018-06-30_13-30-54PM_1.log
+
+Lsinventory Output file location : /u01/db12201/cfgtoollogs/opatch/lsinv/lsinventory2018-06-30_13-30-54PM.txt
+
+--------------------------------------------------------------------------------
+Local Machine Information::
+Hostname: ol7ttsa0
+ARU platform id: 226
+ARU platform description:: Linux x86-64
+
+Installed Top-level Products (1): 
+
+Oracle Database 12c                                                  12.2.0.1.0
+There are 1 products installed in this Oracle Home.
+
+
+Interim patches (1) :
+
+Patch  27383741     : applied on Sat Jun 30 13:26:07 CEST 2018
+Unique Patch ID:  21873823
+Patch description:  "OCW Interim patch for 27383741"
+   Created on 18 Jan 2018, 17:32:26 hrs PST8PDT
+   Bugs fixed:
+     25970667, 27187009
+
+
+
+--------------------------------------------------------------------------------
+
+OPatch succeeded.
+$ 
+</pre>
+<p>I have checked if patch has been applied to database:</p>
+<pre>
+OPS$ORACLE@DB0&gt;set linesize 120
+OPS$ORACLE@DB0&gt;column action_time format a15
+OPS$ORACLE@DB0&gt;column action format a10
+OPS$ORACLE@DB0&gt;column version format a12
+OPS$ORACLE@DB0&gt;column description format a50
+OPS$ORACLE@DB0&gt;column comp_name format a40
+OPS$ORACLE@DB0&gt;select name, cdb from v$database;
+
+NAME	  CDB
+--------- ---
+DB0	  NO
+
+OPS$ORACLE@DB0&gt;select to_char(action_time,'DD-MON-YYYY') as action_time_2, patch_id, patch_uid, action, version,  description
+  2  from dba_registry_sqlpatch
+  3  order by action_time;
+
+no rows selected
+
+OPS$ORACLE@DB0&gt;
+</pre>
+<p>This interim patch has not been applied to the database.</p>
+<p>I have also checked that patch is displayed in database instance alert log;</p>
+<pre>
+==========================================================
+Dumping current patch information
+===========================================================
+Patch Id: 27383741
+Patch Description: OCW Interim patch for 27383741
+Patch Apply Time: 2018-06-30T13:26:07+02:00
+Bugs Fixed: 25970667,27187009
+===========================================================
+</pre>
+<p>I have also checked that patch is displayed in ASM instance alert log:</p>
+<pre>
+============================================================
+NOTE: PatchLevel of this instance 1812918032
+============================================================
+Dumping list of patches:
+============================================================
+27383741
+============================================================
+</pre>
+<p>I have also checked that GI has been stopped and restarted during patching in  <b>$ORACLE_BASE/diag/crs/ol7ttsa0/crs/trace/alert.log</b>:</p>
+<pre>
+2018-06-30 13:25:22.293 [OCSSD(3367)]CRS-1603: CSSD on node ol7ttsa0 has been shut down.
+2018-06-30 13:25:23.622 [OCSSD(3367)]CRS-1660: The CSS daemon shutdown has completed
+2018-06-30 13:25:23.622 [OCSSD(3367)]CRS-8504: Oracle Clusterware OCSSD process with operating system process ID 3367 is exiting
+2018-06-30 13:28:04.361 [CLSECHO(13356)]ACFS-9500: Location of Oracle Home is '/u01/gi12201' as determined from the internal configuration data
+2018-06-30 13:28:05.539 [CLSECHO(13702)]ACFS-9300: ADVM/ACFS distribution files found.
+2018-06-30 13:28:05.853 [CLSECHO(13726)]ACFS-9119: Driver oracleacfs.ko failed to unload.
+2018-06-30 13:28:05.930 [CLSECHO(13750)]ACFS-9427: Failed to unload ADVM/ACFS drivers. A system reboot is recommended.
+2018-06-30 13:28:06.089 [CLSCFG(13807)]CRS-1810: Node-specific configuration for node ol7ttsa0 in Oracle Local Registry was patched to patch level 1812918032.
+2018-06-30 13:28:10.327 [OHASD(13827)]CRS-8500: Oracle Clusterware OHASD process is starting with operating system process ID 13827
+2018-06-30 13:28:10.331 [OHASD(13827)]CRS-0714: Oracle Clusterware Release 12.2.0.1.0.
+2018-06-30 13:28:10.347 [OHASD(13827)]CRS-2112: The OLR service started on node ol7ttsa0.
+2018-06-30 13:28:10.364 [OHASD(13827)]CRS-1301: Oracle High Availability Service started on node ol7ttsa0.
+2018-06-30 13:28:10.634 [CSSDAGENT(13893)]CRS-8500: Oracle Clusterware CSSDAGENT process is starting with operating system process ID 13893
+2018-06-30 13:28:10.665 [ORAAGENT(13890)]CRS-8500: Oracle Clusterware ORAAGENT process is starting with operating system process ID 13890
+2018-06-30 13:28:10.780 [ORAROOTAGENT(13898)]CRS-8500: Oracle Clusterware ORAROOTAGENT process is starting with operating system process ID 13898
+2018-06-30 13:28:11.200 [ORAAGENT(13947)]CRS-8500: Oracle Clusterware ORAAGENT process is starting with operating system process ID 13947
+2018-06-30 13:28:11.360 [EVMD(13971)]CRS-8500: Oracle Clusterware EVMD process is starting with operating system process ID 13971
+2018-06-30 13:28:15.868 [CSSDAGENT(14098)]CRS-8500: Oracle Clusterware CSSDAGENT process is starting with operating system process ID 14098
+2018-06-30 13:28:15.911 [ORAROOTAGENT(14101)]CRS-8500: Oracle Clusterware ORAROOTAGENT process is starting with operating system process ID 14101
+2018-06-30 13:28:16.019 [OCSSD(14130)]CRS-8500: Oracle Clusterware OCSSD process is starting with operating system process ID 14130
+2018-06-30 13:28:17.031 [OCSSD(14130)]CRS-1713: CSSD daemon is started in hub mode
+2018-06-30 13:28:25.628 [OCSSD(14130)]CRS-1601: CSSD Reconfiguration complete. Active nodes are ol7ttsa0 .
+2018-06-30 13:28:29.146 [OCSSD(14130)]CRS-1720: Cluster Synchronization Services daemon (CSSD) is ready for operation.
+</pre>
+<p>I have ignored ACFS-9119 and ACFS-9427 messages because I don't use ACFS any more on this node.</p>
+<p>Patch 27383741 has been successfully installed in this Oracle Restart environment.</p>
