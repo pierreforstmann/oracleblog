@@ -1,0 +1,720 @@
+<p>Up to Oracle 12.2.0.1 it was not possible to use directly Oracle Database preinstallation RPM on Red Hat Linux Enterprise LInux (RHEL) because this RPM was replacing the Red Hat Linux kernel by the Unbreakable Entreprise Kernel(UEK): not sure this was intented if you decided to use RHEL instead of Oracle Linux.</p>
+<p>It was still possible to modify this RPM to remove the dependency on UEK and to install it as described in <a href="https://pierreforstmanndotcom.wordpress.com/2017/03/17/how-i-simplified-oracle-database-12-2-0-1-installation-on-red-hat-linux-7-3-with-oracle-preinstallation-rpm/" /> this blog post </a>.</p>
+<p>Things have changed with Oracle 18c: it is now possible to use directlty Oracle Preinstallation on RHEL as documented in <a href="https://docs.oracle.com/en/database/oracle/oracle-database/18/ladbi/running-rpm-packages-to-install-oracle-database.html#GUID-BB7C11E3-D385-4A2F-9EAF-75F4F0AACF02">Oracle Database Installation Guide 18c for Linux</a>.</p>
+<p>In this blog post I detail how I have installed Oracle 18c on RHEL 7.5 using the official Redhat distribution that I am again able to download from Red Hat using <a href="https://developers.redhat.com/products/rhel/download/" />Red Hat Developer free license valid for one year</a>.</p>
+<h2>
+Operating system installation<br />
+</h2>
+<p>For this blog post I have created a VirtualBox virtual machine (VM) named rh7defs0 that has:</p>
+<li>
+4 GB of RAM
+</li>
+<li>
+one 40 GB hard disk attached to SATA controller
+</li>
+<li>
+2 network interfaces (the first one attached to NAT and the second one attached to Host-Only Adapter).
+</li>
+<p>
+When installing Red Hat 7 I have chosen in following order:<br />
+<br />
+1. English as installation process language<br />
+<br />
+2. Paris, France as time zone<br />
+<br />
+3. French as keyboard layout<br />
+<br />
+4. default disk partitioning with 4GB of swap<br />
+<br />
+5. rh7defs0.localdomain as hostname</p>
+<p>I have not modified software selection set to "minimal install" and I have also set root password.<br />
+<br />
+In this post # prompt means root account session and $ prompt means oracle account session.</p>
+<p>After the minimal operating system installation and machine reboot I have used system console to configure public network interface with: </p>
+<pre>
+# nmcli connection add type ethernet con-name enp0s8 ifname enp0s8 ip4 192.168.56.14/24.
+</pre>
+<p>At this step I have connected with ssh to configure the NAT network interface with: </p>
+<pre>
+# nmcli connection add type ethernet con-name enp0s3 ifname enp0s3 ip4 10.0.2.15/8 gw4 10.0.2.2
+Warning: There is another connection with the name 'enp0s3'. Reference the connection by its uuid 'f43b8229-4939-4952-b794-da103e5168be'
+# ip addr
+1: lo:  mtu 65536 qdisc noqueue state UNKNOWN group default qlen 1000
+    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00
+    inet 127.0.0.1/8 scope host lo
+       valid_lft forever preferred_lft forever
+    inet6 ::1/128 scope host 
+       valid_lft forever preferred_lft forever
+2: enp0s3:  mtu 1500 qdisc pfifo_fast state UP group default qlen 1000
+    link/ether 08:00:27:06:20:85 brd ff:ff:ff:ff:ff:ff
+    inet 10.0.2.15/8 brd 10.255.255.255 scope global noprefixroute enp0s3
+       valid_lft forever preferred_lft forever
+    inet6 fe80::5b8e:9d1e:7d2e:5a42/64 scope link noprefixroute 
+       valid_lft forever preferred_lft forever
+3: enp0s8:  mtu 1500 qdisc pfifo_fast state UP group default qlen 1000
+    link/ether 08:00:27:00:04:75 brd ff:ff:ff:ff:ff:ff
+    inet 192.168.56.14/24 brd 192.168.56.255 scope global noprefixroute enp0s8
+       valid_lft forever preferred_lft forever
+    inet6 fe80::7075:e445:f59f:87ad/64 scope link noprefixroute 
+       valid_lft forever preferred_lft forever
+</pre>
+<p>I have also added my Internet Box IP address to <b>/etc/resolv.conf</b> and checked DNS: </p>
+<pre>
+# cat /etc/resolv.conf
+search localdomain
+nameserver 192.168.1.254
+
+# ping www.redhat.com
+PING e3396.dscx.akamaiedge.net (104.124.219.53) 56(84) bytes of data.
+64 bytes from a104-124-219-53.deploy.static.akamaitechnologies.com (104.124.219.53): icmp_seq=1 ttl=63 time=39.2 ms
+64 bytes from a104-124-219-53.deploy.static.akamaitechnologies.com (104.124.219.53): icmp_seq=2 ttl=63 time=37.7 ms
+64 bytes from a104-124-219-53.deploy.static.akamaitechnologies.com (104.124.219.53): icmp_seq=3 ttl=63 time=38.6 ms
+64 bytes from a104-124-219-53.deploy.static.akamaitechnologies.com (104.124.219.53): icmp_seq=4 ttl=63 time=37.1 ms
+64 bytes from a104-124-219-53.deploy.static.akamaitechnologies.com (104.124.219.53): icmp_seq=5 ttl=63 time=36.4 ms
+^C
+--- e3396.dscx.akamaiedge.net ping statistics ---
+5 packets transmitted, 5 received, 0% packet loss, time 4009ms
+rtt min/avg/max/mdev = 36.438/37.852/39.266/1.042 ms
+</pre>
+<p>I have run following steps to connect this VM to public Red Hat Satellite:</p>
+<pre>
+# subscription-manager register
+# subscription-manager attach --auto
+</pre>
+<p>I have checked that the VM has the right subscription status:</p>
+<pre>
+# cat /etc/redhat-release 
+Red Hat Enterprise Linux Server release 7.5 (Maipo)
+# subscription-manager status       
++-------------------------------------------+
+   System Status Details
++-------------------------------------------+
+Overall Status: Current
+
+# yum repolist
+Loaded plugins: product-id, search-disabled-repos, subscription-manager
+rhel-7-server-rpms                                       | 3.5 kB     00:00     
+(1/3): rhel-7-server-rpms/7Server/x86_64/group             | 855 kB   00:02     
+(2/3): rhel-7-server-rpms/7Server/x86_64/updateinfo        | 2.9 MB   00:05     
+(3/3): rhel-7-server-rpms/7Server/x86_64/primary_db        |  55 MB   00:42     
+repo id                           repo name                               status
+rhel-7-server-rpms/7Server/x86_64 Red Hat Enterprise Linux 7 Server (RPMs 20 908
+repolist: 20 908
+</pre>
+<h2> Oracle Preinstallation RPM installation</h2>
+<p>I have downloaded this RPM with:</p>
+<pre>
+# yum -y install wget
+Loaded plugins: product-id, search-disabled-repos, subscription-manager
+Resolving Dependencies
+--&gt; Running transaction check
+---&gt; Package wget.x86_64 0:1.14-15.el7_4.1 will be installed
+--&gt; Finished Dependency Resolution
+
+Dependencies Resolved
+
+===========================================================================================================================
+ Package               Arch                    Version                           Repository                           Size
+===========================================================================================================================
+Installing:
+ wget                  x86_64                  1.14-15.el7_4.1                   rhel-7-server-rpms                  547 k
+
+Transaction Summary
+===========================================================================================================================
+Install  1 Package
+
+Total download size: 547 k
+Installed size: 2.0 M
+Downloading packages:
+warning: /var/cache/yum/x86_64/7Server/rhel-7-server-rpms/packages/wget-1.14-15.el7_4.1.x86_64.rpm: Header V3 RSA/SHA256 Signature, key ID fd431d51: NOKEY
+Public key for wget-1.14-15.el7_4.1.x86_64.rpm is not installed
+wget-1.14-15.el7_4.1.x86_64.rpm                                                                     | 547 kB  00:00:01     
+Retrieving key from file:///etc/pki/rpm-gpg/RPM-GPG-KEY-redhat-release
+Importing GPG key 0xFD431D51:
+ Userid     : "Red Hat, Inc. (release key 2) "
+ Fingerprint: 567e 347a d004 4ade 55ba 8a5f 199e 2f91 fd43 1d51
+ Package    : redhat-release-server-7.5-8.el7.x86_64 (@anaconda/7.5)
+ From       : /etc/pki/rpm-gpg/RPM-GPG-KEY-redhat-release
+Importing GPG key 0x2FA658E0:
+ Userid     : "Red Hat, Inc. (auxiliary key) "
+ Fingerprint: 43a6 e49c 4a38 f4be 9abf 2a53 4568 9c88 2fa6 58e0
+ Package    : redhat-release-server-7.5-8.el7.x86_64 (@anaconda/7.5)
+ From       : /etc/pki/rpm-gpg/RPM-GPG-KEY-redhat-release
+Running transaction check
+Running transaction test
+Transaction test succeeded
+Running transaction
+  Installing : wget-1.14-15.el7_4.1.x86_64                                                                             1/1 
+rhel-7-server-rpms/7Server/x86_64/productid                                                         | 2.1 kB  00:00:00     
+  Verifying  : wget-1.14-15.el7_4.1.x86_64                                                                             1/1 
+
+Installed:
+  wget.x86_64 0:1.14-15.el7_4.1                                                                                            
+
+Complete!
+# wget http://public-yum.oracle.com/repo/OracleLinux/OL7/latest/x86_64/getPackage/oracle-database-preinstall-18c-1.0-1.el7.x86_64.rpm
+--2018-08-24 19:45:18--  http://public-yum.oracle.com/repo/OracleLinux/OL7/latest/x86_64/getPackage/oracle-database-preinstall-18c-1.0-1.el7.x86_64.rpm
+Resolving public-yum.oracle.com (public-yum.oracle.com)... 23.205.82.159
+Connecting to public-yum.oracle.com (public-yum.oracle.com)|23.205.82.159|:80... connected.
+HTTP request sent, awaiting response... 200 OK
+Length: 18244 (18K) [application/x-rpm]
+Saving to: 'oracle-database-preinstall-18c-1.0-1.el7.x86_64.rpm'
+
+100%[=================================================================================&gt;] 18 244      --.-K/s   in 0,02s   
+
+2018-08-24 19:45:21 (1,04 MB/s) - 'oracle-database-preinstall-18c-1.0-1.el7.x86_64.rpm' saved [18244/18244]
+</pre>
+<p>To avoid following error when trying to install this RPM:</p>
+<pre>
+Error: Package: oracle-database-preinstall-18c-1.0-1.el7.x86_64 (/oracle-database-preinstall-18c-1.0-1.el7.x86_64)
+           Requires: compat-libstdc++-33
+**********************************************************************
+yum can be configured to try to resolve such errors by temporarily enabling
+disabled repos and searching for missing dependencies.
+To enable this functionality please set 'notify_only=0' in /etc/yum/pluginconf.d/search-disabled-repos.conf
+**********************************************************************
+
+Error: Package: oracle-database-preinstall-18c-1.0-1.el7.x86_64 (/oracle-database-preinstall-18c-1.0-1.el7.x86_64)
+           Requires: compat-libstdc++-33
+ You could try using --skip-broken to work around the problem
+ You could try running: rpm -Va --nofiles --nodigest
+</pre>
+<p>I have modified <b>/etc/yum/pluginconf.d/search-disabled-repos.conf</b> as recommended by yum:</p>
+<pre>
+# grep notify_only /etc/yum/pluginconf.d/search-disabled-repos.conf
+# With notify_only=1 this plugin does not modify yum's behaviour.
+# Setting notify_only to 0 will enable yum to try to automatically resolve
+notify_only=0
+</pre>
+<p>I have restarted RPM installation with:</p>
+<pre>
+# yum -y install oracle-database-preinstall-18c-1.0-1.el7.x86_64.rpm 
+</pre>
+<p>This has taken several minutes because YUM was searching for <b>compat-libstdc++-33</b> in a lot of YUM repositories:</p>
+<pre>
+Error: Package: oracle-database-preinstall-18c-1.0-1.el7.x86_64 (/oracle-database-preinstall-18c-1.0-1.el7.x86_64)
+           Requires: compat-libstdc++-33
+**********************************************************************
+Dependency resolving failed due to missing dependencies.
+Some repositories on your system are disabled, but yum can enable them
+and search for missing dependencies. This will require downloading
+metadata for disabled repositories and may take some time and traffic.
+**********************************************************************
+</pre>
+<p>Eventually YUM has found it and managed to install it. You can find yum install log <a href="https://pierreforstmanndotcom.wordpress.com/838-2/">here</a>.</p>
+<h2>Oracle 18c Standard Edition 2 silent installation</h2>
+<p>I have run following steps to install Oracle Database 18c Standard Edition 2 in silent mode: </p>
+<pre>
+# mkdir -p /u01/db18c
+# mkdir -p /u01/base 
+# mkdir /u01/orainv
+# mkdir /stage
+# chown oracle:dba -R /u01
+# chown oracle:dba -R /stage
+</pre>
+<p>I have switched to oracle account:</p>
+<pre>
+$ cd /u01/db18c
+$ unzip /stage/LINUX.X64_180000_db_home.zip 
+./runInstaller \
+-silent \
+-responseFile /u01/db18c/install/response/db_install.rsp \
+   oracle.install.option=INSTALL_DB_SWONLY             \
+   UNIX_GROUP_NAME=oinstall                            \
+   INVENTORY_LOCATION=/u01/orainv                      \
+   SELECTED_LANGUAGES=en                               \
+   ORACLE_HOME=/u01/db18c                              \
+   ORACLE_BASE=/u01/base                               \
+   oracle.install.db.InstallEdition=SE2                \
+   oracle.install.db.isCustomInstall=false             \
+   oracle.install.db.OSDBA_GROUP=dba                   \
+   oracle.install.db.OSBACKUPDBA_GROUP=dba             \
+   oracle.install.db.OSDGDBA_GROUP=dba                 \
+   oracle.install.db.OSKMDBA_GROUP=dba                 \
+   oracle.install.db.OSRACDBA_GROUP=dba                \
+   SECURITY_UPDATES_VIA_MYORACLESUPPORT=false          \
+   DECLINE_SECURITY_UPDATES=true
+</pre>
+<p>This has generated following output:</p>
+<pre>
+Launching Oracle Database Setup Wizard...
+
+[WARNING] [INS-13014] Target environment does not meet some optional requirements.
+   CAUSE: Some of the optional prerequisites are not met. See logs for details. installActions2018-08-24_08-14-14PM.log
+   ACTION: Identify the list of failed prerequisite checks from the log: installActions2018-08-24_08-14-14PM.log. Then either from the log file or from installation manual find the appropriate configuration to meet the prerequisites and fix it manually.
+The response file for this session can be found at:
+ /u01/db18c/install/response/db_2018-08-24_08-14-14PM.rsp
+
+You can find the log of this install session at:
+ /tmp/InstallActions2018-08-24_08-14-14PM/installActions2018-08-24_08-14-14PM.log
+
+As a root user, execute the following script(s):
+	1. /u01/orainv/orainstRoot.sh
+	2. /u01/db18c/root.sh
+
+Execute /u01/orainv/orainstRoot.sh on the following nodes: 
+[rh7defs0]
+Execute /u01/db18c/root.sh on the following nodes: 
+[rh7defs0]
+
+
+Successfully Setup Software with warning(s).
+Moved the install session logs to:
+ /u01/orainv/logs/InstallActions2018-08-24_08-14-14PM
+</pre>
+<p>I have ignored following failed prerequisites:</p>
+<pre>
+INFO:  [Aug 24, 2018 8:14:43 PM] ------------------List of failed Tasks------------------
+INFO:  [Aug 24, 2018 8:14:43 PM] *********************************************
+INFO:  [Aug 24, 2018 8:14:43 PM] Physical Memory: This is a prerequisite condition to test whether the system has at least 8GB (8388608.0KB) of total physical memory.
+INFO:  [Aug 24, 2018 8:14:43 PM] Severity:IGNORABLE
+INFO:  [Aug 24, 2018 8:14:43 PM] OverallStatus:VERIFICATION_FAILED
+INFO:  [Aug 24, 2018 8:14:43 PM] *********************************************
+INFO:  [Aug 24, 2018 8:14:43 PM] Package: gcc-c++-4.8.2: This is a prerequisite condition to test whether the package "gcc-c++-4.8.2" is available on the system.
+INFO:  [Aug 24, 2018 8:14:43 PM] Severity:IGNORABLE
+INFO:  [Aug 24, 2018 8:14:43 PM] OverallStatus:VERIFICATION_FAILED
+INFO:  [Aug 24, 2018 8:14:43 PM] -----------------End of failed Tasks List----------------
+</pre>
+<p>I have run as root:</p>
+<pre>
+# /u01/orainv/orainstRoot.sh
+Changing permissions of /u01/orainv.
+Adding read,write permissions for group.
+Removing read,write,execute permissions for world.
+
+Changing groupname of /u01/orainv to oinstall.
+The execution of the script is complete.
+# /u01/db18c/root.sh
+# cat /u01/db18c/install/root_rh7defs0.localdomain_2018-08-24_20-17-18-230575231.log
+Performing root user operation.
+
+The following environment variables are set as:
+    ORACLE_OWNER= oracle
+    ORACLE_HOME=  /u01/db18c
+   Copying dbhome to /usr/local/bin ...
+   Copying oraenv to /usr/local/bin ...
+   Copying coraenv to /usr/local/bin ...
+
+
+Creating /etc/oratab file...
+Entries will be added to the /etc/oratab file as needed by
+Database Configuration Assistant when a database is created
+Finished running generic part of root script.
+Now product-specific root actions will be performed.
+Oracle Trace File Analyzer (TFA) is available at : /u01/db18c/suptools/tfa/release/tfa_home/bin/tfactl
+</pre>
+<p>I have checked Oracle inventory with:</p>
+<pre>
+$ export ORACLE_HOME=/u01/db18c
+$ PATH=$ORACLE_HOME/bin:$PATH
+$ $ORACLE_HOME/OPatch/opatch lsinv
+Oracle Interim Patch Installer version 12.2.0.1.14
+Copyright (c) 2018, Oracle Corporation.  All rights reserved.
+
+
+Oracle Home       : /u01/db18c
+Central Inventory : /u01/orainv
+   from           : /u01/db18c/oraInst.loc
+OPatch version    : 12.2.0.1.14
+OUI version       : 12.2.0.4.0
+Log file location : /u01/db18c/cfgtoollogs/opatch/opatch2018-08-24_20-20-09PM_1.log
+
+Lsinventory Output file location : /u01/db18c/cfgtoollogs/opatch/lsinv/lsinventory2018-08-24_20-20-09PM.txt
+
+--------------------------------------------------------------------------------
+Local Machine Information::
+Hostname: localhost
+ARU platform id: 226
+ARU platform description:: Linux x86-64
+
+Installed Top-level Products (1): 
+
+Oracle Database 18c                                                  18.0.0.0.0
+There are 1 products installed in this Oracle Home.
+
+
+Interim patches (4) :
+
+Patch  27908644     : applied on Wed Jul 18 19:44:11 CEST 2018
+Unique Patch ID:  22153180
+Patch description:  "UPDATE 18.3 DATABASE CLIENT JDK IN ORACLE HOME TO JDK8U171"
+   Created on 4 May 2018, 01:21:02 hrs PST8PDT
+   Bugs fixed:
+     27908644
+
+Patch  27923415     : applied on Wed Jul 18 19:41:38 CEST 2018
+Unique Patch ID:  22239273
+Patch description:  "OJVM RELEASE UPDATE: 18.3.0.0.180717 (27923415)"
+   Created on 15 Jul 2018, 10:33:22 hrs PST8PDT
+   Bugs fixed:
+     27304131, 27539876, 27952586, 27642235, 27636900, 27461740
+
+Patch  28090553     : applied on Wed Jul 18 19:40:01 CEST 2018
+Unique Patch ID:  22256940
+Patch description:  "OCW RELEASE UPDATE 18.3.0.0.0 (28090553)"
+   Created on 11 Jul 2018, 19:20:31 hrs PST8PDT
+   Bugs fixed:
+     12816839, 18701017, 22734786, 23698980, 23840305, 25709124, 25724089
+     26299684, 26313403, 26433972, 26527054, 26586174, 26587652, 26647619
+     26827699, 26860285, 26882126, 26882316, 26943660, 26996813, 27012915
+     27018734, 27032726, 27034318, 27040560, 27080748, 27086406, 27092991
+     27098733, 27106915, 27114112, 27121566, 27133637, 27144533, 27153755
+     27166715, 27174938, 27174948, 27177551, 27177852, 27182006, 27182064
+     27184253, 27204476, 27212837, 27213140, 27220610, 27222423, 27222938
+     27238077, 27238258, 27249544, 27252023, 27257509, 27263677, 27265816
+     27267992, 27271876, 27274143, 27285557, 27299455, 27300007, 27302415
+     27309182, 27314512, 27315159, 27320985, 27334353, 27338838, 27346984
+     27358232, 27362190, 27370933, 27377219, 27378959, 27379846, 27379956
+     27393421, 27398223, 27399499, 27399762, 27399985, 27401618, 27403244
+     27404599, 27426277, 27428790, 27430219, 27430254, 27433163, 27452897
+     27458829, 27465480, 27475272, 27481406, 27481765, 27492916, 27496806
+     27503318, 27503413, 27508936, 27508984, 27513114, 27519708, 27526362
+     27528204, 27532009, 27534289, 27560562, 27560735, 27573154, 27573408
+     27574335, 27577122, 27579969, 27581484, 27593587, 27595801, 27600706
+     27609819, 27625010, 27625050, 27627992, 27654039, 27657467, 27657920
+     27668379, 27682288, 27691717, 27702244, 27703242, 27708711, 27714373
+     27725967, 27731346, 27734470, 27735534, 27739957, 27740854, 27747407
+     27748321, 27757979, 27766679, 27768034, 27778433, 27782464, 27783059
+     27786669, 27786699, 27801774, 27811439, 27839732, 27850736, 27862636
+     27864737, 27865439, 27889841, 27896388, 27897639, 27906509, 27931506
+     27935826, 27941514, 27957892, 27978668, 27984314, 27993298, 28023410
+     28025398, 28032758, 28039471, 28039953, 28045209, 28099592, 28109698
+     28174926, 28182503, 28204423, 28240153
+
+Patch  28090523     : applied on Wed Jul 18 19:39:24 CEST 2018
+Unique Patch ID:  22329768
+Patch description:  "Database Release Update : 18.3.0.0.180717 (28090523)"
+   Created on 14 Jul 2018, 00:03:50 hrs PST8PDT
+   Bugs fixed:
+     9062315, 13554903, 21547051, 21766220, 21806121, 23003564, 23310101
+     24489904, 24689376, 24737581, 24925863, 25035594, 25035599, 25287072
+     25348956, 25634405, 25726981, 25743479, 25824236, 25943740, 26226953
+     26336101, 26423085, 26427905, 26450454, 26476244, 26598422, 26615291
+     26646549, 26654411, 26731697, 26785169, 26792891, 26818960, 26822620
+     26843558, 26843664, 26846077, 26894737, 26898279, 26928317, 26933599
+     26956033, 26961415, 26966120, 26986173, 26992964, 27005278, 27026401
+     27028251, 27030974, 27036408, 27038986, 27041253, 27044575, 27047831
+     27053044, 27058530, 27060167, 27060859, 27061736, 27066451, 27066519
+     27073066, 27086821, 27090765, 27101527, 27101652, 27110878, 27112686
+     27119621, 27126666, 27128580, 27135647, 27143756, 27143882, 27147979
+     27153641, 27155549, 27156355, 27163928, 27169796, 27181521, 27181537
+     27189611, 27190851, 27193810, 27199245, 27208953, 27210038, 27210872
+     27214085, 27215007, 27216224, 27221900, 27222121, 27222626, 27224987
+     27226913, 27232983, 27233563, 27236052, 27236110, 27240246, 27240570
+     27241221, 27241247, 27244337, 27244785, 27249215, 27250547, 27254851
+     27258578, 27259386, 27259983, 27262650, 27262945, 27263276, 27263996
+     27270197, 27274456, 27274536, 27275136, 27275776, 27282707, 27283029
+     27283960, 27284499, 27285244, 27288230, 27292213, 27294480, 27301308
+     27301568, 27302594, 27302681, 27302695, 27302711, 27302730, 27302777
+     27302800, 27302960, 27304410, 27304936, 27305318, 27307868, 27310092
+     27313687, 27314206, 27314390, 27318869, 27321179, 27321834, 27326204
+     27329812, 27330158, 27330161, 27333658, 27333664, 27333693, 27334316
+     27334648, 27335682, 27338912, 27338946, 27339115, 27339396, 27339483
+     27339495, 27341036, 27345190, 27345231, 27345450, 27345498, 27346329
+     27346644, 27346709, 27346949, 27347126, 27348081, 27348707, 27349393
+     27352600, 27354783, 27356373, 27357773, 27358241, 27359178, 27359368
+     27360126, 27364891, 27364916, 27364947, 27365139, 27365702, 27365993
+     27367194, 27368850, 27372756, 27375260, 27375542, 27376871, 27378103
+     27379233, 27381383, 27381656, 27384222, 27389352, 27392187, 27395404
+     27395416, 27395794, 27396357, 27396365, 27396377, 27396624, 27396666
+     27396672, 27396813, 27398080, 27398660, 27401637, 27405242, 27405696
+     27410300, 27410595, 27412805, 27417186, 27420715, 27421101, 27422874
+     27423251, 27425507, 27425622, 27426363, 27427805, 27430802, 27432338
+     27432355, 27433870, 27434050, 27434193, 27434486, 27434974, 27435537
+     27439835, 27441326, 27442041, 27444727, 27445330, 27445462, 27447452
+     27447687, 27448162, 27450355, 27450400, 27450783, 27451049, 27451182
+     27451187, 27451531, 27452760, 27453225, 27457666, 27457891, 27458164
+     27459909, 27460675, 27467543, 27469329, 27471876, 27472969, 27473800
+     27479358, 27483974, 27484556, 27486253, 27487795, 27489719, 27496224
+     27496308, 27497950, 27498477, 27501327, 27501413, 27501465, 27502420
+     27504190, 27505603, 27506774, 27508985, 27511196, 27512439, 27517818
+     27518227, 27518310, 27520070, 27520900, 27522245, 27523368, 27523800
+     27525909, 27532375, 27533819, 27534509, 27537472, 27544030, 27545630
+     27547732, 27550341, 27551855, 27558557, 27558559, 27558861, 27560702
+     27563629, 27563767, 27570318, 27577758, 27579353, 27580996, 27585755
+     27585800, 27586810, 27586895, 27587672, 27591842, 27592466, 27593389
+     27595973, 27599689, 27602091, 27602488, 27603841, 27604293, 27607805
+     27608669, 27610269, 27613080, 27613247, 27615608, 27616657, 27617522
+     27625274, 27625620, 27631506, 27634676, 27635508, 27644757, 27649707
+     27652302, 27663370, 27664702, 27679488, 27679664, 27679806, 27679961
+     27680162, 27680509, 27682151, 27688099, 27688692, 27690578, 27691809
+     27692215, 27693713, 27697092, 27701795, 27705761, 27707544, 27709046
+     27718914, 27719187, 27723002, 27726269, 27726780, 27732323, 27739006
+     27740844, 27744211, 27745220, 27747869, 27748954, 27751006, 27753336
+     27757567, 27772815, 27773602, 27774320, 27774539, 27779886, 27780562
+     27782339, 27783289, 27786772, 27791223, 27797290, 27803665, 27807441
+     27812560, 27812593, 27813267, 27815347, 27818871, 27832643, 27833369
+     27834984, 27840386, 27847259, 27851757, 27861909, 27869339, 27873643
+     27882176, 27892488, 27924147, 27926113, 27930478, 27934468, 27941896
+     27945870, 27950708, 27952762, 27961746, 27964051, 27970265, 27971575
+     27984028, 27989849, 27993289, 27994333, 27997875, 27999597, 28021205
+     28022847, 28033429, 28057267, 28059199, 28072130, 28098865, 28106402
+     28132287, 28169711, 28174827, 28184554, 28188330, 25929650, 28264172
+
+
+
+--------------------------------------------------------------------------------
+
+OPatch succeeded.
+$ $ORACLE_HOME/OPatch/opatch lspatches
+27908644;UPDATE 18.3 DATABASE CLIENT JDK IN ORACLE HOME TO JDK8U171
+27923415;OJVM RELEASE UPDATE: 18.3.0.0.180717 (27923415)
+28090553;OCW RELEASE UPDATE 18.3.0.0.0 (28090553)
+28090523;Database Release Update : 18.3.0.0.180717 (28090523)
+
+</pre>
+<p>I have created a database with following steps:</p>
+<pre>
+# mkdir /u01/oradata
+# chown oracle:dba /u01/oradata
+# mkdir /u01/fra
+# chown oracle:dba /u01/fra
+</pre>
+<p>and:</p>
+<pre>
+$ dbca -silent \
+-createDatabase \
+-templateName General_Purpose.dbc \
+-gdbName CDB \
+-sid CDB \
+-createAsContainerDatabase true \
+-numberOfPdbs 1 \
+-pdbName pdb \
+-pdbadminUsername pdba \
+-pdbadminPassword oracle \
+-SysPassword oracle \
+-SystemPassword oracle \
+-emConfiguration NONE \
+-storageType FS \
+-datafileDestination /u01/oradata \
+-recoveryAreaDestination /u01/fra \
+-recoveryAreaSize 3200  \
+-characterSet AL32UTF8 \
+-memoryPercentage 40 \
+-enableArchive true \
+-redoLogFileSize 100
+[WARNING] [DBT-06801] Specified Fast Recovery Area size (3,200 MB) is less than the recommended value.
+   CAUSE: Fast Recovery Area size should at least be three times the database size (2,446 MB).
+   ACTION: Specify Fast Recovery Area Size to be at least three times the database size.
+[WARNING] [DBT-06208] The 'SYS' password entered does not conform to the Oracle recommended standards.
+   CAUSE: 
+a. Oracle recommends that the password entered should be at least 8 characters in length, contain at least 1 uppercase character, 1 lower case character and 1 digit [0-9].
+b.The password entered is a keyword that Oracle does not recommend to be used as password
+   ACTION: Specify a strong password. If required refer Oracle documentation for guidelines.
+[WARNING] [DBT-06208] The 'SYSTEM' password entered does not conform to the Oracle recommended standards.
+   CAUSE: 
+a. Oracle recommends that the password entered should be at least 8 characters in length, contain at least 1 uppercase character, 1 lower case character and 1 digit [0-9].
+b.The password entered is a keyword that Oracle does not recommend to be used as password
+   ACTION: Specify a strong password. If required refer Oracle documentation for guidelines.
+[WARNING] [DBT-06208] The 'PDBADMIN' password entered does not conform to the Oracle recommended standards.
+   CAUSE: 
+a. Oracle recommends that the password entered should be at least 8 characters in length, contain at least 1 uppercase character, 1 lower case character and 1 digit [0-9].
+b.The password entered is a keyword that Oracle does not recommend to be used as password
+   ACTION: Specify a strong password. If required refer Oracle documentation for guidelines.
+[WARNING] [DBT-06801] Specified Fast Recovery Area size (3,200 MB) is less than the recommended value.
+   CAUSE: Fast Recovery Area size should at least be three times the database size (3,309 MB).
+   ACTION: Specify Fast Recovery Area Size to be at least three times the database size.
+Prepare for db operation
+8% complete
+Copying database files
+31% complete
+Creating and starting Oracle instance
+32% complete
+36% complete
+40% complete
+43% complete
+46% complete
+Completing Database Creation
+51% complete
+53% complete
+54% complete
+Creating Pluggable Databases
+58% complete
+77% complete
+Executing Post Configuration Actions
+100% complete
+Database creation complete. For details check the logfiles at:
+ /u01/base/cfgtoollogs/dbca/CDB.
+Database Information:
+Global Database Name:CDB
+System Identifier(SID):CDB
+Look at the log file "/u01/base/cfgtoollogs/dbca/CDB/CDB.log" for further details.
+</pre>
+<p>I have checked created database with:</p>
+<pre>
+$ . oraenv
+ORACLE_SID = [oracle] ? CDB
+The Oracle base has been set to /u01/base
+$ sqlplus / as sysdba
+
+SQL*Plus: Release 18.0.0.0.0 - Production on Fri Aug 24 20:47:52 2018
+Version 18.3.0.0.0
+
+Copyright (c) 1982, 2018, Oracle.  All rights reserved.
+
+
+Connected to:
+Oracle Database 18c Standard Edition 2 Release 18.0.0.0.0 - Production
+Version 18.3.0.0.0
+
+SQL&gt; select * from v$version;
+
+BANNER
+--------------------------------------------------------------------------------
+BANNER_FULL
+--------------------------------------------------------------------------------
+BANNER_LEGACY
+--------------------------------------------------------------------------------
+    CON_ID
+----------
+Oracle Database 18c Standard Edition 2 Release 18.0.0.0.0 - Production
+Oracle Database 18c Standard Edition 2 Release 18.0.0.0.0 - Production
+Version 18.3.0.0.0
+Oracle Database 18c Standard Edition 2 Release 18.0.0.0.0 - Production
+	 0
+
+BANNER
+--------------------------------------------------------------------------------
+BANNER_FULL
+--------------------------------------------------------------------------------
+BANNER_LEGACY
+--------------------------------------------------------------------------------
+    CON_ID
+----------
+
+SQL&gt; select name, cdb, log_mode from v$database;
+
+NAME	  CDB LOG_MODE
+--------- --- ------------
+CDB	  YES ARCHIVELOG
+
+SQL&gt; show pdbs
+
+    CON_ID CON_NAME			  OPEN MODE  RESTRICTED
+---------- ------------------------------ ---------- ----------
+	 2 PDB$SEED			  READ ONLY  NO
+	 3 PDB				  READ WRITE NO
+SQL&gt; 
+
+SQL&gt; select comp_name, status, version from dba_registry order by 1;
+
+COMP_NAME				 STATUS     VERSION
+---------------------------------------- ---------- ------------------------------
+JServer JAVA Virtual Machine		 VALID	    18.0.0.0.0
+OLAP Analytic Workspace 		 OPTION OFF 18.0.0.0.0
+Oracle Database Catalog Views		 VALID	    18.0.0.0.0
+Oracle Database Java Packages		 VALID	    18.0.0.0.0
+Oracle Database Packages and Types	 VALID	    18.0.0.0.0
+Oracle Database Vault			 OPTION OFF 18.0.0.0.0
+Oracle Label Security			 OPTION OFF 18.0.0.0.0
+Oracle Multimedia			 VALID	    18.0.0.0.0
+Oracle OLAP API 			 OPTION OFF 18.0.0.0.0
+Oracle Real Application Clusters	 OPTION OFF 18.0.0.0.0
+Oracle Text				 VALID	    18.0.0.0.0
+
+COMP_NAME				 STATUS     VERSION
+---------------------------------------- ---------- ------------------------------
+Oracle Workspace Manager		 VALID	    18.0.0.0.0
+Oracle XDK				 VALID	    18.0.0.0.0
+Oracle XML Database			 VALID	    18.0.0.0.0
+Spatial 				 OPTION OFF 18.0.0.0.0
+
+15 rows selected.
+
+</pre>
+<p>I have added host name to <b>/etc/hosts</b> for Oracle Net with:</p>
+<pre>
+# vi /etc/hosts
+# grep rh /etc/hosts
+192.168.56.14 rh7defs0 rh7defs0.localdomain
+# 
+</pre>
+<p>I have started Oracle Net listener and waited about 1 minute for automatic registration of database instance:</p>
+<pre>
+$ . oraenv
+ORACLE_SID = [oracle] ? CDB
+The Oracle base has been set to /u01/base
+$ lsnrctl start
+
+LSNRCTL for Linux: Version 18.0.0.0.0 - Production on 27-AUG-2018 21:22:04
+
+Copyright (c) 1991, 2018, Oracle.  All rights reserved.
+
+Starting /u01/db18c/bin/tnslsnr: please wait...
+
+TNSLSNR for Linux: Version 18.0.0.0.0 - Production
+Log messages written to /u01/base/diag/tnslsnr/rh7defs0/listener/alert/log.xml
+Listening on: (DESCRIPTION=(ADDRESS=(PROTOCOL=tcp)(HOST=rh7defs0)(PORT=1521)))
+
+Connecting to (ADDRESS=(PROTOCOL=tcp)(HOST=)(PORT=1521))
+STATUS of the LISTENER
+------------------------
+Alias                     LISTENER
+Version                   TNSLSNR for Linux: Version 18.0.0.0.0 - Production
+Start Date                27-AUG-2018 21:22:04
+Uptime                    0 days 0 hr. 0 min. 0 sec
+Trace Level               off
+Security                  ON: Local OS Authentication
+SNMP                      OFF
+Listener Log File         /u01/base/diag/tnslsnr/rh7defs0/listener/alert/log.xml
+Listening Endpoints Summary...
+  (DESCRIPTION=(ADDRESS=(PROTOCOL=tcp)(HOST=rh7defs0)(PORT=1521)))
+The listener supports no services
+The command completed successfully
+$ lsnrctl status
+
+LSNRCTL for Linux: Version 18.0.0.0.0 - Production on 27-AUG-2018 21:22:50
+
+Copyright (c) 1991, 2018, Oracle.  All rights reserved.
+
+Connecting to (ADDRESS=(PROTOCOL=tcp)(HOST=)(PORT=1521))
+STATUS of the LISTENER
+------------------------
+Alias                     LISTENER
+Version                   TNSLSNR for Linux: Version 18.0.0.0.0 - Production
+Start Date                27-AUG-2018 21:22:04
+Uptime                    0 days 0 hr. 0 min. 46 sec
+Trace Level               off
+Security                  ON: Local OS Authentication
+SNMP                      OFF
+Listener Log File         /u01/base/diag/tnslsnr/rh7defs0/listener/alert/log.xml
+Listening Endpoints Summary...
+  (DESCRIPTION=(ADDRESS=(PROTOCOL=tcp)(HOST=rh7defs0)(PORT=1521)))
+Services Summary...
+Service "7433c9568a2d6255e055000000000001" has 1 instance(s).
+  Instance "CDB", status READY, has 1 handler(s) for this service...
+Service "CDB" has 1 instance(s).
+  Instance "CDB", status READY, has 1 handler(s) for this service...
+Service "CDBXDB" has 1 instance(s).
+  Instance "CDB", status READY, has 1 handler(s) for this service...
+Service "pdb" has 1 instance(s).
+  Instance "CDB", status READY, has 1 handler(s) for this service...
+The command completed successfully
+</pre>
+<p>I have checked Oracle Net connection with:</p>
+<pre>
+$ sqlplus system/oracle@rh7defs0:1521/CDB 
+
+SQL*Plus: Release 18.0.0.0.0 - Production on Mon Aug 27 21:23:31 2018
+Version 18.3.0.0.0
+
+Copyright (c) 1982, 2018, Oracle.  All rights reserved.
+
+
+Connected to:
+Oracle Database 18c Standard Edition 2 Release 18.0.0.0.0 - Production
+Version 18.3.0.0.0
+
+SYSTEM@rh7defs0:1521/CDB&gt;select host_name, instance_name from v$instance;
+
+HOST_NAME
+----------------------------------------------------------------
+INSTANCE_NAME
+----------------
+rh7defs0.localdomain
+CDB
+
+
+SYSTEM@rh7defs0:1521/CDB&gt;
+</pre>
+<p>Everything looks OK.</p>
