@@ -1,0 +1,323 @@
+<p>ASM free disk space is easy to understand if you use only disk group with external redundancy. <a href="https://docs.oracle.com/en/database/oracle/oracle-database/12.2/ostmg/capacity-diskgroups.html#GUID-CF644399-17BF-4A2B-B01A-8F11B90A5267">ASM 12.2. documentation</a> says:<br />
+<br />
+<i><br />
+The values in the TOTAL_MB and FREE_MB columns best describe space usage when you do not configure Oracle ASM mirroring, that is, when you use external redundancy.<br />
+</i><br />
+<br />
+But if you start to work with normal redundancy disk groups or high redundancy disk groups it gets more complicated. </p>
+<p>In this blog post I am going to give an example based on a high redundancy disk group of 5 disks of 5.8 GB. </p>
+<h3>Configuration used</h3>
+<p>I have created HRDATA high redundancy disk group with following SQL statement (high redundancy means 3-way mirroring) with:</p>
+<pre>
+create diskgroup HRDATA high redundancy disk '/dev/asm-disk3' disk '/dev/asm-disk4' disk '/dev/asm-disk5' disk '/dev/asm-disk6' disk '/dev/asm-disk7';
+</pre>
+<p>Note that I did not explicitely created any failure group: this means that by default each disk is its own failure group.</p>
+<p>I have used following Grid Infrastructure and Oracle Database configuration:</p>
+<pre>
+$ $ORACLE_HOME/OPatch/opatch lsinv
+Oracle Interim Patch Installer version 12.2.0.1.6
+Copyright (c) 2018, Oracle Corporation.  All rights reserved.
+
+
+Oracle Home       : /u01/gi12201
+Central Inventory : /u01/orainv
+   from           : /u01/gi12201/oraInst.loc
+OPatch version    : 12.2.0.1.6
+OUI version       : 12.2.0.1.4
+Log file location : /u01/gi12201/cfgtoollogs/opatch/opatch2018-02-05_19-58-16PM_1.log
+
+Lsinventory Output file location : /u01/gi12201/cfgtoollogs/opatch/lsinv/lsinventory2018-02-05_19-58-16PM.txt
+
+--------------------------------------------------------------------------------
+Local Machine Information::
+Hostname: ol7ttsa1
+ARU platform id: 226
+ARU platform description:: Linux x86-64
+
+Installed Top-level Products (1): 
+
+Oracle Grid Infrastructure 12c                                       12.2.0.1.0
+There are 1 products installed in this Oracle Home.
+
+
+There are no Interim patches installed in this Oracle Home.
+
+
+--------------------------------------------------------------------------------
+
+OPatch succeeded.
+$ crsctl stat res -t
+--------------------------------------------------------------------------------
+Name           Target  State        Server                   State details       
+--------------------------------------------------------------------------------
+Local Resources
+--------------------------------------------------------------------------------
+ora.DATA.dg
+               ONLINE  ONLINE       ol7ttsa1                 STABLE
+ora.HRDATA.dg
+               ONLINE  ONLINE       ol7ttsa1                 STABLE
+ora.LISTENER.lsnr
+               ONLINE  ONLINE       ol7ttsa1                 STABLE
+ora.RECO.dg
+               ONLINE  ONLINE       ol7ttsa1                 STABLE
+ora.asm
+               ONLINE  ONLINE       ol7ttsa1                 Started,STABLE
+ora.ons
+               OFFLINE OFFLINE      ol7ttsa1                 STABLE
+--------------------------------------------------------------------------------
+Cluster Resources
+--------------------------------------------------------------------------------
+ora.cssd
+      1        ONLINE  ONLINE       ol7ttsa1                 STABLE
+ora.db1.db
+      1        ONLINE  ONLINE       ol7ttsa1                 Open,HOME=/u01/db122
+                                                             01,STABLE
+ora.diskmon
+      1        OFFLINE OFFLINE                               STABLE
+ora.evmd
+      1        ONLINE  ONLINE       ol7ttsa1                 STABLE
+--------------------------------------------------------------------------------
+$ . oraenv
+ORACLE_SID = [+ASM] ? DB1
+The Oracle base has been changed from /u01/base to /u01/oracle
+$ $ORACLE_HOME/OPatch/opatch lsinv
+Oracle Interim Patch Installer version 12.2.0.1.6
+Copyright (c) 2018, Oracle Corporation.  All rights reserved.
+
+
+Oracle Home       : /u01/db12201
+Central Inventory : /u01/orainv
+   from           : /u01/db12201/oraInst.loc
+OPatch version    : 12.2.0.1.6
+OUI version       : 12.2.0.1.4
+Log file location : /u01/db12201/cfgtoollogs/opatch/opatch2018-02-25_10-01-55AM_1.log
+
+Lsinventory Output file location : /u01/db12201/cfgtoollogs/opatch/lsinv/lsinventory2018-02-25_10-01-55AM.txt
+
+--------------------------------------------------------------------------------
+Local Machine Information::
+Hostname: ol7ttsa1
+ARU platform id: 226
+ARU platform description:: Linux x86-64
+
+Installed Top-level Products (1): 
+
+Oracle Database 12c                                                  12.2.0.1.0
+There are 1 products installed in this Oracle Home.
+
+
+There are no Interim patches installed in this Oracle Home.
+
+
+--------------------------------------------------------------------------------
+
+OPatch succeeded.
+</pre>
+<p>Here is the ASM disk configuration (I don't know why <b>Redund</b> columns is set to UNKNOWN):</p>
+<pre>
+$ lsdsk -G HRDATA -k
+Total_MB  Free_MB  OS_MB  Name         Failgroup    Site_Name  Site_GUID                         Site_Status  Failgroup_Type  Library  Label  Failgroup_Label  Site_Label  UDID  Product  Redund   Path
+    5799     5764   5799  HRDATA_0000  HRDATA_0000             00000000000000000000000000000000               REGULAR         System                                                      UNKNOWN  /dev/asm-disk3
+    5799     5762   5799  HRDATA_0001  HRDATA_0001             00000000000000000000000000000000               REGULAR         System                                                      UNKNOWN  /dev/asm-disk4
+    5799     5762   5799  HRDATA_0002  HRDATA_0002             00000000000000000000000000000000               REGULAR         System                                                      UNKNOWN  /dev/asm-disk5
+    5799     5760   5799  HRDATA_0003  HRDATA_0003             00000000000000000000000000000000               REGULAR         System                                                      UNKNOWN  /dev/asm-disk6
+    5799     5763   5799  HRDATA_0004  HRDATA_0004             00000000000000000000000000000000               REGULAR         System                                                      UNKNOWN  /dev/asm-disk7
+</pre>
+<p>I have checked disk space information with:</p>
+<pre>
+$  asmcmd lsdg HRDATA
+State    Type  Rebal  Sector  Logical_Sector  Block       AU  Total_MB  Free_MB  Req_mir_free_MB  Usable_file_MB  Offline_disks  Voting_files  Name
+MOUNTED  HIGH  N         512             512   4096  1048576     28995    28811            11598            5737              0             N  HRDATA/
+</pre>
+<p>Note that in <code>asmcmd lsdg</code> output <b>Total_MB</b> and <b>Free_MB</b> don't take redundancy into account: the 5 disk sizes have been added to give these numbers. However this is not the case with <b>Usable_file_MB</b>: according to this column we have only 5.7 GB disk space available: that means more or less the size of a single disk.</p>
+<p><a href="https://docs.oracle.com/en/database/oracle/oracle-database/12.2/ostmg/asmcmd-diskgroup-commands.html#GUID-E775902B-6461-4E61-BC43-231D1701FBDA">ASM 12.2 documentation</a> says that <b>Req_mir_free_MB</b> is the<br />
+<i>Amount of space that must be available in the disk group to restore full redundancy after the most severe failure that can be tolerated by the disk group<br />
+</i> and that <b>Usable_file_MB</b> is the <i> Amount of free space, adjusted for mirroring, that is available for new files.</i><br />
+</p>
+<h3>What is the maximum disk space that can be used in this 5-disk diskgroup ? </h3>
+<p>I have tried:</p>
+<pre>
+SYS@DB1&gt;create tablespace HRTS datafile '+HRDATA' size 9596M;
+create tablespace HRTS datafile '+HRDATA' size 9596M
+*
+ERROR at line 1:
+ORA-01119: error in creating database file '+HRDATA'
+ORA-17502: ksfdcre:4 Failed to create file +HRDATA
+ORA-15041: diskgroup "HRDATA" space exhausted
+
+
+SYS@DB1&gt;create tablespace HRTS datafile '+HRDATA' size 9595M;
+create tablespace HRTS datafile '+HRDATA' size 9595M
+*
+ERROR at line 1:
+ORA-01119: error in creating database file '+HRDATA'
+ORA-17502: ksfdcre:4 Failed to create file +HRDATA
+ORA-15041: diskgroup "HRDATA" space exhausted
+
+SYS@DB1&gt;create tablespace HRTS datafile '+HRDATA' size 9594M;
+
+Tablespace created.
+
+SYS@DB1&gt;
+</pre>
+<p>I have checked disk space information:</p>
+<pre>
+$ asmcmd lsdg HRDATA
+State    Type  Rebal  Sector  Logical_Sector  Block       AU  Total_MB  Free_MB  Req_mir_free_MB  Usable_file_MB  Offline_disks  Voting_files  Name
+MOUNTED  HIGH  N         512             512   4096  1048576     28995       23            11598           -3858              0             N  HRDATA/
+</pre>
+<p>Note hat <b>Usable_file_MB</b> is now negative and that <b>Free_MB</b> is close to zero MB.</p>
+<p>I have checked file level redundancy with:</p>
+<pre>
+SYS@+ASM&gt;select ad.name as dg_name, af.file_number, af.type, af.redundancy, af.redundancy_lowered
+  2  from v$asm_file af, v$asm_diskgroup ad
+  3  where af.group_number = ad.group_number and ad.name='HRDATA';
+
+DG_NAME    FILE_NUMBER TYPE			      REDUNDANCY      REDUNDANCY_LOWERED
+---------- ----------- ------------------------------ --------------- --------------------
+HRDATA		   262 DATAFILE 		      HIGH	      U
+
+SYS@+ASM&gt;
+</pre>
+<p>At this step I cannot drop any disk:</p>
+<pre>
+SYS@+ASM&gt;alter diskgroup HRDATA drop disk HRDATA_0000;
+alter diskgroup HRDATA drop disk HRDATA_0000
+*
+ERROR at line 1:
+ORA-15032: not all alterations performed
+ORA-15250: insufficient diskgroup space for rebalance completion
+
+
+SYS@+ASM&gt;
+</pre>
+<p>I have dropped tablespace:</p>
+<pre>
+SYS@DB1&gt;drop tablespace HRTS;
+
+Tablespace dropped.
+</pre>
+<p>I have created a smaller tablespace that is also bigger than 1 disk:</p>
+<pre>
+SYS@DB1&gt;create tablespace HRTS datafile '+HRDATA' size 6000M;
+
+Tablespace created.
+
+SYS@DB1&gt;
+</pre>
+<p>At this step I have following ASM disk space:</p>
+<pre>
+$ asmcmd lsdg HRDATA
+State    Type  Rebal  Sector  Logical_Sector  Block       AU  Total_MB  Free_MB  Req_mir_free_MB  Usable_file_MB  Offline_disks  Voting_files  Name
+MOUNTED  HIGH  N         512             512   4096  1048576     28995    10805            11598            -264              0             N  HRDATA/
+</pre>
+<p>I could only drop one disk:</p>
+<pre>
+SYS@+ASM&gt;alter diskgroup HRDATA drop disk HRDATA_0000, HRDATA_0001;
+alter diskgroup HRDATA drop disk HRDATA_0000, HRDATA_0001
+*
+ERROR at line 1:
+ORA-15032: not all alterations performed
+ORA-15250: insufficient diskgroup space for rebalance completion
+
+
+SYS@+ASM&gt;alter diskgroup HRDATA drop disk HRDATA_0000;
+
+Diskgroup altered.
+
+SYS@+ASM&gt;
+</pre>
+<p>I have checked ASM disk group space with:</p>
+<pre>
+$ asmcmd lsdg HRDATA
+State    Type  Rebal  Sector  Logical_Sector  Block       AU  Total_MB  Free_MB  Req_mir_free_MB  Usable_file_MB  Offline_disks  Voting_files  Name
+MOUNTED  HIGH  N         512             512   4096  1048576     23196     5008             5799            -263              0             N  HRDATA/
+</pre>
+<p>To go back to initial configuration, I have dropped the tablespace:</p>
+<pre>
+SYS@DB1&gt;drop tablespace HRTS;
+
+Tablespace dropped.
+
+SYS@DB1&gt;
+</pre>
+<p>And I have added the disk previously dropped:</p>
+<pre>
+SYS@+ASM&gt; alter diskgroup HRDATA add disk '/dev/asm-disk3';
+
+Diskgroup altered.
+
+SYS@+ASM&gt;
+</pre>
+<h3>What is the most severe failure that can be tolerated by this 5 disk diskgroup ?</h3>
+<p>Now the diskgroup is empty. I have tried to drop 3 disks, 2 disks and 1 disk:<br />
+</p>
+<pre>
+SYS@+ASM&gt;alter diskgroup HRDATA drop disk HRDATA_0000, HRDATA_0001, HRDATA_0002, HRDATA_0003;
+alter diskgroup HRDATA drop disk HRDATA_0000, HRDATA_0001, HRDATA_0002, HRDATA_0003
+*
+ERROR at line 1:
+ORA-15067: command or option incompatible with diskgroup redundancy
+
+
+SYS@+ASM&gt;alter diskgroup HRDATA drop disk HRDATA_0000, HRDATA_0001, HRDATA_0002;
+alter diskgroup HRDATA drop disk HRDATA_0000, HRDATA_0001, HRDATA_0002
+*
+ERROR at line 1:
+ORA-15067: command or option incompatible with diskgroup redundancy
+
+
+SYS@+ASM&gt;alter diskgroup HRDATA drop disk HRDATA_0000, HRDATA_0001;
+
+Diskgroup altered.
+
+SYS@+ASM&gt;
+</pre>
+<p>The most severe failure that can be tolerated is failure of 2 disks in this 5 disk diskgroup. This matches what <a href="https://docs.oracle.com/en/database/oracle/oracle-database/12.2/ostmg/mirroring-diskgroup-redundancy.html#GUID-C93FC8D9-5FB8-452B-860F-EFB4D3DE95BD">ASM 12.2 documentation</a> says:<br />
+<i>For five or more failure groups, two disk failures are tolerated</i>.</p>
+<p>I have checked ASM free disk space:</p>
+<pre>
+$ asmcmd lsdg HRDATA
+State    Type  Rebal  Sector  Logical_Sector  Block       AU  Total_MB  Free_MB  Req_mir_free_MB  Usable_file_MB  Offline_disks  Voting_files  Name
+MOUNTED  HIGH  N         512             512   4096  1048576     17397    17217                0            5739              0             N  HRDATA/
+</pre>
+<p>Note that <b>Free_MB</b> has changed but <b>Usable_file_MB</b> has not changed (considering a 2 MB difference as not significant).</p>
+<p>I have checked that in this 3-disk diskgroup configuration the maximum disk space that can be used is 5737M:</p>
+<pre>
+SYS@DB1&gt;create tablespace HRTS datafile '+HRDATA' size 5738M
+*
+ERROR at line 1:
+ORA-01119: error in creating database file '+HRDATA'
+ORA-17502: ksfdcre:4 Failed to create file +HRDATA
+ORA-15041: diskgroup "HRDATA" space exhausted
+
+
+SYS@DB1&gt;create tablespace HRTS datafile '+HRDATA' size 5737M
+
+Tablespace created.
+
+SYS@DB1&gt;
+</pre>
+<p>This is expected because the disk group has only 3 disks with 3-way redudancy.<br />
+<br />
+I have checked ASM disk space:</p>
+<pre>
+$ asmcmd lsdg HRDATA
+State    Type  Rebal  Sector  Logical_Sector  Block       AU  Total_MB  Free_MB  Req_mir_free_MB  Usable_file_MB  Offline_disks  Voting_files  Name
+MOUNTED  HIGH  N         512             512   4096  1048576     17397        0                0               0              0             N  HRDATA/
+</pre>
+<p>I have checked file level redundancy:</p>
+<pre>
+SYS@+ASM&gt;select ad.name as dg_name, af.file_number, af.type, af.redundancy, af.redundancy_lowered
+  2  from v$asm_file af, v$asm_diskgroup ad
+  3  where af.group_number = ad.group_number and ad.name='HRDATA';
+
+DG_NAME    FILE_NUMBER TYPE			      REDUNDANCY      REDUNDANCY_LOWERED
+---------- ----------- ------------------------------ --------------- --------------------
+HRDATA		   262 DATAFILE 		      HIGH	      U
+
+SYS@+ASM&gt;
+</pre>
+<h3>Conclusion</h3>
+<p>According to these tests, the maximum disk space that can be used in a high redundancy disk group is roughly one third of the total disk space: this is expected due to the 3-way redundancy that is implemented by ASM. However using this maximum disk capacity has an impact on the most severe disk failure that can be tolerated: the total number of disks that can be lost can go from 2 to 1 and even to 0.</p>
+<p><a href="https://docs.oracle.com/en/database/oracle/oracle-database/12.2/ostmg/capacity-diskgroups.html#GUID-CF644399-17BF-4A2B-B01A-8F11B90A5267">ASM 12.2 documentation</a> gives more detailed information about disk group capacity (including reduced redundancy cases that I have not tested).</p>
