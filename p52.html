@@ -1,0 +1,527 @@
+<p>In this blog article I document how to apply Oracle Database 12.1.0.2 PSU 5 using out-of-place method.</p>
+<p>The usual in-place patch installation is made up of 4 main steps:</p>
+<li> shutdown database instances using the Oracle Home to be patched.
+</li>
+<li> run opatch to patch Oracle Home.
+</li>
+<li> restart database instances.
+</li>
+<li> run SQL patching script on the restarted database instances.
+</li>
+<p>
+The out-of-place patch installation tries to minimize downtime of database instance with 4 main steps:</p>
+<li>
+clone the current Oracle Home to be patched.
+</li>
+<li>
+run opatch to patch this new Oracle Home.
+</li>
+<li>
+switch database instances from current Oracle Home to new Oracle Home.
+</li>
+<li>
+run SQL patching script on the switched database instances.
+</li>
+<p>
+Note that in-place and out-of-place patching methods are documented in <a href="https://docs.oracle.com/cd/E24628_01/em.121/e27046/pat_mosem_new.htm#BGGECCBI"> Oracle Enterprise Manager Cloud Control Documentation</a>.</p>
+<p>The above 4 steps can be reduced to 3 steps if first two steps are merged into a new single step that clones an existing Oracle Home 12.1.0.2 PSU 5.</p>
+<p>The configuration I have used is the following:</p>
+<li>
+VirtualBox 5.0.14
+</li>
+<li>
+Oracle Linux 6.7
+</li>
+<li>
+Oracle Database 12.1.0.2 Entreprise Edition
+</li>
+<li>
+Oracle Database 12.1.0.2 PSU 5
+</li>
+<li>
+Database is a non CDB database
+</li>
+<li>
+Database is using ASM with Grid Infrastructure 12.1.0.2 (that is not patched).
+</li>
+<h3>Step 1: Clone an existing 12.1.0.2 PSU 5 Oracle Database Home</h3>
+<p>Because I always use software you can download from OTN for my Oracle 12c blog I have used the existing 12.1.0.2 Oracle Home from <a href="https://pierreforstmanndotcom.wordpress.com/2016/03/15/installing-and-using-oracle-hands-on-lab-upgrademigrateconsolidate-to-oracle-12c-hol-virtual-machine/" />Oracle Hands-on-Lab virtual machine</a>.<br />
+<br />
+I have cloned this 12.1.0.2 PSU 5 Oracle Home using <a href="https://pierreforstmanndotcom.wordpress.com/2016/03/17/cloning-oracle-database-home-12-1-0-2-on-new-oracle-linux-machine/" />Cloning Oracle Database Home 12.1.0.2 on new Oracle Linux machine</a>.</p>
+<p>This Oracle Home has already the PSU 5 installed: I have cloned it to <b>/u01/app/12.1.0.2.5/db</b>:</p>
+<pre>
+$ /u01/app/12.1.0.2.5/db/OPatch/opatch  lsinv -all
+Oracle Interim Patch Installer version 12.1.0.1.9
+Copyright (c) 2016, Oracle Corporation.  All rights reserved.
+
+
+Oracle Home       : /u01/app/12.1.0.2.5/db
+Central Inventory : /u01/app/oraInventory
+   from           : /u01/app/12.1.0.2.5/db/oraInst.loc
+OPatch version    : 12.1.0.1.9
+OUI version       : 12.1.0.2.0
+Log file location : /u01/app/12.1.0.2.5/db/cfgtoollogs/opatch/opatch2016-05-13_11-53-07AM_1.log
+
+Lsinventory Output file location : /u01/app/12.1.0.2.5/db/cfgtoollogs/opatch/lsinv/lsinventory2016-05-13_11-53-07AM.txt
+
+--------------------------------------------------------------------------------
+Local Machine Information::
+Hostname: ol6tosa0
+ARU platform id: 226
+ARU platform description:: Linux x86-64
+
+List of Oracle Homes:
+  Name          Location
+   OraGI12Home1         /u01/app/12.1.0.2/grid
+   OraDB12Home1         /u01/app/12.1.0.2/db
+   OraHome1         /u01/app/12.1.0.2.5/db
+
+Installed Top-level Products (1):
+
+Oracle Database 12c                                                  12.1.0.2.0
+There are 1 products installed in this Oracle Home.
+
+
+Interim patches (2) :
+
+Patch  21539301     : applied on Mon Nov 09 20:58:05 CET 2015
+Unique Patch ID:  19298399
+   Created on 31 Aug 2015, 06:56:59 hrs PST8PDT
+   Bugs fixed:
+     21539301
+
+Patch  21359755     : applied on Wed Nov 04 22:18:33 CET 2015
+Unique Patch ID:  19194568
+Patch description:  "Database Patch Set Update : 12.1.0.2.5 (21359755)"
+   Created on 21 Oct 2015, 02:52:58 hrs PST8PDT
+Sub-patch  20831110; "Database Patch Set Update : 12.1.0.2.4 (20831110)"
+Sub-patch  20299023; "Database Patch Set Update : 12.1.0.2.3 (20299023)"
+Sub-patch  19769480; "Database Patch Set Update : 12.1.0.2.2 (19769480)"
+   Bugs fixed:
+     19189525, 19075256, 19865345, 19791273, 19280225, 18845653, 19248799
+     19243521, 18988834, 19238590, 21281532, 18921743, 20245930, 19134173
+     19571367, 20476175, 20925795, 19018206, 20387265, 19149990, 18849537
+     19183343, 19703301, 19001390, 18202441, 19189317, 19644859, 19390567
+     19358317, 19279273, 19706965, 19068970, 19619732, 18607546, 20348653
+     18940497, 19670108, 19649152, 18948177, 19315691, 19676905, 18964978
+     20165574, 19035573, 19176326, 20413820, 20558005, 19176223, 19532017
+     20134339, 19074147, 18411216, 20361671, 20425790, 18966843, 20294666
+     19371175, 19307662, 19195895, 19154375, 19468991, 19174521, 19520602
+     19382851, 19658708, 20093776, 17835294, 19068610, 19791377, 20746251
+     20048359, 19143550, 19185876, 19627012, 20281121, 19577410, 19001359
+     19518079, 18610915, 18674024, 18306996, 19309466, 19081128, 19915271
+     20122715, 20284155, 18791688, 21442094, 19303936, 19597439, 20235511
+     18964939, 19430401, 19044962, 19409212, 20657441, 19684504, 19024808
+     19028800, 19065556, 19723336, 19077215, 21421886, 19524384, 19048007
+     18288842, 18952989, 16870214, 19928926, 19180770, 19197175, 19730508
+     19012119, 19067244, 20074391, 19841800, 19512341, 14643995, 20331945
+     19587324, 19065677, 19547370, 19637186, 21225209, 20397490, 18967382
+     19174430, 18674047, 19054077, 19708632, 19536415, 19289642, 19335438
+     17365043, 18856999, 20471920, 19468347, 21620471, 16359751, 18990693
+     19439759, 19769480, 19272708, 19978542, 19329654, 20402832, 19873610
+     19304354, 19052488, 19291380, 18681056, 19896336, 19076343, 19561643
+     18618122, 20440930, 18456643, 19699191, 18909599, 19487147, 18250893
+     19016730, 18743542, 20347562, 16619249, 18354830, 19687159, 19174942
+     20424899, 19989009, 20688221, 20441797, 19157754, 19058490, 19032777
+     19399918, 18885870, 19434529, 19018447, 18417036, 20919320, 19284031
+     19022470, 20474192, 22062026, 19385656, 19501299, 17274537, 20899461
+     19440586, 19606174, 18436647, 19023822, 19178851, 19124589, 19805359
+     19597583, 19155797, 19393542, 19050649
+
+
+
+--------------------------------------------------------------------------------
+
+OPatch succeeded.
+</pre>
+<h3>Step 2: switch database to be patched to new Oracle Home</h3>
+<p>Current Oracle home is <b>/u01/app/12.1.0.2/db</b> and new Oracle Home is <b>/u01/app/12.1.0.2.5/db</b>.<br />
+<br />
+I have only one database instance using current Oracle Home:</p>
+<pre>
+$ cat /etc/oratab
+#Backup file is  /u01/app/12.1.0.2/grid/srvm/admin/oratab.bak.ol6tosa0 line added by Agent
+#
+
+
+
+# This file is used by ORACLE utilities.  It is created by root.sh
+# and updated by either Database Configuration Assistant while creating
+# a database or ASM Configuration Assistant while creating ASM instance.
+
+# A colon, ':', is used as the field terminator.  A new line terminates
+# the entry.  Lines beginning with a pound sign, '#', are comments.
+#
+# Entries are of the form:
+#   $ORACLE_SID:$ORACLE_HOME::
+#
+# The first and second fields are the system identifier and home
+# directory of the database respectively.  The third field indicates
+# to the dbstart utility that the database should , "Y", or should not,
+# "N", be brought up at system boot time.
+#
+# Multiple entries with the same $ORACLE_SID are not allowed.
+#
+#
++ASM:/u01/app/12.1.0.2/grid:N           # line added by Agent
+DB12:/u01/app/12.1.0.2/db:N             # line added by Agent
+</pre>
+<p>I have stopped it:</p>
+<pre>
+$ srvctl stop database -d DB12
+</pre>
+<p>Database DB12 is registered in Grid Instructure (GI) Oracle Local Registry (OLR):</p>
+<pre>
+$ srvctl config database -d DB12
+Database unique name: DB12
+Database name: DB12
+Oracle home: /u01/app/12.1.0.2/db
+Oracle user: oracle
+Spfile: +DGDATA/DB12/PARAMETERFILE/spfile.265.911731277
+Password file:
+Domain:
+Start options: open
+Stop options: immediate
+Database role: PRIMARY
+Management policy: AUTOMATIC
+Disk Groups: DGFRA,DGDATA
+Services:
+OSDBA group:
+OSOPER group:
+Database instance: DB12
+</pre>
+<p>I have modified database home in OLR:</p>
+<pre>
+$ srvctl modify database -d DB12 -oraclehome /u01/app/12.1.0.2.5/db
+$ srvctl config database -d DB12
+Database unique name: DB12
+Database name: DB12
+Oracle home: /u01/app/12.1.0.2.5/db
+Oracle user: oracle
+Spfile: +DGDATA/DB12/PARAMETERFILE/spfile.265.911731277
+Password file:
+Domain:
+Start options: open
+Stop options: immediate
+Database role: PRIMARY
+Management policy: AUTOMATIC
+Disk Groups: DGFRA,DGDATA
+Services:
+OSDBA group: dba
+OSOPER group:
+Database instance: DB12
+$
+</pre>
+<p>I have also changed Oracle Home in <b>/etc/oratab</b> to use new Oracle Home:</p>
+<pre>
+$ tail -n 1 /etc/oratab
+DB12:/u01/app/12.1.0.2.5/db:N           # line added by Agent
+</pre>
+<p>I have restarted database instance:</p>
+<pre>
+$ srvctl start database -d DB12
+</pre>
+<p>Alert log says:</p>
+<pre>
+===========================================================
+Dumping current patch information
+===========================================================
+Patch Id: 19769480
+Patch Description: Database Patch Set Update : 12.1.0.2.2 (19769480)
+Patch Apply Time: 2015-11-04 22:16:23 GMT+01:00
+Bugs Fixed: 14643995,16359751,16870214,17835294,18250893,18288842,18354830,
+18436647,18456643,18610915,18618122,18674024,18674047,18791688,18845653,
+18849537,18885870,18921743,18948177,18952989,18964939,18964978,18967382,
+18988834,18990693,19001359,19001390,19016730,19018206,19022470,19024808,
+19028800,19044962,19048007,19050649,19052488,19054077,19058490,19065556,
+19067244,19068610,19068970,19074147,19075256,19076343,19077215,19124589,
+19134173,19143550,19149990,19154375,19155797,19157754,19174430,19174521,
+19174942,19176223,19176326,19178851,19180770,19185876,19189317,19189525,
+19195895,19197175,19248799,19279273,19280225,19289642,19303936,19304354,
+19309466,19329654,19371175,19382851,19390567,19409212,19430401,19434529,
+19439759,19440586,19468347,19501299,19518079,19520602,19532017,19561643,
+19577410,19597439,19676905,19706965,19708632,19723336,19769480,20074391,
+20284155
+
+Patch Id: 20299023
+Patch Description: Database Patch Set Update : 12.1.0.2.3 (20299023)
+Patch Apply Time: 2015-11-04 22:16:45 GMT+01:00
+Bugs Fixed: 16619249,17274537,18202441,18306996,18417036,18607546,18681056,
+18856999,18909599,18940497,19012119,19018447,19023822,19035573,19065677,
+19081128,19183343,19238590,19272708,19291380,19315691,19335438,19358317,
+19385656,19393542,19487147,19512341,19524384,19536415,19547370,19597583,
+19606174,19619732,19627012,19637186,19644859,19649152,19658708,19670108,
+19684504,19687159,19730508,19791377,19805359,19841800,19865345,19873610,
+19896336,19915271,19928926,19978542,20235511,20347562,20348653,20425790,
+20440930
+
+Patch Id: 20831110
+Patch Description: Database Patch Set Update : 12.1.0.2.4 (20831110)
+Patch Apply Time: 2015-11-04 22:17:43 GMT+01:00
+Bugs Fixed: 19284031,19307662,19399918,19699191,19703301,19989009,20093776,
+20165574,20294666,20331945,20387265,20402832,20424899,20474192,20558005,
+20657441,20746251,20899461,20919320,21225209
+
+Patch Id: 21359755
+Patch Description: Database Patch Set Update : 12.1.0.2.5 (21359755)
+Patch Apply Time: 2015-11-04 22:18:33 GMT+01:00
+Bugs Fixed: 17365043,18411216,18743542,18966843,19032777,19243521,19468991,
+19571367,19587324,19791273,20048359,20122715,20134339,20245930,20281121,
+20361671,20397490,20413820,20441797,20471920,20476175,20688221,20925795,
+21281532,21421886,21442094,21620471,22062026
+
+Patch Id: 21539301
+Patch Description:
+Patch Apply Time: 2015-11-09 20:58:05 GMT+01:00
+Bugs Fixed: 21539301
+===========================================================
+</pre>
+<p>I have connected to database instance to check database version:</p>
+<pre>
+$ . oraenv
+ORACLE_SID = [+ASM] ? DB12
+The Oracle base has been set to /u01/app/base
+$ echo $ORACLE_HOME
+/u01/app/12.1.0.2.5/db
+$ cd scripts
+$ sqlplus / @lpsu
+
+SQL*Plus: Release 12.1.0.2.0 Production on Fri May 13 14:06:03 2016
+
+Copyright (c) 1982, 2014, Oracle.  All rights reserved.
+
+Last Successful login time: Fri May 13 2016 13:59:15 +02:00
+Connected to:
+Oracle Database 12c Enterprise Edition Release 12.1.0.2.0 - 64bit Production
+With the Partitioning, Automatic Storage Management, OLAP, Advanced Analytics
+and Real Application Testing options
+OPS$ORACLE@DB12&gt;column action_time format a15
+OPS$ORACLE@DB12&gt;column action format a10
+OPS$ORACLE@DB12&gt;column version format a12
+OPS$ORACLE@DB12&gt;column description format a50
+OPS$ORACLE@DB12&gt;column comp_name format a40
+OPS$ORACLE@DB12&gt;--
+OPS$ORACLE@DB12&gt;select name, cdb from v$database;
+
+NAME      CDB
+--------- ---
+DB12      NO
+
+OPS$ORACLE@DB12&gt;--
+OPS$ORACLE@DB12&gt;select comp_name, version, status
+  2  from dba_registry
+  3  order by comp_name;
+
+COMP_NAME                                VERSION      STATUS
+---------------------------------------- ------------ --------------------------------------------
+JServer JAVA Virtual Machine             12.1.0.2.0   VALID
+OLAP Analytic Workspace                  12.1.0.2.0   VALID
+Oracle Application Express               4.2.5.00.08  VALID
+Oracle Database Catalog Views            12.1.0.2.0   VALID
+Oracle Database Java Packages            12.1.0.2.0   VALID
+Oracle Database Packages and Types       12.1.0.2.0   VALID
+Oracle Database Vault                    12.1.0.2.0   VALID
+Oracle Label Security                    12.1.0.2.0   VALID
+Oracle Multimedia                        12.1.0.2.0   VALID
+Oracle OLAP API                          12.1.0.2.0   VALID
+Oracle Real Application Clusters         12.1.0.2.0   OPTION OFF
+
+COMP_NAME                                VERSION      STATUS
+---------------------------------------- ------------ --------------------------------------------
+Oracle Text                              12.1.0.2.0   VALID
+Oracle Workspace Manager                 12.1.0.2.0   VALID
+Oracle XDK                               12.1.0.2.0   VALID
+Oracle XML Database                      12.1.0.2.0   VALID
+Spatial                                  12.1.0.2.0   VALID
+
+16 rows selected.
+
+OPS$ORACLE@DB12&gt;--
+OPS$ORACLE@DB12&gt;select to_char(action_time,'DD-MON-YYYY') as action_time_2, patch_id, patch_uid, action, version,  description
+  2  from dba_registry_sqlpatch
+  3  order by action_time;
+
+no rows selected
+
+</pre>
+<p>The database instance knows that Oracle binary version has changed but the SQL patching script has not been run.</p>
+<h3>Step 3: run SQL patching script </h3>
+<p>I have run:</p>
+<pre>
+$ $ORACLE_HOME/OPatch/datapatch -verbose
+SQL Patching tool version 12.1.0.2.0 on Fri May 13 14:08:28 2016
+Copyright (c) 2015, Oracle.  All rights reserved.
+
+Log file for this invocation: /u01/app/base/cfgtoollogs/sqlpatch/sqlpatch_5097_2016_05_13_14_08_28/sqlpatch_invocation.log
+
+Connecting to database...OK
+Bootstrapping registry and package to current versions...done
+Determining current state...done
+
+Current state of SQL patches:
+Patch 21539301 ():
+  Installed in the binary registry only
+Bundle series PSU:
+  ID 5 in the binary registry and not installed in the SQL registry
+
+Adding patches to installation queue and performing prereq checks...
+Installation queue:
+  Nothing to roll back
+  The following patches will be applied:
+    21359755 (Database Patch Set Update : 12.1.0.2.5 (21359755))
+    21539301 ()
+
+Installing patches...
+Patch installation complete.  Total patches installed: 2
+
+Validating logfiles...
+Patch 21359755 apply: SUCCESS
+  logfile: /u01/app/base/cfgtoollogs/sqlpatch/21359755/19194568/21359755_apply_DB12_2016May13_14_08_57.log (no errors)
+Patch 21539301 apply: SUCCESS
+  logfile: /u01/app/base/cfgtoollogs/sqlpatch/21539301/19298399/21539301_apply_DB12_2016May13_14_09_06.log (no errors)
+SQL Patching tool complete on Fri May 13 14:09:16 2016
+</pre>
+<p>Alert log says:</p>
+<pre>
+Fri May 13 14:08:32 2016
+QPI : Found directory objects and ORACLE_HOME out of sync
+QPI : Trying to patch with the current ORACLE_HOME
+QPI: ------QPI Old Directories -------
+QPI: OPATCH_SCRIPT_DIR:/u01/app/12.1.0.2/db/QOpatch
+QPI: OPATCH_LOG_DIR:/u01/app/12.1.0.2/db/QOpatch
+QPI: OPATCH_INST_DIR:/u01/app/12.1.0.2/db/OPatch
+QPI: op_scpt_path /u01/app/12.1.0.2.5/db/QOpatch
+QPI: Found QPI install at :/u01/app/12.1.0.2.5/db/QOpatch
+QPI: Self adjusting the directories
+QPI: ------QPI New Directories-------
+QPI: OPATCH_SCRIPT_DIR:/u01/app/12.1.0.2.5/db/QOpatch
+QPI: OPATCH_LOG_DIR:/u01/app/12.1.0.2.5/db/QOpatch
+QPI: OPATCH_INST_DIR:/u01/app/12.1.0.2.5/db/OPatch
+Fri May 13 14:08:57 2016
+ALTER SESSION DISABLE LOGICAL REPLICATION invoked from session 43.35403 at SCN 0x0000.001b4dbf
+ALTER SESSION ENABLE LOGICAL REPLICATION invoked from session 43.35403 at SCN 0x0000.001b508e
+ALTER SESSION DISABLE LOGICAL REPLICATION invoked from session 43.35403 at SCN 0x0000.001b5097
+Fri May 13 14:09:16 2016
+ALTER SESSION ENABLE LOGICAL REPLICATION invoked from session 43.35403 at SCN 0x0000.001b51cc
+</pre>
+<p>First datapatch log says:</p>
+<pre>
+$ cat /u01/app/base/cfgtoollogs/sqlpatch/sqlpatch_5097_2016_05_13_14_08_28/sqlpatch_invocation.log
+SQL Patching tool version 12.1.0.2.0 on Fri May 13 14:08:28 2016
+Copyright (c) 2015, Oracle.  All rights reserved.
+
+Log file for this invocation: /u01/app/base/cfgtoollogs/sqlpatch/sqlpatch_5097_2016_05_13_14_08_28/sqlpatch_invocation.log
+
+SQL Patching arguments:
+  verbose: 1
+  force: 0
+  prereq: 0
+  upgrade_mode_only:
+  oh:
+  bundle_series:
+  ignorable_errors:
+  bootstrap:
+  pdbs:
+
+Connecting to database...OK
+catcon: ALL catcon-related output will be written to /u01/app/base/cfgtoollogs/sqlpatch/sqlpatch_5097_2016_05_13_14_08_28/sqlpatch_catcon__catcon_5097.lst
+catcon: See /u01/app/base/cfgtoollogs/sqlpatch/sqlpatch_5097_2016_05_13_14_08_28/sqlpatch_catcon_*.log files for output generated by scripts
+catcon: See /u01/app/base/cfgtoollogs/sqlpatch/sqlpatch_5097_2016_05_13_14_08_28/sqlpatch_catcon__*.lst files for spool files, if any
+Bootstrapping registry and package to current versions...done
+Determining current state...done
+
+Current state of SQL patches:
+Patch 21539301 ():
+  Installed in the binary registry only
+Bundle series PSU:
+  ID 5 in the binary registry and not installed in the SQL registry
+
+Adding patches to installation queue and performing prereq checks...
+Installation queue:
+  Nothing to roll back
+  The following patches will be applied:
+    21359755 (Database Patch Set Update : 12.1.0.2.5 (21359755))
+    21539301 ()
+
+Installing patches...
+Patch installation complete.  Total patches installed: 2
+
+Validating logfiles...
+Patch 21359755 apply: SUCCESS
+  logfile: /u01/app/base/cfgtoollogs/sqlpatch/21359755/19194568/21359755_apply_DB12_2016May13_14_08_57.log (no errors)
+Patch 21539301 apply: SUCCESS
+  logfile: /u01/app/base/cfgtoollogs/sqlpatch/21539301/19298399/21539301_apply_DB12_2016May13_14_09_06.log (no errors)
+SQL Patching tool complete on Fri May 13 14:09:16 2016
+</pre>
+<p>The other log files are very verbose but do not have any error according to datapatch (errors are said to ignorable by the script):</p>
+<pre>
+$ grep ORA- /u01/app/base/cfgtoollogs/sqlpatch/21359755/19194568/21359755_apply_DB12_2016May13_14_08_57.log
+SQL&gt; PROMPT IGNORABLE ERRORS: ORA-01432 ORA-00942 ORA-02289
+IGNORABLE ERRORS: ORA-01432 ORA-00942 ORA-02289
+ORA-01432: public synonym to be dropped does not exist
+ORA-01432: public synonym to be dropped does not exist
+ORA-01432: public synonym to be dropped does not exist
+ORA-01432: public synonym to be dropped does not exist
+ORA-01432: public synonym to be dropped does not exist
+ORA-01432: public synonym to be dropped does not exist
+ORA-01432: public synonym to be dropped does not exist
+ORA-01432: public synonym to be dropped does not exist
+ORA-01432: public synonym to be dropped does not exist
+ORA-01432: public synonym to be dropped does not exist
+ORA-01432: public synonym to be dropped does not exist
+ORA-01432: public synonym to be dropped does not exist
+ORA-01432: public synonym to be dropped does not exist
+ORA-01432: public synonym to be dropped does not exist
+ORA-01432: public synonym to be dropped does not exist
+ORA-00942: table or view does not exist
+ORA-00942: table or view does not exist
+ORA-00942: table or view does not exist
+ORA-00942: table or view does not exist
+ORA-00942: table or view does not exist
+ORA-00942: table or view does not exist
+ORA-00942: table or view does not exist
+ORA-00942: table or view does not exist
+ORA-02289: sequence does not exist
+ORA-00942: table or view does not exist
+ORA-00942: table or view does not exist
+ORA-00942: table or view does not exist
+ORA-00942: table or view does not exist
+ORA-00942: table or view does not exist
+ORA-00942: table or view does not exist
+SQL&gt; PROMPT IGNORABLE ERRORS: ORA-00955
+IGNORABLE ERRORS: ORA-00955
+SQL&gt; Rem    SQL_IGNORABLE_ERRORS: ORA-00955
+SQL&gt; Rem    sschodav    01/29/15 - create index can cause ORA-00439 while creating
+12454    e_noColumnFound EXCEPTION;  -- ORA-00904: "...": invalid identifier
+12461      WHEN e_noColumnFound THEN s_isCdb := 'NO'; -- ORA-00904: invalid identifier
+12480    e_noParamFound EXCEPTION;   -- ORA-02003: invalid USERENV parameter
+12510    e_noParamFound EXCEPTION;   -- ORA-02003: invalid USERENV parameter
+12812  e_userCancel EXCEPTION; -- ORA-01013: user requested cancel of current operation
+12813  e_noOraConnect1 EXCEPTION; -- ORA-03113: end-of-file on communication channel
+12814  e_noOraConnect2 EXCEPTION; -- ORA-03114: not connected to ORACLE
+SQL&gt; PROMPT IGNORABLE ERRORS: ORA-04043
+IGNORABLE ERRORS: ORA-04043
+ORA-04043: object DROP_AW_ELIST_ALL does not exist
+$ wc -l  /u01/app/base/cfgtoollogs/sqlpatch/21359755/19194568/21359755_apply_DB12_2016May13_14_08_57.log
+18712 /u01/app/base/cfgtoollogs/sqlpatch/21359755/19194568/21359755_apply_DB12_2016May13_14_08_57.log
+$ grep ORA- /u01/app/base/cfgtoollogs/sqlpatch/21539301/19298399/21539301_apply_DB12_2016May13_14_09_06.log
+SQL&gt; Rem     jerrede    04/10/12 - Fix lrg 6849985 ORA-04063: package body
+SQL&gt; rem   ORA-31604: invalid NAME parameter "PARSE" for object
+SQL&gt; -- Fix lrg 6849985 ORA-04063: package body
+$ wc -l /u01/app/base/cfgtoollogs/sqlpatch/21539301/19298399/21539301_apply_DB12_2016May13_14_09_06.log
+30651 /u01/app/base/cfgtoollogs/sqlpatch/21539301/19298399/21539301_apply_DB12_2016May13_14_09_06.log
+</pre>
+<p>Now I can see that the SQL patch script has been applied to database:</p>
+<pre>
+OPS$ORACLE@DB12&gt;--
+OPS$ORACLE@DB12&gt;select to_char(action_time,'DD-MON-YYYY') as action_time_2, patch_id, patch_uid, action, version,  description
+  2  from dba_registry_sqlpatch
+  3  order by action_time;
+
+ACTION_TIME_2          PATCH_ID  PATCH_UID ACTION     VERSION      DESCRIPTION
+-------------------- ---------- ---------- ---------- ------------ --------------------------------------------------
+13-MAY-2016            21359755   19194568 APPLY      12.1.0.2     Database Patch Set Update : 12.1.0.2.5 (21359755)
+13-MAY-2016            21539301   19298399 APPLY      12.1.0.2
+</pre>
+<h3>Conclusion</h3>
+<p><i>Oracle always recommends out-of-place patching because downtime is minimal and recovery in case of a problem is easy; you can always switch back to the original database home in case of a problem with the clone home.</i></p>
