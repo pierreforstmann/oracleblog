@@ -1,0 +1,433 @@
+<p>In December 2015 Oracle Corp. has made available the new HOL virtual machine (VM) announced on <a href="https://blogs.oracle.com/UPGRADE/entry/new_version_of_our_hands">OTN Upgrade blog</a>.<br />
+You can download it from <a href="http://www.oracle.com/technetwork/community/developer-vm/vts-hol-2415742.html">here</a>.</p>
+<p>In this blog post I only want to show how you can install it using VirtualBox command line on Windows 8.1 and what exactly you can find in this VM.</p>
+<h2>VM Installation</h2>
+<p>I have first downloaded all zip files (about 15 GB): this has taken about 3 hours using my personal Internet connexion.<br />
+<br />
+I have also upgraded VirtualBox from 5.0.4 to 5.0.14 and added 7-zip PATH in a Windows command line window:</p>
+<pre>
+PATH=c:\Program Files\7-zip\;%PATH%
+</pre>
+<p>I have extracted the .ova with:</p>
+<pre>
+&gt; 7z e Upgrade_HOL.7z.001
+
+7-Zip [64] 9.20  Copyright (c) 1999-2010 Igor Pavlov  2010-11-18
+
+Processing archive: Upgrade_HOL.7z.001
+
+Extracting  Upgrade_HOL.ova
+
+Everything is Ok
+
+Size:       16880560128
+Compressed: 2147483648
+</pre>
+<p>To restore the full VM I have run following command (I have added line breaks for clarity - original command is a single command line):</p>
+<pre>
+&gt; vboxmanage import Upgrade_HOL.ova 
+--vsys 0 --eula accept 
+--vsys 0 --unit 15 --disk "m:\VirtualBox VMs\disk1.vmdk" 
+--vsys 0 --unit 16 --disk "m:\VirtualBox VMs\disk2.vmdk"  
+--vsys 0 --unit 17 --disk "m:\VirtualBox VMs\disk3.vmdk" 
+--vsys 0 --unit 18 --disk "m:\VirtualBox VMs\disk4.vmdk" 
+--vsys 0 --unit 19 --disk "m:\VirtualBox VMs\disk5.vmdk"
+0%...10%...20%...30%...40%...50%...60%...70%...80%...90%...100%
+Interpreting M:\VirtualBox VMs\Upgrade_HOL.ova...
+OK.
+Disks:
+  vmdisk1       26214400000     -1      http://www.vmware.com/interfaces/specifications/vmdk.html#streamOptimized       Upgrade_HOL-disk1.vmdk  -1      -1
+  vmdisk2       4294967296      -1      http://www.vmware.com/interfaces/specifications/vmdk.html#streamOptimized       Upgrade_HOL-disk2.vmdk  -1      -1
+  vmdisk3       5368709120      -1      http://www.vmware.com/interfaces/specifications/vmdk.html#streamOptimized       Upgrade_HOL-disk3.vmdk  -1      -1
+  vmdisk4       2147483648      -1      http://www.vmware.com/interfaces/specifications/vmdk.html#streamOptimized       Upgrade_HOL-disk4.vmdk  -1      -1
+  vmdisk5       42949672960     -1      http://www.vmware.com/interfaces/specifications/vmdk.html#streamOptimized       Upgrade_HOL-disk5.vmdk  -1      -1
+
+Virtual system 0:
+ 0: Suggested OS type: "Oracle_64"
+    (change with "--vsys 0 --ostype "; use "list ostypes" to list all possible values)
+ 1: Suggested VM name "Upgrade_HOL"
+    (change with "--vsys 0 --vmname ")
+ 2: Product (ignored): Oracle Database 12c
+ 3: Vendor (ignored): Oracle America Inc.
+ 4: Version (ignored): 12.1.0.2
+ 5: ProductUrl (ignored): www.oracle.com/database/
+ 6: VendorUrl (ignored): www.oracle.com
+ 7: Description "Hands-on lab for upgrade, migration, and consolidation with Oracle database 12.1.0.2"
+    (change with "--vsys 0 --description ")
+ 8: End-user license agreement (accepted)
+ 9: Number of CPUs: 4
+    (change with "--vsys 0 --cpus ")
+10: Guest memory: 8192 MB
+    (change with "--vsys 0 --memory ")
+11: Network adapter: orig NAT, config 3, extra slot=0;type=NAT
+12: IDE controller, type PIIX4
+    (disable with "--vsys 0 --unit 12 --ignore")
+13: IDE controller, type PIIX4
+    (disable with "--vsys 0 --unit 13 --ignore")
+14: SATA controller, type AHCI
+    (disable with "--vsys 0 --unit 14 --ignore")
+15: Hard disk image: source image=Upgrade_HOL-disk1.vmdk, target path=m:\VirtualBox VMs\disk1.vmdk, controller=14;channel=0
+16: Hard disk image: source image=Upgrade_HOL-disk2.vmdk, target path=m:\VirtualBox VMs\disk2.vmdk, controller=14;channel=1
+17: Hard disk image: source image=Upgrade_HOL-disk3.vmdk, target path=m:\VirtualBox VMs\disk3.vmdk, controller=14;channel=2
+18: Hard disk image: source image=Upgrade_HOL-disk4.vmdk, target path=m:\VirtualBox VMs\disk4.vmdk, controller=14;channel=3
+19: Hard disk image: source image=Upgrade_HOL-disk5.vmdk, target path=m:\VirtualBox VMs\disk5.vmdk, controller=14;channel=4
+0%...10%...20%...30%...40%...50%...60%...70%...80%...90%...100%
+Successfully imported the appliance.
+
+</pre>
+<p>Note that the --eula switch allows to accept the end user licensing agreement and that I have used --disk option to store VM disks in a specific directory different from the default VirtualBow directory.<br />
+This command duration is about 2 hours for my desktop machine.</p>
+<p>As expected VirtualBox has created 5 virtual disks for a total size of 43 GB (note I have some GNU utilities for Windows on my machine):</p>
+<pre>
+&gt; ls -rtl disk*
+-rw-rw-rw-  1 pierre 0 25396314112 2016-03-01 18:53 disk1.vmdk
+-rw-rw-rw-  1 pierre 0   466419712 2016-03-01 18:53 disk2.vmdk
+-rw-rw-rw-  1 pierre 0   758972416 2016-03-01 18:53 disk3.vmdk
+-rw-rw-rw-  1 pierre 0   437256192 2016-03-01 18:53 disk4.vmdk
+-rw-rw-rw-  1 pierre 0 19175243776 2016-03-01 18:57 disk5.vmdk
+
+&gt; du -sh disk*
+24G     disk1.vmdk
+445M    disk2.vmdk
+724M    disk3.vmdk
+417M    disk4.vmdk
+18G     disk5.vmdk
+</pre>
+<p>The full VM configuration is:</p>
+<pre>
+&gt; vboxmanage  showvminfo Upgrade_HOL
+Name:            Upgrade_HOL
+Groups:          /
+Guest OS:        Oracle (64-bit)
+UUID:            14a10d72-9b34-4516-b986-857444ab61bd
+Config file:     C:\Users\pierre\VirtualBox VMs\Upgrade_HOL\Upgrade_HOL.vbox
+Snapshot folder: C:\Users\pierre\VirtualBox VMs\Upgrade_HOL\Snapshots
+Log folder:      C:\Users\pierre\VirtualBox VMs\Upgrade_HOL\Logs
+Hardware UUID:   14a10d72-9b34-4516-b986-857444ab61bd
+Memory size:     8192MB
+Page Fusion:     off
+VRAM size:       32MB
+CPU exec cap:    100%
+HPET:            off
+Chipset:         piix3
+Firmware:        BIOS
+Number of CPUs:  4
+PAE:             on
+Long Mode:       on
+CPUID Portability Level: 0
+CPUID overrides: None
+Boot menu mode:  message and menu
+Boot Device (1): Floppy
+Boot Device (2): DVD
+Boot Device (3): HardDisk
+Boot Device (4): Not Assigned
+ACPI:            on
+IOAPIC:          on
+Time offset:     0ms
+RTC:             UTC
+Hardw. virt.ext: on
+Nested Paging:   on
+Large Pages:     on
+VT-x VPID:       on
+VT-x unr. exec.: on
+Paravirt. Provider: Legacy
+State:           powered off (since 2015-12-03T15:30:54.000000000)
+Monitor count:   1
+3D Acceleration: off
+2D Video Acceleration: off
+Teleporter Enabled: off
+Teleporter Port: 0
+Teleporter Address:
+Teleporter Password:
+Tracing Enabled: off
+Allow Tracing to Access VM: off
+Tracing Configuration:
+Autostart Enabled: off
+Autostart Delay: 0
+Default Frontend:
+Storage Controller Name (0):            IDE Controller
+Storage Controller Type (0):            PIIX4
+Storage Controller Instance Number (0): 0
+Storage Controller Max Port Count (0):  2
+Storage Controller Port Count (0):      2
+Storage Controller Bootable (0):        on
+Storage Controller Name (1):            SATA Controller
+Storage Controller Type (1):            IntelAhci
+Storage Controller Instance Number (1): 0
+Storage Controller Max Port Count (1):  30
+Storage Controller Port Count (1):      8
+Storage Controller Bootable (1):        on
+SATA Controller (0, 0): m:\VirtualBox VMs\disk1.vmdk (UUID: e66ade4c-0157-4c23-bad2-2764a1a81f9b)
+SATA Controller (1, 0): m:\VirtualBox VMs\disk2.vmdk (UUID: 13561656-ccd4-42c5-9fbe-0664ae1e7c35)
+SATA Controller (2, 0): m:\VirtualBox VMs\disk3.vmdk (UUID: eb096f56-cba1-4104-a87f-48ac3716f519)
+SATA Controller (3, 0): m:\VirtualBox VMs\disk4.vmdk (UUID: b436e3be-5944-4c66-b7b3-7850f933855c)
+SATA Controller (4, 0): m:\VirtualBox VMs\disk5.vmdk (UUID: d8c7fc9b-239f-4708-a6e7-a8461343df7c)
+NIC 1:           MAC: 080027EC5A66, Attachment: NAT, Cable connected: on, Trace: off (file: none), Type: 82540EM, Reported speed: 0 Mbps, Boot priority: 0, Promisc Policy: deny, Bandwidth group: none
+NIC 1 Settings:  MTU: 0, Socket (send: 64, receive: 64), TCP Window (send:64, receive: 64)
+NIC 2:           disabled
+NIC 3:           disabled
+NIC 4:           disabled
+NIC 5:           disabled
+NIC 6:           disabled
+NIC 7:           disabled
+NIC 8:           disabled
+Pointing Device: PS/2 Mouse
+Keyboard Device: PS/2 Keyboard
+UART 1:          disabled
+UART 2:          disabled
+LPT 1:           disabled
+LPT 2:           disabled
+Audio:           disabled
+Clipboard Mode:  Bidirectional
+Drag and drop Mode: disabled
+VRDE:            disabled
+USB:             disabled
+EHCI:            disabled
+XHCI:            disabled
+
+USB Device Filters:
+
+
+
+Bandwidth groups:  
+
+Shared folders:  
+
+Video capturing:    not active
+Capture screens:    0
+Capture file:       C:\Users\pierre\VirtualBox VMs\Upgrade_HOL\Upgrade_HOL.webm
+Capture dimensions: 1024x768
+Capture rate:       512 kbps
+Capture FPS:        25
+
+Description:
+Hands-on lab for upgrade, migration, and consolidation with Oracle database 12.1.0.2
+Guest:
+
+Configured memory balloon size:      0 MB
+
+
+</pre>
+<h2>Inside the VM</h2>
+<p>I have started VM with:</p>
+<pre>
+&gt; vboxmanage startvm Upgrade_HOL
+Waiting for VM "Upgrade_HOL" to power on...
+VM "Upgrade_HOL" has been successfully started.
+</pre>
+<p>VM starts with X Window enabled and to login was difficult because VM default keyboard layout is English and on host system I have a French keyboard (all passwords are set to 'oracle').<br />
+<br />
+I am a little bit surprised that this VM is still running Oracle Linux 5 instead of Oracle Linux 6 (or 7) but Oracle Database 11.2 and Oracle 12.1 are supported on Oracle Linux 5:</p>
+<pre>
+oracle@localhost:~$ cat /etc/oracle-release
+Oracle Linux Server release 5.11
+</pre>
+<p>On this VM following Oracle Database versions are installed:</p>
+<pre>
+oracle@localhost:~$ tail -n 4 /etc/oratab
+FTEX:/u01/app/oracle/product/11.2.0:N
+CDB2:/u01/app/oracle/product/12.1.0.2:N
+CDB1:/u01/app/oracle/product/12.1.0.1:N
+UPGR:/u01/app/oracle/product/11.2.0:N
+oracle@localhost:~$ . oraenv
+ORACLE_SID = [oracle] ? UPGR
+The Oracle base remains unchanged with value /u01/app/oracle
+oracle@localhost:~$ $ORACLE_HOME/OPatch/opatch lspatches
+21352635;Database Patch Set Update : 11.2.0.4.8 (21352635)
+
+OPatch succeeded.
+oracle@localhost:~$ . oraenv
+ORACLE_SID = [CDB2] ? CDB1
+The Oracle base remains unchanged with value /u01/app/oracle
+oracle@localhost:~$ $ORACLE_HOME/OPatch/opatch lspatches
+There are no Interim patches installed in this Oracle Home "/u01/app/oracle/product/12.1.0.1".
+oracle@localhost:~$ . oraenv
+ORACLE_SID = [CDB1] ? CDB2
+The Oracle base remains unchanged with value /u01/app/oracle
+oracle@localhost:~$ $ORACLE_HOME/OPatch/opatch lspatches
+21539301;
+21359755;Database Patch Set Update : 12.1.0.2.5 (21359755)
+
+OPatch succeeded.
+oracle@localhost:~$
+</pre>
+<p>I have double-checked this with the right database view listing patch set updates (PSU).<br />
+<br />
+In UPGR:</p>
+<pre>
+SYS@UPGR&gt;set linesize 120
+SYS@UPGR&gt;column action_time format a15
+SYS@UPGR&gt;column action format a10
+SYS@UPGR&gt;column namespace format a10
+SYS@UPGR&gt;column version format a10
+SYS@UPGR&gt;column comments format a20
+SYS@UPGR&gt;select to_char(action_time,'DD-MON-YYYY') as action_time_2, action, namespace, version,  comments
+  2  from dba_registry_history
+  3  order by action_time;
+
+ACTION_TIME ACTION     NAMESPACE  VERSION    COMMENTS
+----------- ---------- ---------- ---------- --------------------
+14-NOV-2014 APPLY      SERVER     11.2.0.4   Patchset 11.2.0.2.0
+04-NOV-2015 APPLY      SERVER     11.2.0.4   PSU 11.2.0.4.8
+
+SYS@UPGR&gt;
+</pre>
+<p>In CDB1:</p>
+<pre>
+SYS@CDB1&gt;set linesize 120
+SYS@CDB1&gt;column action_time format a15
+SYS@CDB1&gt;column action format a10
+SYS@CDB1&gt;column namespace format a10
+SYS@CDB1&gt;column version format a10
+SYS@CDB1&gt;column comments format a20
+SYS@CDB1&gt;select to_char(action_time,'DD-MON-YYYY') as action_time_2, action, namespace, version,  comments
+  2  from dba_registry_history
+  3  order by action_time;
+
+ACTION_TIME ACTION     NAMESPACE  VERSION    COMMENTS
+----------- ---------- ---------- ---------- --------------------
+24-JUL-2014 APPLY      SERVER     12.1.0.1   Patchset 12.1.0.0.0
+
+SYS@CDB1&gt;
+</pre>
+<p>In CDB2 (note that as of 12.1.0.2 DBA_REGISTRY_SQLPATCH must be used instead of DBA_REGISTRY_HISTORY):</p>
+<pre>
+SYS@CDB2&gt;set linesize 120
+SYS@CDB2&gt;column action_time format a15
+SYS@CDB2&gt;column action format a10
+SYS@CDB2&gt;column version format a10
+SYS@CDB2&gt;column description format a50
+SYS@CDB2&gt;select to_char(action_time,'DD-MON-YYYY') as action_time_2, patch_id, patch_uid, action, version,  description
+  2  from dba_registry_sqlpatch
+  3  order by action_time;
+
+ACTION_TIME   PATCH_ID  PATCH_UID ACTION     VERSION    DESCRIPTION
+----------- ---------- ---------- ---------- ---------- --------------------------------------------------
+04-NOV-2015   21359755   19194568 APPLY      12.1.0.2   Database Patch Set Update : 12.1.0.2.5 (21359755)
+09-NOV-2015   21539301   19298399 APPLY      12.1.0.2
+
+SYS@CDB2&gt;
+</pre>
+<p>
+To summarize what we have :<br />
+</p>
+<table border="2">
+</p>
+<tr>
+<td>Oracle Database Home</td>
+<td>patch set</td>
+<td>PSU</td>
+<td>interim patch</tD><br />
+  </tr>
+<tr>
+<td><code>/u01/app/oracle/product/11.2.0</code></td>
+<td>11.2.0.4</td>
+<td> 11.2.0.4.8 (21352635)</td>
+<td>none</td>
+</tr>
+<tr>
+<td><code>/u01/app/oracle/product/12.1.0.1</code></td>
+<td>12.1.0.1</td>
+<td>none</td>
+<td>none</td>
+</tr>
+<tr>
+<td><code>/u01/app/oracle/product/12.1.0.2</code></td>
+<td>12.1.0.2</td>
+<td>12.1.0.2.5 (21359755)</td>
+<td>21539301</td>
+</tr>
+</table>
+<p>
+We have Oracle 11.2.0.4 PSU 8 and Oracle 12.1.0.2 PSU 5: that is really interesting because you cannot download Oracle Database 11.2.0.4 for Linux from OTN and if you can download Oracle Database 12.1.0.2 from OTN you cannot download 12.1.0.2 PSU 5 (as far as I know you cannot download any PSU from OTN). We also have patch 21539301 for 12.1.0.2 to fix <a href="https://blogs.oracle.com/UPGRADE/entry/parallel_index_creation_with_data">a bug in parallel index creation with Data Pump</a></p>
+<h2>Customizing VM configuration</h2>
+<p>On Linux I prefer to work with SSH using command line mode instead of a graphical desktop.<br />
+<br />
+I have stopped VM and add added network interface:</p>
+<pre>
+&gt; vboxmanage modifyvm Upgrade_HOL --nic2 hostonly --nictype2 82540EM --hostonlyadapter2 "VirtualBox Host-Only Ethernet Adapter"
+</pre>
+<p>After VM reboot, I have chosen 192.168.56.20 static IP address for this VM and created <b>/etc/sysconfig/network-scripts/ifcfg-eth1</b>:</p>
+<pre>
+# Intel Corporation 82540EM Gigabit Ethernet Controller
+DEVICE=eth1
+BOOTPROTO=static
+ONBOOT=yes
+HWADDR=08:00:27:55:b5:ba
+IPADDR=192.168.56.20
+</pre>
+<p>I have run as root:</p>
+<pre>
+# ifup eth1
+</pre>
+<p>Now I have been able to connect to this VM with Putty from Windows.<br />
+<br />
+I have also disabled X Window with following comment in <b>/etc/inittab</b>:</p>
+<pre>
+#x:5:respawn:/etc/X11/prefdm -nodaemon
+</pre>
+<p>I have also noticed that the default YUM update daemon can slow down the whole VM thanks to <a href="http://guichaz.free.fr/iotop/" />iotop</a>:</p>
+<pre>
+	Total DISK READ: 0.00 B/s | Total DISK WRITE: 7.91 M/s
+  TID  PRIO  USER     DISK READ  DISK WRITE  SWAPIN     IO&gt;    COMMAND
+ 4098 be/7 root        0.00 B/s    0.00 B/s  0.00 % 99.99 % python -tt /~apply --dbus
+  192 be/4 root        0.00 B/s    0.00 B/s  0.00 % 99.99 % [kjournald]
+ 3650 be/4 oracle      0.00 B/s   30.87 K/s  0.00 %  0.10 % ora_ckpt_UPGR
+    1 be/4 root        0.00 B/s    0.00 B/s  0.00 %  0.00 % init [5]
+    2 be/4 root        0.00 B/s    0.00 B/s  0.00 %  0.00 % [kthreadd]
+    3 be/4 root        0.00 B/s    0.00 B/s  0.00 %  0.00 % [ksoftirqd/0]
+    4 be/4 root        0.00 B/s    0.00 B/s  0.00 %  0.00 % [kworker/0:0]
+    6 rt/4 root        0.00 B/s    0.00 B/s  0.00 %  0.00 % [migration/0]
+    7 rt/4 root        0.00 B/s    0.00 B/s  0.00 %  0.00 % [watchdog/0]
+    8 rt/4 root        0.00 B/s    0.00 B/s  0.00 %  0.00 % [migration/1]
+    9 be/4 root        0.00 B/s    0.00 B/s  0.00 %  0.00 % [kworker/1:0]
+   10 be/4 root        0.00 B/s    0.00 B/s  0.00 %  0.00 % [ksoftirqd/1]
+   11 be/4 root        0.00 B/s    0.00 B/s  0.00 %  0.00 % [kworker/0:1]
+   12 rt/4 root        0.00 B/s    0.00 B/s  0.00 %  0.00 % [watchdog/1]
+   13 rt/4 root        0.00 B/s    0.00 B/s  0.00 %  0.00 % [migration/2]
+   14 be/4 root        0.00 B/s    0.00 B/s  0.00 %  0.00 % [kworker/2:0]
+   15 be/4 root        0.00 B/s    0.00 B/s  0.00 %  0.00 % [ksoftirqd/2]
+   16 rt/4 root        0.00 B/s    0.00 B/s  0.00 %  0.00 % [watchdog/2]
+   17 rt/4 root        0.00 B/s    0.00 B/s  0.00 %  0.00 % [migration/3]
+   18 be/4 root        0.00 B/s    0.00 B/s  0.00 %  0.00 % [kworker/3:0]
+   19 be/4 root        0.00 B/s    0.00 B/s  0.00 %  0.00 % [ksoftirqd/3]
+   20 rt/4 root        0.00 B/s    0.00 B/s  0.00 %  0.00 % [watchdog/3]
+   21 be/0 root        0.00 B/s    0.00 B/s  0.00 %  0.00 % [cpuset]
+   22 be/0 root        0.00 B/s    0.00 B/s  0.00 %  0.00 % [khelper]
+   23 be/0 root        0.00 B/s    0.00 B/s  0.00 %  0.00 % [netns]
+   24 be/4 root        0.00 B/s    0.00 B/s  0.00 %  0.00 % [sync_supers]
+   25 be/4 root        0.00 B/s    0.00 B/s  0.00 %  0.00 % [bdi-default]
+   26 be/0 root        0.00 B/s    0.00 B/s  0.00 %  0.00 % [kintegrityd]
+   27 be/0 root        0.00 B/s    0.00 B/s  0.00 %  0.00 % [kblockd]
+   28 be/0 root        0.00 B/s    0.00 B/s  0.00 %  0.00 % [ata_sff]
+   29 be/4 root        0.00 B/s    0.00 B/s  0.00 %  0.00 % [khubd]
+   30 be/0 root        0.00 B/s    0.00 B/s  0.00 %  0.00 % [md]
+   31 be/4 root        0.00 B/s    0.00 B/s  0.00 %  0.00 % [khungtaskd]
+   32 be/4 root        0.00 B/s    0.00 B/s  0.00 %  0.00 % [kswapd0]
+   33 be/5 root        0.00 B/s    0.00 B/s  0.00 %  0.00 % [ksmd]
+   34 be/4 root        0.00 B/s    0.00 B/s  0.00 %  0.00 % [fsnotify_mark]
+   35 be/0 root        0.00 B/s    0.00 B/s  0.00 %  0.00 % [crypto]
+</pre>
+<p>So I have disabled the YUM update daemon with:</p>
+<pre>
+[root@localhost ~]# service yum-updatesd stop
+Stopping yum-updatesd:                                     [FAILED]
+[root@locahost ~]# chkconfig --levels 2345 yum-updatesd off
+[root@localhost ~]# service yum-updatesd status
+yum-updatesd is stopped
+[root@localhost ~]#
+</pre>
+<p>I have also renamed Linux host to "hol" with modification of <b>/etc/hosts</b> and <b>/etc/sysconfig/network</b> followed by reboot:</p>
+<pre>
+[root@localhost ~]# cat /etc/hosts
+# Do not remove the following line, or various programs
+# that require network functionality will fail.
+127.0.0.1               hol.localdomain hol
+::1             localhost6.localdomain6 localhost6
+[root@localhost ~]# cat /etc/sysconfig/network
+NETWORKING=yes
+NETWORKING_IPV6=no
+HOSTNAME=hol.localdomain
+[root@localhost ~]#
+</pre>
+<p>UPDATED 17-MAR-2016: fixed YUM update daemon disabling and host renaming.</p>
