@@ -1,0 +1,195 @@
+<p>Here is how I have installed Oracle Client 12.1.0.2 on my personal Windows 8.1 computer:</p>
+<pre>
+C:\&gt;systeminfo | findstr sys
+Nom du systeme d'exploitation:              Microsoft Windows 8.1
+Version du systeme:                         6.3.9600 N/A version 9600
+Fabricant du systeme d'exploitation:        Microsoft Corporation
+Configuration du systeme d'exploitation:    Station de travail autonome
+Type de version du systeme d'exploitation:  Multiprocessor Free
+Heure de demarrage du systeme:              18/12/2015, 08:28:18
+Fabricant du systeme:                       Hewlett-Packard
+Modele du systeme:                          h8-1408ef
+Type du systeme:                            x64-based PC
+Repertoire systeme:                         C:\WINDOWS\system32
+Option regionale du systeme:                fr;Francais (France)
+Emplacements des fichiers d'echange:        C:\pagefile.sys
+
+C:\&gt;
+</pre>
+<p>This is not Windows 8.1 Pro or Enterprise which are the only supported version Windows 8 for this Oracle Client according to <a href="http://docs.oracle.com/database/121/NTCLI/pre_install.htm#NTCLI1255">Oracle Database Client Installation Guide 12c Release 1 (12.1) for Microsoft Windows</a> but Oracle Universal Installer (OUI) does not check the Windows edition and I assume that the installation process is the same for all supported Windows editions.</p>
+<p>I have first downloaded installation media from <A HREF="http://download.oracle.com/otn/nt/oracle12c/121020/winx64_12102_client.zip">OTN</A> and unzipped it into a staging area (assuming 7-Zip is installed in defaut location):</p>
+<pre>
+c:\temp\oc&gt;"c:\program files\7-zip\7z" x winx64_12102_client.zip
+</pre>
+<p>7z output should end with:</p>
+<pre>
+Everything is Ok
+
+Folders: 655
+Files: 1103
+Size:       941329988
+Compressed: 925039944
+
+</pre>
+<p>I have opened a command window cmd.exe in administrator mode and to install Oracle Client with Administrator option in <b>C:\oracle\oc121</b> directory I have run (command is edited for better formating - used command line has all arguments on one single line):</p>
+<pre>
+c:\temp\oc&gt;cd client
+
+c:\temp\oc\client&gt;setup -silent 
+"ORACLE_BASE=c:\oracle" 
+"ORACLE_HOME=c:\oracle\oc121" 
+"oracle.install.IsBuiltInAccount=true" 
+"INSTALL_TYPE=Administrator" 
+"oracle.installer.autoupdates.option=SKIP_UPDATES"
+</pre>
+<p>This command has opened a new window named "Oracle Universal Installer" which has displayed a lot of INFO messages and has ended with:</p>
+<pre>
+
+L'operation installation de Oracle Client 12c a reussi.
+Pour plus de details, consultez 'C:\Program Files\Oracle\Inventory\logs\silentInstall2015-12-18_11-17-10AM.log'.
+Successfully Setup Software.
+
+Appuyez sur Entree pour quitter...
+</pre>
+<p>What is essential is that this output ends with something similar to (in the above output this output is partially in French):</p>
+<pre>
+The installation of Oracle Client 12c was successful.
+Please check 'C:\Program Files\Oracle\Inventory\logs\silentInstallXXX.log' for more details.
+Successfully Setup Software.
+</pre>
+<p>I have checked installed version of SQL*Plus from a new cmd.exe window without administrator privileges:</p>
+<pre>
+C:\&gt;sqlplus -v
+
+SQL*Plus: Release 12.1.0.2.0 Production
+
+
+C:\&gt;where sqlplus
+c:\oracle\oc121\BIN\sqlplus.exe
+C:\oraclexe\app\oracle\product\10.2.0\server\BIN\sqlplus.exe
+
+C:\&gt;
+</pre>
+<p>I have checked Oracle inventory with following commands from same cmd.exe:</p>
+<pre>
+C:\&gt;set ORACLE_HOME=c:\oracle\oc121
+
+C:\&gt;%ORACLE_HOME%\opatch\opatch lsinv
+
+Programme d'installation des patches temporaires Oracle version 12.1.0.1.3
+Copyright (c) 2015, Oracle Corporation. Tous droits reserves.
+
+
+Oracle Home       : c:\oracle\oc121
+Central Inventory : C:\Program Files\Oracle\Inventory
+   from           : n/a
+OPatch version    : 12.1.0.1.3
+OUI version       : 12.1.0.2.0
+Log file location : c:\oracle\oc121\cfgtoollogs\opatch\opatch2015-12-18_11-36-08AM_1.log
+
+Lsinventory Output file location : c:\oracle\oc121\cfgtoollogs\opatch\lsinv\lsinventory2015-12-18_11-36-08AM.txt
+
+--------------------------------------------------------------------------------
+Produits de niveau superieur installes (1) :
+
+Oracle Client 12c                                                    12.1.0.2.0
+1 produits sont installes dans ce repertoire d'origine Oracle Home.
+
+
+Aucun patch temporaire n'est installe dans ce repertoire d'origine Oracle Home.
+
+
+--------------------------------------------------------------------------------
+
+OPatch succeeded.
+
+C:\&gt;
+</pre>
+<p>Note the mix of English and French output (likely due to French Windows settings of my PC).</p>
+<p>I have also checked that OUI has added to Windows Registry the new Oracle Client Home:</p>
+<pre>
+C:\&gt;reg query hklm\software\oracle
+
+HKEY_LOCAL_MACHINE\software\oracle
+    inst_loc    REG_SZ    C:\Program Files\Oracle\Inventory
+
+HKEY_LOCAL_MACHINE\software\oracle\KEY_OraClient12Home1
+HKEY_LOCAL_MACHINE\software\oracle\ODP.NET
+HKEY_LOCAL_MACHINE\software\oracle\VirtualBox
+
+C:\&gt;reg query hklm\software\oracle\KEY_OraClient12Home1
+
+HKEY_LOCAL_MACHINE\software\oracle\KEY_OraClient12Home1
+    ORACLE_HOME    REG_SZ    c:\oracle\oc121
+    ORACLE_HOME_NAME    REG_SZ    OraClient12Home1
+    ORACLE_GROUP_NAME    REG_SZ    Oracle - OraClient12Home1
+    NLS_LANG    REG_SZ    FRENCH_FRANCE.WE8MSWIN1252
+    ORACLE_BUNDLE_NAME    REG_SZ    Enterprise
+    OLEDB    REG_SZ    c:\oracle\oc121\oledb\mesg
+    ORACLE_HOME_TYPE    REG_SZ    2
+    ORACLE_SVCUSER    REG_SZ    AUTORITE NT\SERVICE LOCAL
+    ORACLE_SVCUSER_PWDREQ    REG_SZ    0
+    SQLPATH    REG_SZ    c:\oracle\oc121\dbs
+    ORACLE_BASE    REG_SZ    c:\oracle
+    ORACLE_HOME_KEY    REG_SZ    SOFTWARE\ORACLE\KEY_OraClient12Home1
+    MSHELP_TOOLS    REG_SZ    c:\oracle\oc121\MSHELP
+
+HKEY_LOCAL_MACHINE\software\oracle\KEY_OraClient12Home1\OLEDB
+
+</pre>
+<p>Note the default NLS_LANG setting matches my French Windows settings.</p>
+<p>I have also tested connection to a 12.1.0.2 database running on Oracle Linux virtual machine with <a href="https://docs.oracle.com/database/121/NETAG/naming.htm#NETAG255">Easy Connect syntax</a>:</p>
+<pre>
+C:\&gt;sqlplus test/test@ol6twsa0:1521/CDB0
+
+SQL*Plus: Release 12.1.0.2.0 Production on Fri Dec 18 11:53:21 2015
+
+Copyright (c) 1982, 2014, Oracle.  All rights reserved.
+
+Last Successful login time: Fri Dec 18 2015 09:35:43 +01:00
+
+Connected to:
+Oracle Database 12c Enterprise Edition Release 12.1.0.2.0 - 64bit Production
+With the Partitioning, Automatic Storage Management, OLAP, Advanced Analytics
+and Real Application Testing options
+
+SQL&gt; select * from v$version;
+
+BANNER
+--------------------------------------------------------------------------------
+    CON_ID
+----------
+Oracle Database 12c Enterprise Edition Release 12.1.0.2.0 - 64bit Production
+         0
+
+PL/SQL Release 12.1.0.2.0 - Production
+         0
+
+CORE    12.1.0.2.0      Production
+         0
+
+
+BANNER
+--------------------------------------------------------------------------------
+    CON_ID
+----------
+TNS for Linux: Version 12.1.0.2.0 - Production
+         0
+
+NLSRTL Version 12.1.0.2.0 - Production
+         0
+
+
+SQL&gt; exit
+Disconnected from Oracle Database 12c Enterprise Edition Release 12.1.0.2.0 - 64bit Production
+With the Partitioning, Automatic Storage Management, OLAP, Advanced Analytics
+and Real Application Testing options
+</pre>
+<p>The installation has been completed.</p>
+<p>If you use this installation for another environment, you should not forget to:</p>
+<li>
+configure tnsnames.ora if needed by your applications
+</li>
+<li>
+check that <a href="http://docs.oracle.com/database/121/NTCLI/gblsupp.htm#sthref261">NLS_LANG</a> is correctly configured for your applications.
+</li>
