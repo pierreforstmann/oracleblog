@@ -1,0 +1,1540 @@
+<p>Both posts document how to install a 2-node Oracle RAC cluster with Oracle 12.2.0.1 on Redhat Linux 7.3 (RH7) with VirtualBox (VBOX) 5.0.28 on CentOS 7.3.</p>
+<p>Part 1 details Linux installation and configuration and part 2 details Oracle software installation (Grid Infrastructure, Oracle Database) and database creation.</p>
+<p>Disclaimer: this is only an example that can be used to setup a lab or test system: it is not designed to be used for production purpose.</p>
+<h2>Overview</h2>
+<p>Each RAC node must:<br />
+</p>
+<li>have access to shared storage to be used by the RAC database because a RAC database is a shared everything database.
+<li>have network connectivity with a dedicated private network (also named RAC interconnect) to other cluster nodes.
+</li>
+<p>
+The cluster should have also 3 differents virtual IP adresses (VIP) to be used only by the <a href="http://docs.oracle.com/database/122/RILIN/about-scan-listeners.htm">SCAN listener</a>: a single name should be resolved by 3 differents adresses.<br />
+<br />
+The following table gives the SCAN network configuration used for this installation:</p>
+<table border="2">
+<tr>
+<th>SCAN</th>
+<th>VIP 1</th>
+<th>VIP 2</th>
+<th>VIP 3</th>
+</tr>
+<tr>
+<td>rh7ttc-scan</td>
+<td>192.168.56.145</td>
+<td>192.168.56.146</td>
+<td>192.168.56.147</td>
+</tr>
+</table>
+<p>
+A 2-node Oracle RAC cluster needs actually 3 machines (if you dedicate DNS server to a different virtual machine (VM)):</p>
+<li>
+2 cluster nodes that are hosting the 2 database instances of the single RAC database
+</li>
+<li>
+another machine to host a Domain Name System (DNS) for the SCAN listener VIPs.
+</li>
+<p>
+One of the very first thing to do is to choose hostnames and network IP addresses.<br />
+<br />
+The following table gives the cluster network configuration needed for this Oracle installation: </p>
+<table border="2">
+<tr>
+<th></th>
+<th>ol7dns02: DNS server</th>
+<th>rh7ttcn1: RAC node 1</th>
+<th>rh7ttcn2: RAC node 2</th>
+<th>network interface</th>
+</tr>
+<tr>
+<td>NAT</td>
+<td>10.0.2.15</td>
+<td>10.0.2.15</td>
+<td>10.0.2.15</td>
+<td>enp0s3</td>
+</tr>
+<tr>
+<td>Public IP</td>
+<td>192.168.56.140</td>
+<td>192.168.56.141</td>
+<td>192.168.56.142</td>
+<td>enp0s8</td>
+</tr>
+<tr>
+<td>Private IP</td>
+<td>N/A</td>
+<td>192.168.43.141</td>
+<td>192.168.43.142</td>
+<td>enp0s9</td>
+<tr>
+<td>Virtual IP (VIP)</td>
+<td>N/A</td>
+<td>192.168.56.241</td>
+<td>192.168.56.242</td>
+<td>assigned by OUI</td>
+</tr>
+</table>
+<p>Note that Oracle Universal Installer (OUI) will assign network interface for cluster node virtual IP address (VIP) during Grid Infrastructure installation.<br />
+<br />
+The NAT interface is only needed to be able to connect to Red Hat Satellite channels: strictly speaking it is not required by Oracle software installation (Grid Infrastructure or Oracle Database).</p>
+<p>The main steps of this system/network/storage installation and configuration part are the following:<br />
+<br />
+<b>1</b>. configure DNS server machine<br />
+<br />
+<b>2</b>. configure first cluster node with shared storage<br />
+<br />
+<b>3</b>. clone first cluster node to second cluster node<br />
+<br />
+<b>4</b>. run <a href="https://docs.oracle.com/database/122/CWADD/cluster-verification-utility-reference.htm#CWADD530">Cluster Verification Utility (CLUVFY)</a> to make sure both cluster nodes are ready for Oracle sofware installation.</p>
+<p>All commands with '#" prompt must be entered with root user account while all command with '$' prompt must be entered with oracle user account.</p>
+<h2> DNS machine configuration</h2>
+<p>I have created first VBOX VM with following configuration(this VM is running Oracle Linux 7 (OL7) and not Red Hat Linux 7):</p>
+<li>
+RAM: 1 GB
+</li>
+<li>
+one 12 GB hardisk attached to SATA controller
+</li>
+<li>
+2 network interfaces (the first one attached to NAT and the second one attached to Host-Only Adapter)
+</li>
+<p>
+When installing Oracle Linux 7 I have chosen in following order:<br />
+<br />
+1. the right timezone for my country (Paris, France)<br />
+<br />
+2. the right keyboard for my host system (French)<br />
+<br />
+3. Infrastructure Server for "Base Environment" and DNS Name Server for "Add-Ons For Selected Environment"<br />
+<br />
+4. Automatic configure partitioning in Installation Destination<br />
+<br />
+5. to set only hostname to <b>ol7dns02.localdomain</b> (no network configuration)<br />
+<br />
+6. to set root password.</p>
+<p>After OL7 installation and VM reboot, I have used system console to configure public network interface:</p>
+<pre>
+# nmcli connection add type ethernet con-name enp0s8 ifname enp0s8 ip4 192.168.56.140/24
+</pre>
+<p>Now I can connect to ol7dns02 using SSH  and check network configuration:</p>
+<pre>
+# ip addr
+1: lo:  mtu 65536 qdisc noqueue state UNKNOWN 
+    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00
+    inet 127.0.0.1/8 scope host lo
+       valid_lft forever preferred_lft forever
+    inet6 ::1/128 scope host 
+       valid_lft forever preferred_lft forever
+2: enp0s3:  mtu 1500 qdisc pfifo_fast state UP qlen 1000
+    link/ether 08:00:27:e4:12:96 brd ff:ff:ff:ff:ff:ff
+3: enp0s8:  mtu 1500 qdisc pfifo_fast state UP qlen 1000
+    link/ether 08:00:27:94:23:bc brd ff:ff:ff:ff:ff:ff
+    inet 192.168.56.140/24 brd 192.168.56.255 scope global enp0s8
+       valid_lft forever preferred_lft forever
+    inet6 fe80::261a:3d4b:bc86:254f/64 scope link 
+       valid_lft forever preferred_lft forever
+
+</pre>
+<p>I have configured NAT network interface with (10.0.2.15 is the related IP address and 10.0.2.2 the related gateway IP address):</p>
+<pre>
+# nmcli connection add type ethernet con-name enp0s3 ifname enp0s3 ip4 10.0.2.15/8 gw4 10.0.2.2
+Connection 'enp0s3' (8a89e73f-1165-4a3f-bb8e-6588234442fd) successfully added.
+</pre>
+<p>I have added my internet box IP address to <b>/etc/resolv.conf</b>:</p>
+<pre>
+# cat /etc/resolv.conf 
+nameserver 192.168.1.254
+</pre>
+<p>I have checked that I have internet access from ol7dns02:</p>
+<pre># ping -c 1 www.oracle.com
+PING e11582.dscx.akamaiedge.net (104.85.22.125) 56(84) bytes of data.
+64 bytes from a104-85-22-125.deploy.static.akamaitechnologies.com (104.85.22.125): icmp_seq=1 ttl=63 time=37.2 ms
+
+--- e11582.dscx.akamaiedge.net ping statistics ---
+1 packets transmitted, 1 received, 0% packet loss, time 0ms
+rtt min/avg/max/mdev = 37.293/37.293/37.293/0.000 ms
+
+</pre>
+<p>This OL7 installation is using about 1.3 GB of disk space:</p>
+<pre>
+# df -h
+Filesystem           Size  Used Avail Use% Mounted on
+devtmpfs             477M     0  477M   0% /dev
+tmpfs                496M     0  496M   0% /dev/shm
+tmpfs                496M  6.6M  489M   2% /run
+tmpfs                496M     0  496M   0% /sys/fs/cgroup
+/dev/mapper/ol-root  9.8G  1.3G  8.5G  14% /
+/dev/sda1           1014M  169M  846M  17% /boot
+tmpfs                100M     0  100M   0% /run/user/0
+</pre>
+<p>With default Unbreakable Enterprise Kernel (UEK ), yum is configured to use UEK repositories:</p>
+<pre>
+# yum repolist
+Loaded plugins: langpacks, ulninfo
+ol7_UEKR4                                                                                                            | 1.2 kB  00:00:00     
+ol7_latest                                                                                                           | 1.4 kB  00:00:00     
+(1/5): ol7_UEKR4/x86_64/updateinfo                                                                                   |  38 kB  00:00:00     
+(2/5): ol7_latest/x86_64/group                                                                                       | 681 kB  00:00:01     
+(3/5): ol7_latest/x86_64/updateinfo                                                                                  | 1.2 MB  00:00:03     
+(4/5): ol7_UEKR4/x86_64/primary                                                                                      |  13 MB  00:00:21     
+(5/5): ol7_latest/x86_64/primary                                                                                     |  23 MB  00:00:27     
+ol7_UEKR4                                                                                                                           295/295
+ol7_latest                                                                                                                      18623/18623
+repo id                            repo name                                                                                          status
+ol7_UEKR4/x86_64                   Latest Unbreakable Enterprise Kernel Release 4 for Oracle Linux 7Server (x86_64)                      295
+ol7_latest/x86_64                  Oracle Linux 7Server Latest (x86_64)                                                               18,623
+repolist: 18,918
+</pre>
+<h3>DNS configuration</h3>
+<p>DNS server is not configured by default:</p>
+<pre>
+# systemctl status named
+● named.service - Berkeley Internet Name Domain (DNS)
+   Loaded: loaded (/usr/lib/systemd/system/named.service; disabled; vendor preset: disabled)
+   Active: inactive (dead)
+#
+</pre>
+<p>Here is my <b>/etc/named.conf</b>:</p>
+<pre>
+# cat named.conf
+//
+// named.conf
+//
+// Provided by Red Hat bind package to configure the ISC BIND named(8) DNS
+// server as a caching only nameserver (as a localhost DNS resolver only).
+//
+// See /usr/share/doc/bind*/sample/ for example named configuration files.
+//
+
+options {
+        listen-on port 53 { 127.0.0.1;192.168.56.140; };
+        listen-on-v6 port 53 { ::1; };
+        directory       "/var/named";
+        dump-file       "/var/named/data/cache_dump.db";
+        statistics-file "/var/named/data/named_stats.txt";
+        memstatistics-file "/var/named/data/named_mem_stats.txt";
+        allow-query     { localhost; };
+
+        /*
+         - If you are building an AUTHORITATIVE DNS server, do NOT enable recursion.
+         - If you are building a RECURSIVE (caching) DNS server, you need to enable
+           recursion.
+         - If your recursive DNS server has a public IP address, you MUST enable access
+           control to limit queries to your legitimate users. Failing to do so will
+           cause your server to become part of large scale DNS amplification
+           attacks. Implementing BCP38 within your network would greatly
+           reduce such attack surface
+        */
+        recursion yes;
+
+        dnssec-enable yes;
+        dnssec-validation yes;
+        dnssec-lookaside auto;
+
+        /* Path to ISC DLV key */
+        bindkeys-file "/etc/named.iscdlv.key";
+
+        managed-keys-directory "/var/named/dynamic";
+
+        pid-file "/run/named/named.pid";
+        session-keyfile "/run/named/session.key";
+};
+
+logging {
+        channel default_debug {
+                file "data/named.run";
+                severity dynamic;
+        };
+};
+
+zone "." IN {
+        type hint;
+        file "named.ca";
+};
+
+
+zone "localdomain." IN {
+        type master;
+        file "localdomain.zone";
+        allow-update { none; };
+        allow-query { any; };
+};
+
+
+zone "56.168.192.in-addr.arpa." IN {
+        type master;
+        file "56.168.192.in-addr.arpa";
+        allow-update { none; };
+};
+
+include "/etc/named.rfc1912.zones";
+include "/etc/named.root.key";
+
+</pre>
+<p>Note that I have added the following sections to default <b>/etc/named.conf</b> for localdomain.com:</p>
+<pre>
+zone "localdomain." IN {
+        type master;
+        file "localdomain.zone";
+        allow-update { none; };
+        allow-query { any; };
+};
+
+
+zone "56.168.192.in-addr.arpa." IN {
+        type master;
+        file "56.168.192.in-addr.arpa";
+        allow-update { none; };
+};
+</pre>
+<p>and I have added VM IP 192.168.56.140 address to:</p>
+<pre>
+listen-on port 53 { 127.0.0.1;192.168.56.140; };
+</pre>
+<p>I have created the file <b>/var/named/localdomain.zone</b> which contains:</p>
+<li> the 3 IP adresses for the SCAN listener (rh7ttc-scan)
+</li>
+<li> each cluster node public IP address (rh7ttcn1 and rh7ttcn2)
+</li>
+<pre>
+# cat localdomain.zone 
+$TTL    86400
+@               IN SOA  localhost root.localhost (
+                                        42              ; serial (d. adams)
+                                        3H              ; refresh
+                                        15M             ; retry
+                                        1W              ; expiry
+                                        1D )            ; minimum
+                IN NS           localhost
+localhost       IN A            127.0.0.1
+rh7ttc-scan     IN A    192.168.56.145 
+rh7ttc-scan     IN A    192.168.56.146
+rh7ttc-scan     IN A    192.168.56.147
+rh7ttcn1        IN A    192.168.56.141
+rh7ttcn2        IN A    192.168.56.142
+</pre>
+<p>I have also created <b>/var/named/56.168.192.in-addr.arpa</b>:</p>
+<pre>
+# cat 56.168.192.in-addr.arpa
+$ORIGIN 56.168.192.in-addr.arpa.
+$TTL 1H
+@       IN      SOA     d12.localdomain.     d12.localdomain. (      2
+                                                3H
+                                                1H
+                                                1W
+                                                1H )
+56.168.192.in-addr.arpa.         IN NS      d12.localdomain.
+
+145    IN PTR  rh7ttc-scan.localdomain.
+146    IN PTR  rh7ttc-scan.localdomain.
+147    IN PTR  rh7ttc-scan.localdomain.
+141    IN PTR  rh7ttcn1.localdomain.
+142    IN PTR  rh7ttcn2.localdomain.
+</pre>
+<p>To avoid following startup message:</p>
+<pre>
+named[2623]: open: /etc/named.conf: permission denied
+</pre>
+<p>I have run:</p>
+<pre>
+# chmod a+r /etc/named.conf
+</pre>
+<p>I have started named service with:</p>
+<pre>
+# systemctl start named
+# systemctl status named
+● named.service - Berkeley Internet Name Domain (DNS)
+   Loaded: loaded (/usr/lib/systemd/system/named.service; disabled; vendor preset: disabled)
+   Active: active (running) since Sat 2017-03-11 16:53:27 CET; 1s ago
+  Process: 2649 ExecStart=/usr/sbin/named -u named $OPTIONS (code=exited, status=0/SUCCESS)
+  Process: 2646 ExecStartPre=/bin/bash -c if [ ! "$DISABLE_ZONE_CHECKING" == "yes" ]; then /usr/sbin/named-checkconf -z /etc/named.conf; else echo "Checking of zone files is disabled"; fi (code=exited, status=0/SUCCESS)
+ Main PID: 2652 (named)
+   CGroup: /system.slice/named.service
+           └─2652 /usr/sbin/named -u named
+
+Mar 11 16:53:27 ol7dns02.localdomain named[2652]: zone 0.in-addr.arpa/IN: loaded serial 0
+Mar 11 16:53:27 ol7dns02.localdomain named[2652]: zone 1.0.0.127.in-addr.arpa/IN: loaded serial 0
+Mar 11 16:53:27 ol7dns02.localdomain named[2652]: zone 1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.ip6.arpa/IN:...rial 0
+Mar 11 16:53:27 ol7dns02.localdomain systemd[1]: Started Berkeley Internet Name Domain (DNS).
+Mar 11 16:53:27 ol7dns02.localdomain named[2652]: zone 56.168.192.in-addr.arpa/IN: loaded serial 2
+Mar 11 16:53:27 ol7dns02.localdomain named[2652]: zone localhost.localdomain/IN: loaded serial 0
+Mar 11 16:53:27 ol7dns02.localdomain named[2652]: zone localdomain/IN: loaded serial 42
+Mar 11 16:53:27 ol7dns02.localdomain named[2652]: zone localhost/IN: loaded serial 0
+Mar 11 16:53:27 ol7dns02.localdomain named[2652]: all zones loaded
+Mar 11 16:53:27 ol7dns02.localdomain named[2652]: running
+Hint: Some lines were ellipsized, use -l to show in full.
+</pre>
+<p>I have tested that DNS is working locally after modifying <b>/etc/resolv.conf</b>:</p>
+<pre>
+# cat /etc/resolv.conf 
+search localdomain
+nameserver 192.168.56.140
+nameserver 192.168.1.254
+# nslookup rh7ttc-scan
+Server:		192.168.56.140
+Address:	192.168.56.140#53
+
+Name:	rh7ttc-scan.localdomain
+Address: 192.168.56.146
+Name:	rh7ttc-scan.localdomain
+Address: 192.168.56.147
+Name:	rh7ttc-scan.localdomain
+Address: 192.168.56.145
+
+# nslookup rh7ttcn1
+Server:		192.168.56.140
+Address:	192.168.56.140#53
+
+Name:	rh7ttcn1.localdomain
+Address: 192.168.56.141
+
+# nslookup rh7ttcn2
+Server:		192.168.56.140
+Address:	192.168.56.140#53
+
+Name:	rh7ttcn2.localdomain
+Address: 192.168.56.142
+
+# 
+</pre>
+<p>I have enabled automatic named service start by Linux boot with:</p>
+<pre>
+# systemctl is-enabled named
+disabled
+# systemctl enable named
+Created symlink from /etc/systemd/system/multi-user.target.wants/named.service to /usr/lib/systemd/system/named.service.
+# 
+</pre>
+<p>And I have tested that after VM reboot ...</p>
+<pre>
+# systemctl reboot
+</pre>
+<p>... named service has been automatically restarted:</p>
+<pre>
+# systemctl status named
+● named.service - Berkeley Internet Name Domain (DNS)
+   Loaded: loaded (/usr/lib/systemd/system/named.service; enabled; vendor preset: disabled)
+   Active: active (running) since Sat 2017-03-18 13:43:56 CET; 20s ago
+  Process: 1040 ExecStart=/usr/sbin/named -u named $OPTIONS (code=exited, status=0/SUCCESS)
+  Process: 1022 ExecStartPre=/bin/bash -c if [ ! "$DISABLE_ZONE_CHECKING" == "yes" ]; then /usr/sbin/named-checkconf -z /etc/named.conf; else echo "Checking of zone files is disabled"; fi (code=exited, status=0/SUCCESS)
+ Main PID: 1051 (named)
+   CGroup: /system.slice/named.service
+           └─1051 /usr/sbin/named -u named
+
+Mar 18 13:43:56 ol7dns02.localdomain named[1051]: zone 0.in-addr.arpa/IN: loaded serial 0
+Mar 18 13:43:56 ol7dns02.localdomain named[1051]: zone localhost/IN: loaded serial 0
+Mar 18 13:43:56 ol7dns02.localdomain named[1051]: zone localhost.localdomain/IN: loaded serial 0
+Mar 18 13:43:56 ol7dns02.localdomain named[1051]: zone 1.0.0.127.in-addr.arpa/IN: loaded serial 0
+Mar 18 13:43:56 ol7dns02.localdomain named[1051]: zone localdomain/IN: loaded serial 42
+Mar 18 13:43:56 ol7dns02.localdomain named[1051]: zone 56.168.192.in-addr.arpa/IN: loaded serial 2
+Mar 18 13:43:56 ol7dns02.localdomain systemd[1]: Started Berkeley Internet Name Domain (DNS).
+Mar 18 13:43:56 ol7dns02.localdomain named[1051]: zone 1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.ip6....rial 0
+Mar 18 13:43:56 ol7dns02.localdomain named[1051]: all zones loaded
+Mar 18 13:43:56 ol7dns02.localdomain named[1051]: running
+Hint: Some lines were ellipsized, use -l to show in full.
+# nslookup rh7ttc-scan
+Server:		192.168.56.140
+Address:	192.168.56.140#53
+
+Name:	rh7ttc-scan.localdomain
+Address: 192.168.56.145
+Name:	rh7ttc-scan.localdomain
+Address: 192.168.56.147
+Name:	rh7ttc-scan.localdomain
+Address: 192.168.56.146
+</pre>
+<p>I have also disabled some firewall settings for ol7dns02 so that cluster nodes will be able to query DNS:</p>
+<pre>
+# firewall-cmd --zone=public --add-port=53/tcp --add-port=53/udp
+success
+# firewall-cmd --permanent --zone=public --add-port=53/tcp --add-port=53/udp
+success
+# 
+</pre>
+<h2>Oracle RAC cluster node configuration</h2>
+<p>I have created first cluster node VM with following configuration:</p>
+<li>
+RAM: 8 GB
+</li>
+<li>
+one 40 GB hardisk attached to SATA controller
+</li>
+<li>
+3 network interfaces (the first one attached to NAT and the second and third one attached to Host-Only Adapter)
+</li>
+<p>
+When installing RH7 I have chosen in the following order:<br />
+<br />
+1. English as installation language<br />
+<br />
+2. the right timezone for my country (Paris, France)<br />
+<br />
+3. the right keyboard for my host system (French)<br />
+<br />
+4. manual partitioning only to set / file system size to 30 GB and swap space size to 8 GB<br />
+<br />
+6. to only set hostname to <b>rh7ttcn1.localdomain</b> (no network configuration)<br />
+<br />
+7. to set root password.<br />
+<br />
+I have left Software Selection to default value "minimal installation".<br />
+<br />
+After RH7 installation and VM reboot, I have used system console to configure public network interface:</p>
+<pre>
+# nmcli connection add type ethernet con-name enp0s8 ifname enp0s8 ip4 192.168.56.141/24
+</pre>
+<p>Now I connect with ssh to rh7ttcn1 and check network confoguration:</p>
+<pre>
+# ip addr
+1: lo:  mtu 65536 qdisc noqueue state UNKNOWN qlen 1
+    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00
+    inet 127.0.0.1/8 scope host lo
+       valid_lft forever preferred_lft forever
+    inet6 ::1/128 scope host 
+       valid_lft forever preferred_lft forever
+2: enp0s3:  mtu 1500 qdisc pfifo_fast state UP qlen 1000
+    link/ether 08:00:27:81:38:ab brd ff:ff:ff:ff:ff:ff
+3: enp0s8:  mtu 1500 qdisc pfifo_fast state UP qlen 1000
+    link/ether 08:00:27:15:8b:25 brd ff:ff:ff:ff:ff:ff
+    inet 192.168.56.141/24 brd 192.168.56.255 scope global enp0s8
+       valid_lft forever preferred_lft forever
+    inet6 fe80::28b4:3275:efb2:889f/64 scope link 
+       valid_lft forever preferred_lft forever
+4: enp0s9:  mtu 1500 qdisc pfifo_fast state UP qlen 1000
+    link/ether 08:00:27:5a:3a:96 brd ff:ff:ff:ff:ff:ff
+</pre>
+<p>I have configured NAT network interface with 10.0.2.15 as IP address and 10.0.2.2 as related gateway IP address:</p>
+<pre>
+# nmcli connection add type ethernet con-name enp0s3 ifname enp0s3 ip4 10.0.2.15/8 gw4 10.0.2.2
+Connection 'enp0s3' (a3662167-0500-4035-bb63-8a3818330c20) successfully added
+</pre>
+<p>I have also configured third network interface for the RAC interconnect:</p>
+<pre>
+# nmcli connection add type ethernet con-name enp0s9 ifname enp0s9 ip4 192.168.43.141/24
+Connection 'enp0s9' (d36f05ab-68ae-49ce-9a77-ffd26fc19196) successfully added.
+</pre>
+<p>I have checked with ip the current network configuration:</p>
+<pre>
+# ip addr
+1: lo:  mtu 65536 qdisc noqueue state UNKNOWN qlen 1
+    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00
+    inet 127.0.0.1/8 scope host lo
+       valid_lft forever preferred_lft forever
+    inet6 ::1/128 scope host 
+       valid_lft forever preferred_lft forever
+2: enp0s3:  mtu 1500 qdisc pfifo_fast state UP qlen 1000
+    link/ether 08:00:27:81:38:ab brd ff:ff:ff:ff:ff:ff
+    inet 10.0.2.15/8 brd 10.255.255.255 scope global enp0s3
+       valid_lft forever preferred_lft forever
+    inet6 fe80::76cb:b19b:6f43:d508/64 scope link 
+       valid_lft forever preferred_lft forever
+3: enp0s8:  mtu 1500 qdisc pfifo_fast state UP qlen 1000
+    link/ether 08:00:27:15:8b:25 brd ff:ff:ff:ff:ff:ff
+    inet 192.168.56.141/24 brd 192.168.56.255 scope global enp0s8
+       valid_lft forever preferred_lft forever
+    inet6 fe80::28b4:3275:efb2:889f/64 scope link 
+       valid_lft forever preferred_lft forever
+4: enp0s9:  mtu 1500 qdisc pfifo_fast state UP qlen 1000
+    link/ether 08:00:27:5a:3a:96 brd ff:ff:ff:ff:ff:ff
+    inet 192.168.43.141/24 brd 192.168.43.255 scope global enp0s9
+       valid_lft forever preferred_lft forever
+    inet6 fe80::bbb8:84e5:21c3:4fc/64 scope link 
+       valid_lft forever preferred_lft forever
+#
+</pre>
+<p>I have modified <b>/etc/resolv.conf</b> for DNS server and internet access:</p>
+<pre>
+nameserver 192.168.56.140
+search localdomain
+nameserver 192.168.1.254
+</pre>
+<p>I have checked internet access:</p>
+<pre>
+# ping -c 1 www.redhat.com
+PING e3396.dscx.akamaiedge.net (104.124.186.51) 56(84) bytes of data.
+64 bytes from a104-124-186-51.deploy.static.akamaitechnologies.com (104.124.186.51): icmp_seq=1 ttl=63 time=38.9 ms
+
+--- e3396.dscx.akamaiedge.net ping statistics ---
+1 packets transmitted, 1 received, 0% packet loss, time 0ms
+rtt min/avg/max/mdev = 38.975/38.975/38.975/0.000 m
+</pre>
+<p>I have registered current node to public Red Hat Satellite:</p>
+<pre>
+# subscription-manager register
+# subscription-manager attach --auto
+</pre>
+<p>I have checked registration with:</p>
+<pre>
+# subscription-manager status
++-------------------------------------------+
+   System Status Details
++-------------------------------------------+
+Overall Status: Current
+
+# subscription-manager list
+
++-------------------------------------------+
+    Installed Product Status
++-------------------------------------------+
+Product Name:   Red Hat Enterprise Linux Server
+Product ID:     69
+Version:        7.3
+Arch:           x86_64
+Status:         Subscribed
+Status Details: 
+Starts:         04/01/2016
+Ends:           04/01/2017
+# yum repolist
+Loaded plugins: product-id, search-disabled-repos, subscription-manager
+rhel-7-server-rpms                                                                                           | 3.5 kB  00:00:00     
+rhel-7-server-rt-beta-rpms                                                                                   | 4.0 kB  00:00:00     
+rhel-7-server-rt-rpms                                                                                        | 4.0 kB  00:00:00     
+rhel-ha-for-rhel-7-server-rpms                                                                               | 3.4 kB  00:00:00     
+rhel-rs-for-rhel-7-server-rpms                                                                               | 3.4 kB  00:00:00     
+(1/15): rhel-7-server-rpms/7Server/x86_64/group                                                              | 701 kB  00:00:03     
+(2/15): rhel-7-server-rpms/7Server/x86_64/updateinfo                                                         | 1.8 MB  00:00:04     
+(3/15): rhel-7-server-rt-beta-rpms/x86_64/updateinfo                                                         |   91 B  00:00:01     
+(4/15): rhel-7-server-rt-beta-rpms/x86_64/group                                                              | 1.7 kB  00:00:01     
+(5/15): rhel-7-server-rt-beta-rpms/x86_64/primary_db                                                         |  13 kB  00:00:01     
+(6/15): rhel-7-server-rt-rpms/7Server/x86_64/group                                                           | 2.5 kB  00:00:01     
+(7/15): rhel-7-server-rt-rpms/7Server/x86_64/updateinfo                                                      |  48 kB  00:00:01     
+(8/15): rhel-7-server-rt-rpms/7Server/x86_64/primary_db                                                      |  83 kB  00:00:01     
+(9/15): rhel-ha-for-rhel-7-server-rpms/7Server/x86_64/updateinfo                                             |  57 kB  00:00:01     
+(10/15): rhel-ha-for-rhel-7-server-rpms/7Server/x86_64/group                                                 |  15 kB  00:00:01     
+(11/15): rhel-ha-for-rhel-7-server-rpms/7Server/x86_64/primary_db                                            | 195 kB  00:00:01     
+(12/15): rhel-rs-for-rhel-7-server-rpms/7Server/x86_64/group                                                 |  26 kB  00:00:01     
+(13/15): rhel-rs-for-rhel-7-server-rpms/7Server/x86_64/updateinfo                                            |  84 kB  00:00:01     
+(14/15): rhel-rs-for-rhel-7-server-rpms/7Server/x86_64/primary_db                                            | 245 kB  00:00:01     
+(15/15): rhel-7-server-rpms/7Server/x86_64/primary_db                                                        |  34 MB  00:00:48     
+repo id                                            repo name                                                                  status
+rhel-7-server-rpms/7Server/x86_64                  Red Hat Enterprise Linux 7 Server (RPMs)                                   14,040
+rhel-7-server-rt-beta-rpms/x86_64                  Red Hat Enterprise Linux for Real Time Beta (RHEL 7 Server) (RPMs)             15
+rhel-7-server-rt-rpms/7Server/x86_64               Red Hat Enterprise Linux for Real Time (RHEL 7 Server) (RPMs)                 185
+rhel-ha-for-rhel-7-server-rpms/7Server/x86_64      Red Hat Enterprise Linux High Availability (for RHEL 7 Server) (RPMs)         291
+rhel-rs-for-rhel-7-server-rpms/7Server/x86_64      Red Hat Enterprise Linux Resilient Storage (for RHEL 7 Server) (RPMs)         359
+repolist: 14,890
+</pre>
+<p>I have installed bind utilities:</p>
+<pre>
+# yum install bind-utils
+Loaded plugins: product-id, search-disabled-repos, subscription-manager
+Resolving Dependencies
+--&gt; Running transaction check
+---&gt; Package bind-utils.x86_64 32:9.9.4-38.el7_3.2 will be installed
+--&gt; Processing Dependency: bind-libs = 32:9.9.4-38.el7_3.2 for package: 32:bind-utils-9.9.4-38.el7_3.2.x86_64
+--&gt; Processing Dependency: libbind9.so.90()(64bit) for package: 32:bind-utils-9.9.4-38.el7_3.2.x86_64
+--&gt; Processing Dependency: libdns.so.100()(64bit) for package: 32:bind-utils-9.9.4-38.el7_3.2.x86_64
+--&gt; Processing Dependency: libisc.so.95()(64bit) for package: 32:bind-utils-9.9.4-38.el7_3.2.x86_64
+--&gt; Processing Dependency: libisccc.so.90()(64bit) for package: 32:bind-utils-9.9.4-38.el7_3.2.x86_64
+--&gt; Processing Dependency: libisccfg.so.90()(64bit) for package: 32:bind-utils-9.9.4-38.el7_3.2.x86_64
+--&gt; Processing Dependency: liblwres.so.90()(64bit) for package: 32:bind-utils-9.9.4-38.el7_3.2.x86_64
+--&gt; Running transaction check
+---&gt; Package bind-libs.x86_64 32:9.9.4-38.el7_3.2 will be installed
+--&gt; Processing Dependency: bind-license = 32:9.9.4-38.el7_3.2 for package: 32:bind-libs-9.9.4-38.el7_3.2.x86_64
+--&gt; Running transaction check
+---&gt; Package bind-license.noarch 32:9.9.4-37.el7 will be updated
+--&gt; Processing Dependency: bind-license = 32:9.9.4-37.el7 for package: 32:bind-libs-lite-9.9.4-37.el7.x86_64
+---&gt; Package bind-license.noarch 32:9.9.4-38.el7_3.2 will be an update
+--&gt; Running transaction check
+---&gt; Package bind-libs-lite.x86_64 32:9.9.4-37.el7 will be updated
+---&gt; Package bind-libs-lite.x86_64 32:9.9.4-38.el7_3.2 will be an update
+--&gt; Finished Dependency Resolution
+
+Dependencies Resolved
+
+====================================================================================================================================
+ Package                        Arch                   Version                             Repository                          Size
+====================================================================================================================================
+Installing:
+ bind-utils                     x86_64                 32:9.9.4-38.el7_3.2                 rhel-7-server-rpms                 202 k
+Installing for dependencies:
+ bind-libs                      x86_64                 32:9.9.4-38.el7_3.2                 rhel-7-server-rpms                 1.0 M
+Updating for dependencies:
+ bind-libs-lite                 x86_64                 32:9.9.4-38.el7_3.2                 rhel-7-server-rpms                 730 k
+ bind-license                   noarch                 32:9.9.4-38.el7_3.2                 rhel-7-server-rpms                  83 k
+
+Transaction Summary
+====================================================================================================================================
+Install  1 Package  (+1 Dependent package)
+Upgrade             ( 2 Dependent packages)
+
+Total download size: 2.0 M
+Is this ok [y/d/N]: y
+Downloading packages:
+Delta RPMs disabled because /usr/bin/applydeltarpm not installed.
+warning: /var/cache/yum/x86_64/7Server/rhel-7-server-rpms/packages/bind-libs-lite-9.9.4-38.el7_3.2.x86_64.rpm: Header V3 RSA/SHA256 Signature, key ID fd431d51: NOKEY
+Public key for bind-libs-lite-9.9.4-38.el7_3.2.x86_64.rpm is not installed
+(1/4): bind-libs-lite-9.9.4-38.el7_3.2.x86_64.rpm                                                            | 730 kB  00:00:02     
+(2/4): bind-license-9.9.4-38.el7_3.2.noarch.rpm                                                              |  83 kB  00:00:00     
+(3/4): bind-libs-9.9.4-38.el7_3.2.x86_64.rpm                                                                 | 1.0 MB  00:00:03     
+(4/4): bind-utils-9.9.4-38.el7_3.2.x86_64.rpm                                                                | 202 kB  00:00:01     
+------------------------------------------------------------------------------------------------------------------------------------
+Total                                                                                               450 kB/s | 2.0 MB  00:00:04     
+Retrieving key from file:///etc/pki/rpm-gpg/RPM-GPG-KEY-redhat-release
+Importing GPG key 0xFD431D51:
+ Userid     : "Red Hat, Inc. (release key 2) "
+ Fingerprint: 567e 347a d004 4ade 55ba 8a5f 199e 2f91 fd43 1d51
+ Package    : redhat-release-server-7.3-7.el7.x86_64 (@anaconda/7.3)
+ From       : /etc/pki/rpm-gpg/RPM-GPG-KEY-redhat-release
+Is this ok [y/N]: y
+Importing GPG key 0x2FA658E0:
+ Userid     : "Red Hat, Inc. (auxiliary key) "
+ Fingerprint: 43a6 e49c 4a38 f4be 9abf 2a53 4568 9c88 2fa6 58e0
+ Package    : redhat-release-server-7.3-7.el7.x86_64 (@anaconda/7.3)
+ From       : /etc/pki/rpm-gpg/RPM-GPG-KEY-redhat-release
+Is this ok [y/N]: y
+Running transaction check
+Running transaction test
+Transaction test succeeded
+Running transaction
+  Updating   : 32:bind-license-9.9.4-38.el7_3.2.noarch                                                                          1/6 
+  Installing : 32:bind-libs-9.9.4-38.el7_3.2.x86_64                                                                             2/6 
+  Installing : 32:bind-utils-9.9.4-38.el7_3.2.x86_64                                                                            3/6 
+  Updating   : 32:bind-libs-lite-9.9.4-38.el7_3.2.x86_64                                                                        4/6 
+  Cleanup    : 32:bind-libs-lite-9.9.4-37.el7.x86_64                                                                            5/6 
+  Cleanup    : 32:bind-license-9.9.4-37.el7.noarch                                                                              6/6 
+rhel-7-server-rpms/7Server/x86_64/productid                                                                  | 2.1 kB  00:00:00     
+rhel-7-server-rt-beta-rpms/x86_64/productid                                                                  | 2.1 kB  00:00:00     
+rhel-7-server-rt-rpms/7Server/x86_64/productid                                                               | 2.1 kB  00:00:00     
+rhel-ha-for-rhel-7-server-rpms/7Server/x86_64/productid                                                      | 2.2 kB  00:00:00     
+rhel-rs-for-rhel-7-server-rpms/7Server/x86_64/productid                                                      | 2.2 kB  00:00:00     
+  Verifying  : 32:bind-libs-lite-9.9.4-38.el7_3.2.x86_64                                                                        1/6 
+  Verifying  : 32:bind-utils-9.9.4-38.el7_3.2.x86_64                                                                            2/6 
+  Verifying  : 32:bind-libs-9.9.4-38.el7_3.2.x86_64                                                                             3/6 
+  Verifying  : 32:bind-license-9.9.4-38.el7_3.2.noarch                                                                          4/6 
+  Verifying  : 32:bind-libs-lite-9.9.4-37.el7.x86_64                                                                            5/6 
+  Verifying  : 32:bind-license-9.9.4-37.el7.noarch                                                                              6/6 
+
+Installed:
+  bind-utils.x86_64 32:9.9.4-38.el7_3.2                                                                                             
+
+Dependency Installed:
+  bind-libs.x86_64 32:9.9.4-38.el7_3.2                                                                                              
+
+Dependency Updated:
+  bind-libs-lite.x86_64 32:9.9.4-38.el7_3.2                         bind-license.noarch 32:9.9.4-38.el7_3.2                        
+
+Complete!
+# 
+</pre>
+<p>I have checked DNS:</p>
+<pre>
+# nslookup rh7ttc-scan
+Server:		192.168.56.140
+Address:	192.168.56.140#53
+
+Name:	rh7ttc-scan.localdomain
+Address: 192.168.56.146
+Name:	rh7ttc-scan.localdomain
+Address: 192.168.56.147
+Name:	rh7ttc-scan.localdomain
+Address: 192.168.56.145
+
+# nslookup rh7ttcn1
+Server:		192.168.56.140
+Address:	192.168.56.140#53
+
+Name:	rh7ttcn1.localdomain
+Address: 192.168.56.141
+
+# nslookup rh7ttcn2
+Server:		192.168.56.140
+Address:	192.168.56.140#53
+
+Name:	rh7ttcn2.localdomain
+Address: 192.168.56.142
+
+# ip route
+default via 10.0.2.2 dev enp0s3  proto static  metric 100 
+10.0.0.0/8 dev enp0s3  proto kernel  scope link  src 10.0.2.15  metric 100 
+192.168.43.0/24 dev enp0s9  proto kernel  scope link  src 192.168.43.141  metric 100 
+192.168.56.0/24 dev enp0s8  proto kernel  scope link  src 192.168.56.141  metric 100 
+</pre>
+<p>I have updated <b>/etc/hosts</b> with both cluster nodes IP addresses:</p>
+<pre>
+# cat /etc/hosts
+127.0.0.1   localhost localhost.localdomain localhost4 localhost4.localdomain4
+::1         localhost localhost.localdomain localhost6 localhost6.localdomain6
+#
+# Public
+192.168.56.141 rh7ttcn1 rh7ttcn1.localdomain
+192.168.56.142 rh7ttcn2 rh7ttcn2.localdomain
+# Private
+192.168.43.141 rh7ttcn1-priv rh7ttcn1-priv.localdomain
+192.168.43.142 rh7ttcn2-priv rh7ttcn2-priv.localdomain
+# VIP
+192.168.56.241 rh7ttcn1-vip rh7ttcn1-vip.localdomain
+192.168.56.242 rh7ttcn2-vip rh7ttcn2-vip.localdomain
+#
+</pre>
+<p>I have also disabled firewall:</p>
+<pre>
+# systemctl disable firewalld
+Removed symlink /etc/systemd/system/dbus-org.fedoraproject.FirewallD1.service.
+Removed symlink /etc/systemd/system/basic.target.wants/firewalld.service.
+</pre>
+<p>I have enabled another channel in <b>/etc/yum.repos.d/redhat.repo</b> for the modified preinstallation RPM (I have just set enabled to 1):</p>
+<pre>
+[rhel-7-server-eus-optional-rpms]
+metadata_expire = 86400
+sslclientcert = /etc/pki/entitlement/4386790787952850995.pem
+baseurl = https://cdn.redhat.com/content/eus/rhel/server/7/$releasever/$basearch/optional/os
+ui_repoid_vars = releasever basearch
+sslverify = 1
+name = Red Hat Enterprise Linux 7 Server - Extended Update Support - Optional (RPMs)
+sslclientkey = /etc/pki/entitlement/4386790787952850995-key.pem
+gpgkey = file:///etc/pki/rpm-gpg/RPM-GPG-KEY-redhat-release
+enabled = 1
+sslcacert = /etc/rhsm/ca/redhat-uep.pem
+gpgcheck = 1
+</pre>
+<p>I have installed <a href="https://pierreforstmanndotcom.wordpress.com/2017/03/17/how-i-simplified-oracle-database-12-2-0-1-installation-on-red-hat-linux-7-3-with-oracle-preinstallation-rpm/" />Oracle 12.2 modified preinstallation RPM</a>:</p>
+<pre>
+# ls -rtl
+total 28
+-rw-------. 1 root root  1602 Mar 18 14:29 anaconda-ks.cfg
+-rw-r--r--. 1 root root 17108 Mar 18 14:58 oracle-database-server-12cR2-preinstall-1.0-1.el7.x86_64.rpm
+-rw-r--r--. 1 root root  2056 Mar 18 14:58 oracle-database-server-12cR2-preinstall-debuginfo-1.0-1.el7.x86_64.rpm
+# yum -y install oracle-database-server-12cR2-preinstall-1.0-1.el7.x86_64.rpm
+</pre>
+<p>Output is <a href="https://pierreforstmanndotcom.wordpress.com/717-2/">here</a>.</p>
+<h3>Shared storage configuration</h3>
+<p>Even if I currently have only one cluster node I can start to configure shared storage because configuration will be kept by cloning first cluster node VM to second cluster node VM.<br />
+<br />
+On my host system, I have created 4 virtual disks for 4 ASM disk groups:</p>
+<li> one for OCR and voting disk (2 GB)
+</li>
+<li> one for the Grid Infrastructure Management Repository (GIMR) database mandatory (40 GB)
+</li>
+<li> one for databases files (40 GB)<br />
+</lI></p>
+<li> one for the fast recovery area (FRA - 20 GB)
+</li>
+<pre>
+$ vboxmanage createhd --filename rh7ttcn1.rh7ttcn2.sata.1.vdi --size=2048 -format=VDI --variant=fixe
+0%...10%...20%...30%...40%...50%...60%...70%...80%...90%...100%
+Medium created. UUID: 6c305e48-c048-422d-a356-030535376945
+$ vboxmanage createhd --filename rh7ttcn1.rh7ttcn2.sata.2.vdi --size=40960 -format=VDI --variant=fixe
+0%...10%...20%...30%...40%...50%...60%...70%...80%...90%...100%
+Medium created. UUID: 39a41b6c-ef13-4827-9da0-9fb44b5e391e
+ $ vboxmanage createhd --filename rh7ttcn1.rh7ttcn2.sata.3.vdi --size=40960 -format=VDI --variant=fixe
+0%...10%...20%...30%...40%...50%...60%...70%...80%...90%...100%
+Medium created. UUID: c57c102b-3db9-459d-96d0-157212c60055
+$ vboxmanage createhd --filename rh7ttcn1.rh7ttcn2.sata.4.vdi --size=20480 -format=VDI --variant=fixe
+0%...10%...20%...30%...40%...50%...60%...70%...80%...90%...100%
+Medium created. UUID: 98de0fb5-6f07-41f6-81cb-13f99411a166
+</pre>
+<p>I have shutdown rh7ttcn1 VM and run  following commands to attach the virtual disks and make them shareable:</p>
+<pre>
+$ vboxmanage controlvm rh7ttcn1 poweroff
+0%...10%...20%...30%...40%...50%...60%...70%...80%...90%...100%
+
+$ vboxmanage storageattach rh7ttcn1 --storagectl "SATA" --port 1 --device 0 --type hdd --medium rh7ttcn1.rh7ttcn2.sata.1.vdi
+$ vboxmanage storageattach rh7ttcn1 --storagectl "SATA" --port 2 --device 0 --type hdd --medium rh7ttcn1.rh7ttcn2.sata.2.vdi
+$ vboxmanage storageattach rh7ttcn1 --storagectl "SATA" --port 3 --device 0 --type hdd --medium rh7ttcn1.rh7ttcn2.sata.3.vdi
+$ vboxmanage storageattach rh7ttcn1 --storagectl "SATA" --port 4 --device 0 --type hdd --medium rh7ttcn1.rh7ttcn2.sata.4.vdi
+$ 
+
+$ vboxmanage modifyhd rh7ttcn1.rh7ttcn2.sata.1.vdi -type shareable
+$ vboxmanage modifyhd rh7ttcn1.rh7ttcn2.sata.2.vdi -type shareable
+$ vboxmanage modifyhd rh7ttcn1.rh7ttcn2.sata.3.vdi -type shareable
+$ vboxmanage modifyhd rh7ttcn1.rh7ttcn2.sata.4.vdi -type shareable
+</pre>
+<p>I have restarted rh7ttcn1 VM ...</p>
+<pre>
+$ vboxmanage startvm rh7ttcn1 
+Waiting for VM "rh7ttcn1" to power on...
+VM "rh7ttcn1" has been successfully started.
+</pre>
+<p>... and checked that the corresponding device files have been created:</p>
+<pre>
+# lsblk
+NAME          MAJ:MIN RM  SIZE RO TYPE MOUNTPOINT
+sda             8:0    0   40G  0 disk 
++-sda1          8:1    0    1G  0 part /boot
++-sda2          8:2    0   38G  0 part 
+  +-rhel-root 253:0    0   30G  0 lvm  /
+  +-rhel-swap 253:1    0    8G  0 lvm  [SWAP]
+sdb             8:16   0    2G  0 disk 
+sdc             8:32   0   40G  0 disk 
+sdd             8:48   0   40G  0 disk 
+sde             8:64   0   20G  0 disk 
+sr0            11:0    1 1024M  0 rom 
+</pre>
+<p>I have created a single partition on each disk:</p>
+<pre>
+# fdisk /dev/sdb
+Welcome to fdisk (util-linux 2.23.2).
+
+Changes will remain in memory only, until you decide to write them.
+Be careful before using the write command.
+
+Device does not contain a recognized partition table
+Building a new DOS disklabel with disk identifier 0x5bf770c7.
+
+Command (m for help): n
+Partition type:
+   p   primary (0 primary, 0 extended, 4 free)
+   e   extended
+Select (default p): p
+Partition number (1-4, default 1): 1
+First sector (2048-4194303, default 2048): 
+Using default value 2048
+Last sector, +sectors or +size{K,M,G} (2048-4194303, default 4194303): 
+Using default value 4194303
+Partition 1 of type Linux and of size 2 GiB is set
+
+Command (m for help): w
+The partition table has been altered!
+
+Calling ioctl() to re-read partition table.
+Syncing disks.
+# fdisk /dev/sdc
+Welcome to fdisk (util-linux 2.23.2).
+
+Changes will remain in memory only, until you decide to write them.
+Be careful before using the write command.
+
+Device does not contain a recognized partition table
+Building a new DOS disklabel with disk identifier 0x0c0104d4.
+
+Command (m for help): n
+Partition type:
+   p   primary (0 primary, 0 extended, 4 free)
+   e   extended
+Select (default p): p
+Partition number (1-4, default 1): 1
+First sector (2048-83886079, default 2048): 
+Using default value 2048
+Last sector, +sectors or +size{K,M,G} (2048-83886079, default 83886079): 
+Using default value 83886079
+Partition 1 of type Linux and of size 40 GiB is set
+
+Command (m for help): w
+The partition table has been altered!
+
+Calling ioctl() to re-read partition table.
+Syncing disks.
+# fdisk /dev/sdd
+Welcome to fdisk (util-linux 2.23.2).
+
+Changes will remain in memory only, until you decide to write them.
+Be careful before using the write command.
+
+Device does not contain a recognized partition table
+Building a new DOS disklabel with disk identifier 0xa7aac7dd.
+
+Command (m for help): n
+Partition type:
+   p   primary (0 primary, 0 extended, 4 free)
+   e   extended
+Select (default p): p
+Partition number (1-4, default 1): 1
+First sector (2048-83886079, default 2048): 
+Using default value 2048
+Last sector, +sectors or +size{K,M,G} (2048-83886079, default 83886079): 
+Using default value 83886079
+Partition 1 of type Linux and of size 40 GiB is set
+
+Command (m for help): w
+The partition table has been altered!
+
+Calling ioctl() to re-read partition table.
+Syncing disks.
+# fdisk /dev/sde
+Welcome to fdisk (util-linux 2.23.2).
+
+Changes will remain in memory only, until you decide to write them.
+Be careful before using the write command.
+
+Device does not contain a recognized partition table
+Building a new DOS disklabel with disk identifier 0x60ef187c.
+
+Command (m for help): n
+Partition type:
+   p   primary (0 primary, 0 extended, 4 free)
+   e   extended
+Select (default p): p
+Partition number (1-4, default 1):  
+First sector (2048-41943039, default 2048): 
+Using default value 2048
+Last sector, +sectors or +size{K,M,G} (2048-41943039, default 41943039): 
+Using default value 41943039
+Partition 1 of type Linux and of size 20 GiB is set
+
+Command (m for help): w
+The partition table has been altered!
+
+Calling ioctl() to re-read partition table.
+Syncing disks.
+# lsblk
+NAME          MAJ:MIN RM  SIZE RO TYPE MOUNTPOINT
+sda             8:0    0   40G  0 disk 
++-sda1          8:1    0    1G  0 part /boot
++-sda2          8:2    0   38G  0 part 
+  +-rhel-root 253:0    0   30G  0 lvm  /
+  +-rhel-swap 253:1    0    8G  0 lvm  [SWAP]
+sdb             8:16   0    2G  0 disk 
++-sdb1          8:17   0    2G  0 part 
+sdc             8:32   0   40G  0 disk 
++-sdc1          8:33   0   40G  0 part 
+sdd             8:48   0   40G  0 disk 
++-sdd1          8:49   0   40G  0 part 
+sde             8:64   0   20G  0 disk 
++-sde1          8:65   0   20G  0 part 
+sr0            11:0    1 1024M  0 rom  
+# 
+</pre>
+<p>I have retrieved SCSI unique identifiers for the 4 disks:</p>
+<pre>
+# /lib/udev/scsi_id -g -u -d /dev/sdb
+1ATA_VBOX_HARDDISK_VB6c305e48-45693735
+# /lib/udev/scsi_id -g -u -d /dev/sdc
+1ATA_VBOX_HARDDISK_VB39a41b6c-1e395e4b
+# /lib/udev/scsi_id -g -u -d /dev/sdd
+1ATA_VBOX_HARDDISK_VBc57c102b-5500c612
+# /lib/udev/scsi_id -g -u -d /dev/sde
+1ATA_VBOX_HARDDISK_VB98de0fb5-66a11194
+# 
+</pre>
+<p>I have created UDEV script <b>/etc/udev/rules.d/99-oracle-asmdevices.rules</b>:</p>
+<pre>
+# cat /etc/udev/rules.d/99-oracle-asmdevices.rules
+KERNEL=="sd?1", SUBSYSTEM=="block", PROGRAM=="/lib/udev/scsi_id -g -u -d /dev/$parent", RESULT=="1ATA_VBOX_HARDDISK_VB6c305e48-45693735", SYMLINK+="asm-disk1", OWNER="oracle", GROUP="dba", MODE="0660"
+KERNEL=="sd?1", SUBSYSTEM=="block", PROGRAM=="/lib/udev/scsi_id -g -u -d /dev/$parent", RESULT=="1ATA_VBOX_HARDDISK_VB39a41b6c-1e395e4b", SYMLINK+="asm-disk2", OWNER="oracle", GROUP="dba", MODE="0660"
+KERNEL=="sd?1", SUBSYSTEM=="block", PROGRAM=="/lib/udev/scsi_id -g -u -d /dev/$parent", RESULT=="1ATA_VBOX_HARDDISK_VBc57c102b-5500c612", SYMLINK+="asm-disk3", OWNER="oracle", GROUP="dba", MODE="0660"
+KERNEL=="sd?1", SUBSYSTEM=="block", PROGRAM=="/lib/udev/scsi_id -g -u -d /dev/$parent", RESULT=="1ATA_VBOX_HARDDISK_VB98de0fb5-66a11194", SYMLINK+="asm-disk4", OWNER="oracle", GROUP="dba", MODE="0660"
+</pre>
+<p>I have rebooted ...:</p>
+<pre>
+# systemctl reboot
+</pre>
+<p>... and checked that the persistent devices have been created:</p>
+<pre>
+# ls -al /dev/asm*
+lrwxrwxrwx. 1 root root 4 Mar 18 17:18 /dev/asm-disk1 -&gt; sdb1
+lrwxrwxrwx. 1 root root 4 Mar 18 17:18 /dev/asm-disk2 -&gt; sdc1
+lrwxrwxrwx. 1 root root 4 Mar 18 17:18 /dev/asm-disk3 -&gt; sdd1
+lrwxrwxrwx. 1 root root 4 Mar 18 17:18 /dev/asm-disk4 -&gt; sde1
+#
+</pre>
+<h3> Clone first cluster node to second cluster node</h3>
+<p>I have shutdown rh7ttcn1 and I have first cloned the rh7ttcn1 system disk:</p>
+<pre>
+$ vboxmanage clonehd rh7ttcn1.sata.0.vdi rh7ttcn2.sata.0.vdi
+0%...10%...20%...30%...40%...50%...60%...70%...80%...90%...100%
+Clone medium created in format 'VDI'. UUID: c08ed3f5-768f-48ba-9692-cff08fbc51c1
+</pre>
+<p>Using VBOX GUI I have created a new VM named <b>rh7ttcn2</b> using <b>rh7ttcn2.sata.0.vdi</b> as system disk.<br />
+<br />
+I have set the same properties for rh7ttcn2 as for rh7ttcn1:</p>
+<li>
+RAM: 8GB
+</li>
+<li>
+3 network interfaces (the first one attached to NAT and the second and third one attached to Host-Only Adapter).
+</li>
+<p>
+I have attached the 4 shared disks to rh7ttcn2:</p>
+<pre>
+$ vboxmanage storageattach rh7ttcn2 --storagectl "SATA" --port 1 --device 0 --type hdd --medium rh7ttcn1.rh7ttcn2.sata.1.vdi --mtype shareable
+$ vboxmanage storageattach rh7ttcn2 --storagectl "SATA" --port 2 --device 0 --type hdd --medium rh7ttcn1.rh7ttcn2.sata.2.vdi --mtype shareable
+$ vboxmanage storageattach rh7ttcn2 --storagectl "SATA" --port 3 --device 0 --type hdd --medium rh7ttcn1.rh7ttcn2.sata.3.vdi --mtype shareable
+$ vboxmanage storageattach rh7ttcn2 --storagectl "SATA" --port 4 --device 0 --type hdd --medium rh7ttcn1.rh7ttcn2.sata.4.vdi --mtype shareable
+</pre>
+<p>I have started rh7ttcn2 and from the console modified the hostname:</p>
+<pre>
+# cat /etc/hostname
+rh7ttcn2.localdomain
+#
+</pre>
+<p>From the console I have reconfigured the public network interface and the interconnect network interface:</p>
+<pre>
+# nmcli con del enp0s8
+# nmcli connection add type ethernet con-name enp0s8 ifname enp0s8 ip4 192.168.56.142/24
+# nmcli con del enp0s9
+# nmcli connection add type ethernet con-name enp0s9 ifname enp0s9 ip4 192.168.43.142/24
+</pre>
+<p>Now I can connect with SSH and check network configuration:</p>
+<pre>
+# ip addr
+1: lo:  mtu 65536 qdisc noqueue state UNKNOWN qlen 1
+    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00
+    inet 127.0.0.1/8 scope host lo
+       valid_lft forever preferred_lft forever
+    inet6 ::1/128 scope host 
+       valid_lft forever preferred_lft forever
+2: enp0s3:  mtu 1500 qdisc pfifo_fast state UP qlen 1000
+    link/ether 08:00:27:13:3b:eb brd ff:ff:ff:ff:ff:ff
+    inet 10.0.2.15/8 brd 10.255.255.255 scope global enp0s3
+       valid_lft forever preferred_lft forever
+    inet6 fe80::76cb:b19b:6f43:d508/64 scope link 
+       valid_lft forever preferred_lft forever
+3: enp0s8:  mtu 1500 qdisc pfifo_fast state UP qlen 1000
+    link/ether 08:00:27:cd:c2:22 brd ff:ff:ff:ff:ff:ff
+    inet 192.168.56.142/24 brd 192.168.56.255 scope global enp0s8
+       valid_lft forever preferred_lft forever
+    inet6 fe80::1354:e532:db37:ff33/64 scope link 
+       valid_lft forever preferred_lft forever
+4: enp0s9:  mtu 1500 qdisc pfifo_fast state UP qlen 1000
+    link/ether 08:00:27:cc:b3:1b brd ff:ff:ff:ff:ff:ff
+    inet 192.168.43.142/24 brd 192.168.43.255 scope global enp0s9
+       valid_lft forever preferred_lft forever
+    inet6 fe80::16b5:775c:2349:9735/64 scope link 
+       valid_lft forever preferred_lft forever
+# nmcli dev status
+DEVICE  TYPE      STATE      CONNECTION 
+enp0s3  ethernet  connected  enp0s3     
+enp0s8  ethernet  connected  enp0s8     
+enp0s9  ethernet  connected  enp0s9     
+lo      loopback  unmanaged  --    
+</pre>
+<p>Note that there is no need to reconfigure the NAT network interface.<br />
+<br />
+I have rebooted rh7ttcn2 ...</p>
+<pre>
+# systemctl reboot
+</pre>
+<p>... and checked that network interfaces are up and that DNS is OK:</p>
+<pre>
+# ip addr
+1: lo:  mtu 65536 qdisc noqueue state UNKNOWN qlen 1
+    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00
+    inet 127.0.0.1/8 scope host lo
+       valid_lft forever preferred_lft forever
+    inet6 ::1/128 scope host 
+       valid_lft forever preferred_lft forever
+2: enp0s3:  mtu 1500 qdisc pfifo_fast state UP qlen 1000
+    link/ether 08:00:27:13:3b:eb brd ff:ff:ff:ff:ff:ff
+    inet 10.0.2.15/8 brd 10.255.255.255 scope global enp0s3
+       valid_lft forever preferred_lft forever
+    inet6 fe80::76cb:b19b:6f43:d508/64 scope link 
+       valid_lft forever preferred_lft forever
+3: enp0s8:  mtu 1500 qdisc pfifo_fast state UP qlen 1000
+    link/ether 08:00:27:cd:c2:22 brd ff:ff:ff:ff:ff:ff
+    inet 192.168.56.142/24 brd 192.168.56.255 scope global enp0s8
+       valid_lft forever preferred_lft forever
+    inet6 fe80::1354:e532:db37:ff33/64 scope link 
+       valid_lft forever preferred_lft forever
+4: enp0s9:  mtu 1500 qdisc pfifo_fast state UP qlen 1000
+    link/ether 08:00:27:cc:b3:1b brd ff:ff:ff:ff:ff:ff
+    inet 192.168.43.142/24 brd 192.168.43.255 scope global enp0s9
+       valid_lft forever preferred_lft forever
+    inet6 fe80::16b5:775c:2349:9735/64 scope link 
+       valid_lft forever preferred_lft forever
+# ip route
+default via 10.0.2.2 dev enp0s3  proto static  metric 100 
+10.0.0.0/8 dev enp0s3  proto kernel  scope link  src 10.0.2.15  metric 100 
+192.168.43.0/24 dev enp0s9  proto kernel  scope link  src 192.168.43.142  metric 100 
+192.168.56.0/24 dev enp0s8  proto kernel  scope link  src 192.168.56.142  metric 100 
+# nslookup rh7ttc-scan
+Server:		192.168.56.140
+Address:	192.168.56.140#53
+
+Name:	rh7ttc-scan.localdomain
+Address: 192.168.56.145
+Name:	rh7ttc-scan.localdomain
+Address: 192.168.56.146
+Name:	rh7ttc-scan.localdomain
+Address: 192.168.56.147
+
+# nslookup rh7ttcn1
+Server:		192.168.56.140
+Address:	192.168.56.140#53
+
+Name:	rh7ttcn1.localdomain
+Address: 192.168.56.141
+
+# nslookup rh7ttcn2
+Server:		192.168.56.140
+Address:	192.168.56.140#53
+
+Name:	rh7ttcn2.localdomain
+Address: 192.168.56.142
+# 
+# nslookup www.redhat.com
+;; Got recursion not available from 192.168.56.140, trying next server
+Server:		192.168.1.254
+Address:	192.168.1.254#53
+
+Non-authoritative answer:
+www.redhat.com	canonical name = ds-www.redhat.com.edgekey.net.
+ds-www.redhat.com.edgekey.net	canonical name = ds-www.redhat.com.edgekey.net.globalredir.akadns.net.
+ds-www.redhat.com.edgekey.net.globalredir.akadns.net	canonical name = e3396.dscx.akamaiedge.net.
+Name:	e3396.dscx.akamaiedge.net
+Address: 104.124.186.51
+</pre>
+<p>I have also  checked that the ASM devices have been created:</p>
+<pre>
+# ls -al /dev/asm*
+lrwxrwxrwx. 1 root root 4 Mar 18 17:58 /dev/asm-disk1 -&gt; sdb1
+lrwxrwxrwx. 1 root root 4 Mar 18 17:58 /dev/asm-disk2 -&gt; sdc1
+lrwxrwxrwx. 1 root root 4 Mar 18 17:58 /dev/asm-disk3 -&gt; sdd1
+lrwxrwxrwx. 1 root root 4 Mar 18 17:58 /dev/asm-disk4 -&gt; sde1
+# ls -al /dev/sd[bcde]
+brw-rw----. 1 root disk 8, 16 Mar 18 17:58 /dev/sdb
+brw-rw----. 1 root disk 8, 32 Mar 18 17:58 /dev/sdc
+brw-rw----. 1 root disk 8, 48 Mar 18 17:58 /dev/sdd
+brw-rw----. 1 root disk 8, 64 Mar 18 17:58 /dev/sde
+# lsblk
+NAME          MAJ:MIN RM  SIZE RO TYPE MOUNTPOINT
+sda             8:0    0   40G  0 disk 
+├─sda1          8:1    0    1G  0 part /boot
+└─sda2          8:2    0   38G  0 part 
+  ├─rhel-root 253:0    0   30G  0 lvm  /
+  └─rhel-swap 253:1    0    8G  0 lvm  [SWAP]
+sdb             8:16   0    2G  0 disk 
+└─sdb1          8:17   0    2G  0 part 
+sdc             8:32   0   40G  0 disk 
+└─sdc1          8:33   0   40G  0 part 
+sdd             8:48   0   40G  0 disk 
+└─sdd1          8:49   0   40G  0 part 
+sde             8:64   0   20G  0 disk 
+└─sde1          8:65   0   20G  0 part 
+sr0            11:0    1 1024M  0 rom  
+# 
+</pre>
+<p>I have configured passwordless ssh between the 2 cluster nodes for oracle account:</p>
+<p>First I have set oracle password on both nodes (note that oracle account has been created by the preinstallation RPM):</p>
+<pre>
+Changing password for user oracle.
+New password:
+BAD PASSWORD: The password is shorter than 8 characters
+Retype new password:
+passwd: all authentication tokens updated successfully.
+#
+</pre>
+<p>I have run with oracle account on rh7ttcn1 :</p>
+<pre>
+$ ssh-keygen
+Generating public/private rsa key pair.
+Enter file in which to save the key (/home/oracle/.ssh/id_rsa): 
+Created directory '/home/oracle/.ssh'.
+Enter passphrase (empty for no passphrase): 
+Enter same passphrase again: 
+Your identification has been saved in /home/oracle/.ssh/id_rsa.
+Your public key has been saved in /home/oracle/.ssh/id_rsa.pub.
+The key fingerprint is:
+cd:c7:a3:68:fd:cf:db:ef:e8:8f:50:2e:cc:46:84:95 oracle@rh7ttcn1.localdomain
+The key's randomart image is:
++--[ RSA 2048]----+
+|            ..   |
+|           oE    |
+|          . .    |
+|         o o     |
+|        S o = .  |
+|         o * +   |
+|        o o * .  |
+|       .   o + + |
+|            .oB+*|
++-----------------+
+
+$ ssh-copy-id rh7ttcn2
+/bin/ssh-copy-id: INFO: attempting to log in with the new key(s), to filter out any that are already installed
+/bin/ssh-copy-id: INFO: 1 key(s) remain to be installed -- if you are prompted now it is to install the new keys
+oracle@rh7ttcn2's password: 
+
+Number of key(s) added: 1
+
+Now try logging into the machine, with:   "ssh 'rh7ttcn2'"
+and check to make sure that only the key(s) you wanted were added.
+
+
+
+
+
+</pre>
+<p>I have run similar steps on cluster node 2:</p>
+<pre>
+$ ssh-keygen
+Generating public/private rsa key pair.
+Enter file in which to save the key (/home/oracle/.ssh/id_rsa): 
+Enter passphrase (empty for no passphrase): 
+Enter same passphrase again: 
+Your identification has been saved in /home/oracle/.ssh/id_rsa.
+Your public key has been saved in /home/oracle/.ssh/id_rsa.pub.
+The key fingerprint is:
+f3:ec:4f:03:68:7d:cb:14:32:d9:62:b1:31:03:df:b7 oracle@rh7ttcn2.localdomain
+The key's randomart image is:
++--[ RSA 2048]----+
+|        ..=      |
+|         . X     |
+|          O + .  |
+|         + + o . |
+|        S o o E  |
+|       . + = .   |
+|          o =    |
+|         . . .   |
+|          ...    |
++-----------------+
+
+
+$ ssh-copy-id rh7ttcn1
+The authenticity of host 'rh7ttcn1 (192.168.56.141)' can't be established.
+ECDSA key fingerprint is f9:97:87:e5:7c:19:d5:3a:ee:b6:d2:79:79:b1:5a:aa.
+Are you sure you want to continue connecting (yes/no)? yes
+/bin/ssh-copy-id: INFO: attempting to log in with the new key(s), to filter out any that are already installed
+/bin/ssh-copy-id: INFO: 1 key(s) remain to be installed -- if you are prompted now it is to install the new keys
+oracle@rh7ttcn1's password: 
+
+Number of key(s) added: 1
+
+Now try logging into the machine, with:   "ssh 'rh7ttcn1'"
+and check to make sure that only the key(s) you wanted were added.
+</pre>
+<p>I have checked that I can connect to each remote node without password:</p>
+<pre>
+oracle@rh7ttcn1 ~]$ ssh rh7ttcn2 hostname
+rh7ttcn2.localdomain
+[oracle@rh7ttcn1 ~]$ 
+
+
+[oracle@rh7ttcn2 ~]$ ssh rh7ttcn1 hostname
+rh7ttcn1.localdomain
+[oracle@rh7ttcn2 ~]$ 
+
+</pre>
+<p>I have also enabled passwordless ssh on each node with <u>local</u> ssh connection (i.e. from rh7ttcn1 to rh7ttcn1 and from rh7ttcn2 to rh7ttcn2):</p>
+<pre>
+
+$ ssh-copy-id rh7ttcn1
+The authenticity of host 'rh7ttcn1 (192.168.56.141)' can't be established.
+ECDSA key fingerprint is f9:97:87:e5:7c:19:d5:3a:ee:b6:d2:79:79:b1:5a:aa.
+Are you sure you want to continue connecting (yes/no)? yes
+/bin/ssh-copy-id: INFO: attempting to log in with the new key(s), to filter out any that are already installed
+/bin/ssh-copy-id: INFO: 1 key(s) remain to be installed -- if you are prompted now it is to install the new keys
+oracle@rh7ttcn1's password: 
+
+Number of key(s) added: 1
+
+Now try logging into the machine, with:   "ssh 'rh7ttcn1'"
+and check to make sure that only the key(s) you wanted were added.
+
+$
+</pre>
+<p>and:</p>
+<pre>
+
+$ ssh-copy-id rh7ttcn2
+The authenticity of host 'rh7ttcn2 (192.168.56.142)' can't be established.
+ECDSA key fingerprint is f9:97:87:e5:7c:19:d5:3a:ee:b6:d2:79:79:b1:5a:aa.
+Are you sure you want to continue connecting (yes/no)? yes
+/bin/ssh-copy-id: INFO: attempting to log in with the new key(s), to filter out any that are already installed
+/bin/ssh-copy-id: INFO: 1 key(s) remain to be installed -- if you are prompted now it is to install the new keys
+oracle@rh7ttcn2's password: 
+
+Number of key(s) added: 1
+
+Now try logging into the machine, with:   "ssh 'rh7ttcn2'"
+and check to make sure that only the key(s) you wanted were added.
+
+
+$ 
+</pre>
+<p>I have checked that I connect locally on each node without password:</p>
+<pre>
+$ ssh rh7ttcn1 hostname
+rh7ttcn1.localdomain
+$ 
+</pre>
+<p>and:</p>
+<pre>
+$ ssh rh7ttcn2 hostname
+rh7ttcn2.localdomain
+$ 
+</pre>
+<h3> run CLUVFY</h3>
+<p>I have uploaded Grid Infrastructure media to first cluster node after creating /stage directory:</p>
+<pre>
+# mkdir /stage
+# chown oracle:dba /stage
+</pre>
+<p>I have run with oracle account:</p>
+<pre>
+$ unzip linuxx64_12201_grid_home.zip
+</pre>
+<p>I have run CLUVFY :</p>
+<pre>
+$ ./runcluvfy.sh stage -pre crsinst -n "rh7ttcn1,rh7ttcn2"
+
+ERROR: 
+PRVG-10467 : The default Oracle Inventory group could not be determined.
+
+Verifying Physical Memory ...PASSED
+Verifying Available Physical Memory ...PASSED
+Verifying Swap Size ...PASSED
+Verifying Free Space: rh7ttcn1:/usr,rh7ttcn1:/var,rh7ttcn1:/etc,rh7ttcn1:/sbin,rh7ttcn1:/tmp ...PASSED
+Verifying Free Space: rh7ttcn2:/usr,rh7ttcn2:/var,rh7ttcn2:/etc,rh7ttcn2:/sbin,rh7ttcn2:/tmp ...PASSED
+Verifying User Existence: oracle ...
+  Verifying Users With Same UID: 54321 ...PASSED
+Verifying User Existence: oracle ...PASSED
+Verifying Group Existence: asmadmin ...FAILED (PRVG-10461)
+Verifying Group Existence: asmdba ...FAILED (PRVG-10461)
+Verifying Group Membership: asmadmin ...FAILED (PRVG-10460)
+Verifying Group Membership: asmdba ...FAILED (PRVG-10460)
+Verifying Run Level ...PASSED
+Verifying Hard Limit: maximum open file descriptors ...PASSED
+Verifying Soft Limit: maximum open file descriptors ...PASSED
+Verifying Hard Limit: maximum user processes ...PASSED
+Verifying Soft Limit: maximum user processes ...PASSED
+Verifying Soft Limit: maximum stack size ...PASSED
+Verifying Architecture ...PASSED
+Verifying OS Kernel Version ...PASSED
+Verifying OS Kernel Parameter: semmsl ...PASSED
+Verifying OS Kernel Parameter: semmns ...PASSED
+Verifying OS Kernel Parameter: semopm ...PASSED
+Verifying OS Kernel Parameter: semmni ...PASSED
+Verifying OS Kernel Parameter: shmmax ...PASSED
+Verifying OS Kernel Parameter: shmmni ...PASSED
+Verifying OS Kernel Parameter: shmall ...PASSED
+Verifying OS Kernel Parameter: file-max ...PASSED
+Verifying OS Kernel Parameter: ip_local_port_range ...PASSED
+Verifying OS Kernel Parameter: rmem_default ...PASSED
+Verifying OS Kernel Parameter: rmem_max ...PASSED
+Verifying OS Kernel Parameter: wmem_default ...PASSED
+Verifying OS Kernel Parameter: wmem_max ...PASSED
+Verifying OS Kernel Parameter: aio-max-nr ...PASSED
+Verifying Package: binutils-2.23.52.0.1 ...PASSED
+Verifying Package: compat-libcap1-1.10 ...PASSED
+Verifying Package: libgcc-4.8.2 (x86_64) ...PASSED
+Verifying Package: libstdc++-4.8.2 (x86_64) ...PASSED
+Verifying Package: libstdc++-devel-4.8.2 (x86_64) ...PASSED
+Verifying Package: sysstat-10.1.5 ...PASSED
+Verifying Package: gcc-c++-4.8.2 ...FAILED (PRVF-7532)
+Verifying Package: ksh ...PASSED
+Verifying Package: make-3.82 ...PASSED
+Verifying Package: glibc-2.17 (x86_64) ...PASSED
+Verifying Package: glibc-devel-2.17 (x86_64) ...PASSED
+Verifying Package: libaio-0.3.109 (x86_64) ...PASSED
+Verifying Package: libaio-devel-0.3.109 (x86_64) ...PASSED
+Verifying Package: nfs-utils-1.2.3-15 ...PASSED
+Verifying Package: smartmontools-6.2-4 ...PASSED
+Verifying Package: net-tools-2.0-0.17 ...PASSED
+Verifying Port Availability for component "Oracle Notification Service (ONS)" ...PASSED
+Verifying Port Availability for component "Oracle Cluster Synchronization Services (CSSD)" ...PASSED
+Verifying Users With Same UID: 0 ...PASSED
+Verifying Current Group ID ...PASSED
+Verifying Root user consistency ...PASSED
+Verifying Package: cvuqdisk-1.0.10-1 ...FAILED (PRVG-11550)
+Verifying Node Connectivity ...
+  Verifying Hosts File ...PASSED
+  Verifying Check that maximum (MTU) size packet goes through subnet ...PASSED
+  Verifying subnet mask consistency for subnet "10.0.0.0" ...PASSED
+  Verifying subnet mask consistency for subnet "192.168.56.0" ...PASSED
+  Verifying subnet mask consistency for subnet "192.168.43.0" ...PASSED
+Verifying Node Connectivity ...FAILED (PRVG-1172, PRVG-11067, PRVG-11095)
+Verifying Multicast check ...PASSED
+Verifying Network Time Protocol (NTP) ...
+  Verifying '/etc/ntp.conf' ...PASSED
+  Verifying '/etc/chrony.conf' ...PASSED
+  Verifying '/var/run/ntpd.pid' ...PASSED
+  Verifying '/var/run/chronyd.pid' ...PASSED
+Verifying Network Time Protocol (NTP) ...PASSED
+Verifying Same core file name pattern ...PASSED
+Verifying User Mask ...PASSED
+Verifying User Not In Group "root": oracle ...PASSED
+Verifying Time zone consistency ...PASSED
+Verifying resolv.conf Integrity ...
+  Verifying (Linux) resolv.conf Integrity ...FAILED (PRVG-10048)
+Verifying resolv.conf Integrity ...FAILED (PRVG-10048)
+Verifying DNS/NIS name service ...PASSED
+Verifying Domain Sockets ...PASSED
+Verifying /boot mount ...PASSED
+Verifying Daemon "avahi-daemon" not configured and running ...PASSED
+Verifying Daemon "proxyt" not configured and running ...PASSED
+Verifying User Equivalence ...PASSED
+Verifying /dev/shm mounted as temporary file system ...FAILED (PRVE-0421)
+Verifying File system mount options for path /var ...PASSED
+Verifying zeroconf check ...PASSED
+Verifying ASM Filter Driver configuration ...PASSED
+
+Pre-check for cluster services setup was unsuccessful on all the nodes. 
+
+
+Failures were encountered during execution of CVU verification request "stage -pre crsinst".
+
+Verifying Group Existence: asmadmin ...FAILED
+rh7ttcn1: PRVG-10461 : Group "asmadmin" selected for privileges "OSASM" does
+          not exist on node "rh7ttcn1".
+
+rh7ttcn2: PRVG-10461 : Group "asmadmin" selected for privileges "OSASM" does
+          not exist on node "rh7ttcn2".
+
+Verifying Group Existence: asmdba ...FAILED
+rh7ttcn1: PRVG-10461 : Group "asmdba" selected for privileges "OSDBA" does not
+          exist on node "rh7ttcn1".
+
+rh7ttcn2: PRVG-10461 : Group "asmdba" selected for privileges "OSDBA" does not
+          exist on node "rh7ttcn2".
+
+Verifying Group Membership: asmadmin ...FAILED
+rh7ttcn1: PRVG-10460 : User "oracle" does not belong to group "asmadmin"
+          selected for privileges "OSASM" on node "rh7ttcn1".
+
+rh7ttcn2: PRVG-10460 : User "oracle" does not belong to group "asmadmin"
+          selected for privileges "OSASM" on node "rh7ttcn2".
+
+Verifying Group Membership: asmdba ...FAILED
+rh7ttcn1: PRVG-10460 : User "oracle" does not belong to group "asmdba" selected
+          for privileges "OSDBA" on node "rh7ttcn1".
+
+rh7ttcn2: PRVG-10460 : User "oracle" does not belong to group "asmdba" selected
+          for privileges "OSDBA" on node "rh7ttcn2".
+
+Verifying Package: gcc-c++-4.8.2 ...FAILED
+rh7ttcn1: PRVF-7532 : Package "gcc-c++" is missing on node "rh7ttcn1"
+
+rh7ttcn2: PRVF-7532 : Package "gcc-c++" is missing on node "rh7ttcn2"
+
+Verifying Package: cvuqdisk-1.0.10-1 ...FAILED
+rh7ttcn1: PRVG-11550 : Package "cvuqdisk" is missing on node "rh7ttcn1"
+
+rh7ttcn2: PRVG-11550 : Package "cvuqdisk" is missing on node "rh7ttcn2"
+
+Verifying Node Connectivity ...FAILED
+PRVG-1172 : The IP address "10.0.2.15" is on multiple interfaces "enp0s3" on
+nodes "rh7ttcn1,rh7ttcn2"
+
+rh7ttcn1: PRVG-11067 : TCP connectivity from node "rh7ttcn1": "10.0.2.15" to
+          node "rh7ttcn1": "10.0.2.15" failed.
+          PRVG-11095 : The TCP system call "connect" failed with error "111"
+          while executing exectask on node "rh7ttcn1"
+          Connection refused
+rh7ttcn1: PRVG-11067 : TCP connectivity from node "rh7ttcn1": "10.0.2.15" to
+          node "rh7ttcn2": "10.0.2.15" failed.
+          PRVG-11095 : The TCP system call "connect" failed with error "111"
+          while executing exectask on node "rh7ttcn1"
+          Connection refused
+
+Verifying resolv.conf Integrity ...FAILED
+rh7ttcn1: PRVG-10048 : Name "rh7ttcn1" was not resolved to an address of the
+          specified type by name servers o"192.168.1.254".
+rh7ttcn1: Check for integrity of file "/etc/resolv.conf" failed
+
+
+rh7ttcn2: PRVG-10048 : Name "rh7ttcn2" was not resolved to an address of the
+          specified type by name servers o"192.168.1.254".
+rh7ttcn2: Check for integrity of file "/etc/resolv.conf" failed
+
+
+  Verifying (Linux) resolv.conf Integrity ...FAILED
+  rh7ttcn1: PRVG-10048 : Name "rh7ttcn1" was not resolved to an address of the
+            specified type by name servers o"192.168.1.254".
+
+  rh7ttcn2: PRVG-10048 : Name "rh7ttcn2" was not resolved to an address of the
+            specified type by name servers o"192.168.1.254".
+
+Verifying /dev/shm mounted as temporary file system ...FAILED
+rh7ttcn1: PRVE-0421 : No entry exists in /etc/fstab for mounting /dev/shm
+
+rh7ttcn2: PRVE-0421 : No entry exists in /etc/fstab for mounting /dev/shm
+
+
+CVU operation performed:      stage -pre crsinst
+Date:                         Mar 18, 2017 6:23:08 PM
+CVU home:                     /stage/
+User:                         oracle
+</pre>
+<p>
+I have ignored all warnings. </p>
+<p>
+The 2 cluster node VM are now ready for Grid Infrastructure installation.</p>
