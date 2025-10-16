@@ -1,0 +1,36 @@
+<p>Today 14th of October 2015 Oracle Corp. has released  <a href="https://livesql.oracle.com">Oracle Live SQL</a>: this is a new online tool somewhat similar to Oracle Application Expresse (APEX) SQL Workshop feature. Some time ago I have used SQL Workshop on apex.oracle.com to check <a href="https://pierreforstmanndotcom.wordpress.com/2015/05/26/under-the-hood-of-apex-oracle-com-database/" /> what is under apex.oracle.com database hood</a>. </p>
+<p>I have just run the same script on livesql.oracle.com:</p>
+<pre>
+select * from sys.v_$version;
+select sys_context('USERENV','HOST') from dual;
+select sys_context('USERENV','OS_USER') from dual;
+select sys_context('USERENV','DB_NAME') from dual;
+select sys_context('USERENV','DB_UNIQUE_NAME') from dual;
+select sys_context('USERENV','INSTANCE_NAME') from dual;
+select sys_context('USERENV','CON_NAME') from dual;
+select sys_context('USERENV','CON_ID') from dual;
+select * from session_roles;
+select * from session_privs;
+select * from sys.v_$active_instances;
+select * from sys.all_directories;
+select count(*) from sys.v_$session_connect_info;
+select * from sys.v_$session_connect_info where rownum = 1;
+select opname, start_time, last_update_time, message from sys.v_$session_longops;
+select count(*) from all_users;
+select count(*) from sys.sysfiles;
+select round(sum(blocks*8192/(1024*1024*1024))) as gb from sys.sysfiles;
+select * from sys.sysfiles where rownum =1;
+</pre>
+<p>The script output is <a href="https://pierreforstmanndotcom.wordpress.com/livesql.getinfo.html">here</a>.<br />
+<br />
+Most statements fail with <code>ORA-01003: no statement parsed</code> which means that access to database views has been more restricted than in APEX.</p>
+<p>What is sure is that livesql.oracle.com database:</p>
+<li>
+is running Oracle 12c because CON_ID is different from 0
+</li>
+<li>
+is a container database because again CON_ID is different 0 (and note that CON_NAME is set to 'PDBPRD').
+</li>
+<p>
+It is likely (but I cannot be sure) that this also a RAC database because instance_name ALSPRD2 has a number added to DB_NAME and DB_UNIQUE_NAME (ALSPRD).</p>
+<p>That's all folks !</p>
