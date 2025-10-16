@@ -1,0 +1,175 @@
+<p>SQL Trace is an  <a href="http://docs.oracle.com/cd/A57673_01/DOC/server/doc/A48506/strace.htm">old database feature</a> and in my opinion one of the best tool to analyze performance problems (it does not replace Automatic Workload Repository (AWR) or Statspack but can give much more precise information at database session level even than Active Session History (ASH)).</p>
+<p>However in this article I don't what to show how you can use it to analyze performance issue but instead I want to show that it can also be used to debug database application code in some cases.</p>
+<p>Let's assume you have an application using an Oracle Database and some appplication executable reports something like "ERROR" but that's all: the application does not give any other information and the application error is not documented; there is also no way to enable some application tracing because application code is not <a href="http://tkyte.blogspot.fr/2005/06/instrumentation.html">instrumented</a>.<br />
+Let's also assume that this is third party application software and that the company providing related support is as clueless as you.<br />
+In this case (does this sound familiar to you ?), you can use SQL trace to check if this error is linked to some SQL statement.</p>
+<p>For this article I have used Oracle Entreprise Edition 12.1.0.2 on Oracle Linux 6 but this technique should also work for Oracle 11, 10 and even 9 and Unix or Windows.</p>
+<h3>Disclaimer</h3>
+<p>This article is using raw SQL trace data: raw SQL trace file format is not documented in official Oracle Database documentation and as a consequence it is not really supported to work directly on this data (usually you only generate SQL raw trace file with SQL trace enabling and <a href="http://docs.oracle.com/database/121/TGSQL/tgsql_trace.htm">you use TKPROF to generate the documented output</a>). Raw SQL trace format is only documented in some My Oracle Support (MOS) documents and on some non-Oracle sites like <a href="https://hoopercharles.wordpress.com/2009/12/01/10046-extended-sql-trace-interpretation/" />Charles Hooper blog</a> or on <a href="http://method-r.com/papers?download=72:sql-trace-data-(paper)">Method R site</a>.</p>
+<h3>STEP 1 enable SQL trace </h3>
+<p>Ideally you should be able to reproduce the problem on a non-production database and I recommend to:</p>
+<li> limit the number of database sessions used by the application in order to have a small number of trace files
+</li>
+<li> enable trace on new database sessions with a logon trigger.
+</li>
+<h4>!!! WARNING !!!</h4>
+<p>The usage of a logon trigger can have very bad side effects: if there are errors in the trigger new connections will fail and in the worst case you might not able to logon to the database instance any more! Do no try not use use a logon trigger on a production database unless you are very confident about your logon trigger. Use it at your own risk.</p>
+<p>For example, assuming that OPS$ORACLE account is having DBA role, you can use following SQL*Plus script to enable SQL trace on all new database sessions:</p>
+<pre>
+connect / as sysdba
+grant execute on dbms_monitor to ops$oracle;
+connect /
+select name from v$database;
+show user;
+--
+create trigger trace_trigger
+after logon on database
+begin
+ dbms_monitor.session_trace_enable(binds =&gt; true, waits =&gt; true);
+end;
+/
+show errors
+--
+</pre>
+<p>Note that the trigger code runs with the privilege of the trigger owner thanks to <a href="http://docs.oracle.com/database/121/DBSEG/dr_ir.htm#BABFJEGJ">definer's rights</a>: this is why you only need to grant execute privilege on DBMS_MONITOR to trigger owner and not to the user account used by the application that will run the trigger when logging on to database instance.</p>
+<p>If you know the Oracle user account used by application code, you can also try to enable SQL tracing only for this specific account:</p>
+<pre>
+connect / as sysdba
+grant execute on dbms_monitor to ops$oracle;
+connect /
+select name from v$database;
+show user;
+--
+create trigger trace_trigger
+after logon on database
+begin
+ if (user = 'APPLI')
+ then
+ dbms_monitor.session_trace_enable(binds =&gt; true, waits =&gt; true);
+ end if;
+end;
+/
+show errors
+--
+</pre>
+<p>I recommend to enable tracing on all new database session because identifying the right database session used by the application can be (very) difficult especially with application servers using database connection pools.<br />
+</p>
+<h3>STEP 2 Reproduce application error</h3>
+<p>Now you should reproduce the issue.</p>
+<h3>STEP 3 Disable SQL trace</h3>
+<p>As soon as the issue has been reproduced you should disable tracing with:</p>
+<pre>
+connect /
+drop trigger trace_trigger;
+</pre>
+<h3>STEP 4 Identify the right trace file</h3>
+<li>
+first identify database instance trace directory with:</p>
+<pre>
+
+OPS$ORACLE@DB12&gt; select value from v$diag_info where name = 'Default Trace File';
+
+VALUE
+--------------------------------------------------------------------------------
+/u01/app/oracle/diag/rdbms/db12/DB12/trace/DB12_ora_9198.trc
+
+OPS$ORACLE@DB12&gt;
+</pre>
+</li>
+<li>
+Go into the trace directory and list the trace files created during the test timeframe:</p>
+<pre>
+$ cd /u01/app/oracle/diag/rdbms/db12/DB12/trace/
+$ ls -rtl *.trc | tail -n 20
+-rw-r----- 1 oracle dba   50323 Aug 22 16:00 DB12_ora_8694.trc
+-rw-r----- 1 oracle dba   76342 Aug 22 16:00 DB12_j000_8678.trc
+-rw-r----- 1 oracle dba  182798 Aug 22 16:00 DB12_j001_8680.trc
+-rw-r----- 1 oracle dba   40338 Aug 22 16:00 DB12_ora_8734.trc
+-rw-r----- 1 oracle dba   49922 Aug 22 16:00 DB12_ora_8735.trc
+-rw-r----- 1 oracle dba   50307 Aug 22 16:00 DB12_ora_8737.trc
+-rw-r----- 1 oracle dba   39276 Aug 22 16:00 DB12_ora_8789.trc
+-rw-r----- 1 oracle dba   49927 Aug 22 16:00 DB12_ora_8790.trc
+-rw-r----- 1 oracle dba  633243 Aug 22 16:00 DB12_ora_8792.trc
+-rw-r----- 1 oracle dba   19857 Aug 22 16:00 DB12_ora_8799.trc
+-rw-r----- 1 oracle dba   24208 Aug 22 16:00 DB12_ora_8800.trc
+-rw-r----- 1 oracle dba  123930 Aug 22 16:00 DB12_ora_8801.trc
+-rw-r----- 1 oracle dba  296616 Aug 22 16:00 DB12_j000_8808.trc
+-rw-r----- 1 oracle dba   13863 Aug 22 16:01 DB12_ora_8861.trc
+-rw-r----- 1 oracle dba   43076 Aug 22 16:01 DB12_ora_8862.trc
+-rw-r----- 1 oracle dba  106896 Aug 22 16:05 DB12_j000_8924.trc
+-rw-r----- 1 oracle dba   39292 Aug 22 16:10 DB12_j000_9113.trc
+-rw-r----- 1 oracle dba    4044 Aug 22 16:11 DB12_mmon_2165.trc
+-rw-r----- 1 oracle dba   20876 Aug 22 16:12 DB12_ora_9175.trc
+-rw-r----- 1 oracle dba   37882 Aug 22 16:12 DB12_ora_9198.trc
+</pre>
+</li>
+<li> Search in the trace files the string "err=" or "ERROR #"</li>
+<pre>
+$ find . -newer DB12_ora_8694.trc -exec grep err= {} \; -print
+./DB12_ora_8862.trc
+ERROR #140067846071864:err=1031 tim=7096445569
+</pre>
+<p>Note that the number following "ERROR #" in a internal cursor number that you must use for next step.<br />
+The string "err=" is followed by the Oracle error number. In my case it is 1031: it means Oracle error ORA-01031.</p>
+<h3> STEP 5 Locate in the trace file the line "PARSING IN CURSOR  <i>internal cursor number </i>" </h3>
+<p>It is possible to find different matching lines. In this case you should find the one just before the line found above.<br />
+I have found:</p>
+<pre>
+PARSING IN CURSOR #140067846071864 len=23 dep=0 uid=143 oct=17 lid=143 tim=7096444559 hv=2726857479 ad='80ecc920' sqlid='2u3y9cqj8j2s7'
+grant alter user to adm
+END OF STMT
+PARSE #140067846071864:c=1000,e=898,p=0,cr=0,cu=0,mis=1,r=0,dep=0,og=1,plh=0,tim=7096444556
+CLOSE #140067845968192:c=0,e=8,dep=1,type=1,tim=7096444670
+</pre>
+<p>The raw trace files gives the SQL statement that has caused ORA-01031 error just before "END OF STMT":</p>
+<pre>
+grant alter user to adm
+</pre>
+<p>That's it.</p>
+<h3>What does TKPROF report ?</h3>
+<p>You can also run TKPROF on the trace file to check what is written for this SQL statement.<br />
+In my case I have:</p>
+<pre>
+********************************************************************************
+
+SQL ID: 2u3y9cqj8j2s7 Plan Hash: 0
+
+grant alter user to adm
+
+
+call     count       cpu    elapsed       disk      query    current        rows
+------- ------  -------- ---------- ---------- ---------- ----------  ----------
+Parse        1      0.00       0.00          0          0          0           0
+Execute      1      0.00       0.00          0          0          0           0
+Fetch        0      0.00       0.00          0          0          0           0
+------- ------  -------- ---------- ---------- ---------- ----------  ----------
+total        2      0.00       0.00          0          0          0           0
+
+Misses in library cache during parse: 1
+Optimizer mode: ALL_ROWS
+Parsing user id: 143
+
+Elapsed times include waiting on following events:
+  Event waited on                             Times   Max. Wait  Total Waited
+  ----------------------------------------   Waited  ----------  ------------
+  SQL*Net break/reset to client                   2        0.00          0.00
+  SQL*Net message to client                       1        0.00          0.00
+  SQL*Net message from client                     1        0.00          0.00
+********************************************************************************
+
+</pre>
+<p>You can see that TKPROF:</p>
+<li>
+reports the SQL statement that has triggered the error
+</li>
+<li>
+does not report any error code
+</li>
+<li>
+but reports some "SQL*Net break/reset to client" wait events which usually mean that an error has occured.
+</li>
+<p>Full raw SQL trace file is <a href="https://pierreforstmanndotcom.wordpress.com/db12_ora_8862-trc/" />here</a> and full TKPROF output is <a href="https://pierreforstmanndotcom.wordpress.com/8862-out">here</a></p>
+<h3>Summary</h3>
+<p>Using SQL trace and searching for "err=" or "ERROR #" can help to find database code triggering database error in "black box" software.<br />
+<br />
+However using logon trigger to enable SQL trace is really risky and you cannot be 100% sure that you will also find the Oracle error code number in the raw SQL trace file.</p>
